@@ -6,7 +6,7 @@ export interface ExecuteRequest {
 export interface ExecuteResponse {
   is_correct: boolean;
   execution_time_ms: number;
-  results: Array<Record<string, any>>;
+  results: Array<Record<string, unknown>>;
   columns: string[];
   error_message: string | null;
   row_count: number;

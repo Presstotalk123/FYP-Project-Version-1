@@ -1,44 +1,46 @@
-import React from 'react';
-import { Navigate } from 'react-router-dom';
-import { Spin } from 'antd';
-import { useAuth } from '../../contexts/AuthContext';
-import { UserRole } from '../../types/user.types';
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Center, Loader } from '@mantine/core';
+import { useAuth } from '@/contexts/AuthContext';
+import { UserRole } from '@/types/user.types';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: UserRole;
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
-  children,
-  requiredRole
-}) => {
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const { user, loading, isAuthenticated } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading) {
+      if (!isAuthenticated) {
+        router.replace('/login');
+      } else if (requiredRole && user?.role !== requiredRole) {
+        const redirectPath = user?.role === UserRole.STAFF ? '/admin' : '/student';
+        router.replace(redirectPath);
+      }
+    }
+  }, [loading, isAuthenticated, user, requiredRole, router]);
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh'
-      }}>
-        <Spin size="large" />
-      </div>
+      <Center style={{ height: 'calc(100vh - 60px)' }}>
+        <Loader size="lg" />
+      </Center>
     );
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return null;
   }
 
   if (requiredRole && user?.role !== requiredRole) {
-    // Redirect to appropriate dashboard based on role
-    const redirectPath = user?.role === UserRole.STAFF ? '/admin' : '/student';
-    return <Navigate to={redirectPath} replace />;
+    return null;
   }
 
   return <>{children}</>;
-};
-
-export default ProtectedRoute;
+}

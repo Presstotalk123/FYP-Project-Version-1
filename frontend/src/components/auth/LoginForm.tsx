@@ -1,106 +1,106 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Alert, Card, Typography } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import { UserRole } from '../../types/user.types';
+'use client';
 
-const { Title } = Typography;
+import { useState } from 'react';
+import {
+  TextInput,
+  PasswordInput,
+  Button,
+  Alert,
+  Card,
+  Title,
+  Text,
+  Stack,
+  Center,
+} from '@mantine/core';
+import { IconUser, IconLock, IconAlertCircle } from '@tabler/icons-react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
+import { UserRole } from '@/types/user.types';
 
-const LoginForm: React.FC = () => {
+export default function LoginForm() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { login, user } = useAuth();
-  const navigate = useNavigate();
+  const { login } = useAuth();
+  const router = useRouter();
 
-  const onFinish = async (values: { email: string; password: string }) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      await login(values);
-
-      // Redirect based on role
-      const redirectPath = user?.role === UserRole.STAFF ? '/admin' : '/student';
-      navigate(redirectPath);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
+      const loggedInUser = await login({ email, password });
+      const redirectPath =
+        loggedInUser.role === UserRole.STAFF ? '/admin' : '/student';
+      router.push(redirectPath);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setError(
+        axiosErr.response?.data?.detail ||
+          'Login failed. Please check your credentials.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: '100vh',
-      background: '#f0f2f5'
-    }}>
-      <Card style={{ width: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Title level={2}>SQL Learning Platform</Title>
-          <Title level={4} type="secondary">Login</Title>
-        </div>
+    <Center style={{ minHeight: 'calc(100vh - 60px)', background: '#f0f2f5' }}>
+      <Card shadow="sm" padding="xl" radius="md" w={400}>
+        <Stack gap="xs" mb="lg" style={{ textAlign: 'center' }}>
+          <Title order={2}>SQL Learning Platform</Title>
+          <Title order={4} c="dimmed">
+            Login
+          </Title>
+        </Stack>
 
         {error && (
           <Alert
-            message={error}
-            type="error"
-            closable
+            icon={<IconAlertCircle size={16} />}
+            color="red"
+            mb="md"
+            withCloseButton
             onClose={() => setError(null)}
-            style={{ marginBottom: 16 }}
-          />
+          >
+            {error}
+          </Alert>
         )}
 
-        <Form
-          name="login"
-          onFinish={onFinish}
-          autoComplete="off"
-          size="large"
-        >
-          <Form.Item
-            name="email"
-            rules={[
-              { required: true, message: 'Please input your email!' },
-              { type: 'email', message: 'Please enter a valid email!' }
-            ]}
-          >
-            <Input
-              prefix={<UserOutlined />}
+        <form onSubmit={handleSubmit}>
+          <Stack gap="md">
+            <TextInput
+              leftSection={<IconUser size={16} />}
               placeholder="Email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.currentTarget.value)}
             />
-          </Form.Item>
 
-          <Form.Item
-            name="password"
-            rules={[{ required: true, message: 'Please input your password!' }]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
+            <PasswordInput
+              leftSection={<IconLock size={16} />}
               placeholder="Password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.currentTarget.value)}
             />
-          </Form.Item>
 
-          <Form.Item>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-            >
+            <Button type="submit" loading={loading} fullWidth>
               Log in
             </Button>
-          </Form.Item>
+          </Stack>
+        </form>
 
-          <div style={{ textAlign: 'center' }}>
-            Don't have an account? <Link to="/register">Register now</Link>
-          </div>
-        </Form>
+        <Text size="sm" ta="center" mt="md">
+          Don&apos;t have an account?{' '}
+          <Text component={Link} href="/register" c="blue">
+            Register now
+          </Text>
+        </Text>
       </Card>
-    </div>
+    </Center>
   );
-};
-
-export default LoginForm;
+}

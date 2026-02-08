@@ -1,12 +1,14 @@
+'use client';
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, UserRole } from '../types/user.types';
-import { authService } from '../services/auth.service';
-import { LoginRequest, RegisterRequest } from '../types/api.types';
+import { User, UserRole } from '@/types/user.types';
+import { authService } from '@/services/auth.service';
+import { LoginRequest, RegisterRequest } from '@/types/api.types';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (credentials: LoginRequest) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<User>;
   register: (data: RegisterRequest) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
@@ -15,15 +17,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is authenticated on mount
   useEffect(() => {
     const initAuth = async () => {
       const token = authService.getToken();
@@ -31,8 +28,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
           const currentUser = await authService.getCurrentUser();
           setUser(currentUser);
-        } catch (error) {
-          // Token is invalid, clear it
+        } catch {
           authService.removeToken();
         }
       }
@@ -42,18 +38,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     initAuth();
   }, []);
 
-  const login = async (credentials: LoginRequest) => {
+  const login = async (credentials: LoginRequest): Promise<User> => {
     const response = await authService.login(credentials);
     authService.setToken(response.access_token);
-
-    // Fetch user info
     const currentUser = await authService.getCurrentUser();
     setUser(currentUser);
+    return currentUser;
   };
 
   const register = async (data: RegisterRequest) => {
     await authService.register(data);
-    // Auto-login after registration
     await login({ email: data.email, password: data.password });
   };
 
@@ -62,24 +56,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
   };
 
-  const value: AuthContextType = {
-    user,
-    loading,
-    login,
-    register,
-    logout,
-    isAuthenticated: !!user,
-    isStaff: user?.role === UserRole.STAFF,
-  };
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        register,
+        logout,
+        isAuthenticated: !!user,
+        isStaff: user?.role === UserRole.STAFF,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-// Custom hook to use auth context
-export const useAuth = (): AuthContextType => {
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-};
+}

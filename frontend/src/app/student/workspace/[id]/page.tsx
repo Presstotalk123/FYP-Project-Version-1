@@ -7,7 +7,7 @@ import { UserRole } from '@/types/user.types';
 
 export default function WorkspacePage() {
   const params = useParams();
-  const questionId = parseInt(params.id as string);
+  const questionId = parseInt((params?.id as string) || '0');
 
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>

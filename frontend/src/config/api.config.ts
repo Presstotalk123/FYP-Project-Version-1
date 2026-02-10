@@ -20,4 +20,7 @@ export const API_ENDPOINTS = {
     PROGRESS: '/attempts/progress',
     BY_QUESTION: (id: number) => `/attempts/question/${id}`,
   },
+  CHATBOT: {
+    SEND: '/chatbot/send',
+  },
 };

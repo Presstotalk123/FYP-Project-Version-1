@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Question databases path
     QUESTION_DB_PATH: str = "./question_databases/"
 
+    # AI Chatbot
+    DIFY_API_KEY: str
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 

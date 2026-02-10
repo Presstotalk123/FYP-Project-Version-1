@@ -14,22 +14,31 @@ import {
 } from '@mantine/core';
 import { IconCheck, IconX } from '@tabler/icons-react';
 import { ExecuteResponse, Attempt } from '@/types/attempt.types';
+import { QuestionDetail } from '@/types/question.types';
+import { ChatTab } from './ChatTab';
 
 interface ResultsPanelProps {
   result: ExecuteResponse | null;
   attempts: Attempt[];
   onRefreshHistory: () => void;
+  questionId: number;
+  question: QuestionDetail;
+  currentQuery: string;
 }
 
 export function ResultsPanel({
   result,
   attempts,
+  questionId,
+  question,
+  currentQuery,
 }: ResultsPanelProps) {
   return (
     <Tabs defaultValue="results" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Tabs.List>
         <Tabs.Tab value="results">Results</Tabs.Tab>
         <Tabs.Tab value="history">History</Tabs.Tab>
+        <Tabs.Tab value="chat">AI Tutor</Tabs.Tab>
       </Tabs.List>
 
       <Tabs.Panel value="results" style={{ flex: 1, overflow: 'auto' }} p="md">
@@ -126,6 +135,15 @@ export function ResultsPanel({
             ))}
           </Stack>
         )}
+      </Tabs.Panel>
+
+      <Tabs.Panel value="chat" style={{ flex: 1, overflow: 'auto' }}>
+        <ChatTab
+          questionId={questionId}
+          question={question}
+          currentQuery={currentQuery}
+          result={result}
+        />
       </Tabs.Panel>
     </Tabs>
   );

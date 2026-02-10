@@ -13,7 +13,7 @@ import { questionService } from '@/services/question.service';
 
 export default function EditQuestionPage() {
   const params = useParams();
-  const questionId = parseInt(params.id as string);
+  const questionId = parseInt((params?.id as string) || '0');
 
   const [question, setQuestion] = useState<QuestionDetail | null>(null);
   const [loading, setLoading] = useState(true);

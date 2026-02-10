@@ -328,6 +328,9 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
               result={result}
               attempts={attempts}
               onRefreshHistory={handleRefreshHistory}
+              questionId={questionId}
+              question={question}
+              currentQuery={query}
             />
           </Box>
         </Box>

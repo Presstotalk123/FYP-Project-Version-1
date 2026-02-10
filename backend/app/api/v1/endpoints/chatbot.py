@@ -24,7 +24,7 @@ class ChatbotResponse(BaseModel):
     timestamp: str
 
 
-DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
+DIFY_API_URL = "https://api.dify.ai/v1/workflows/run"
 
 
 @router.post("/send", response_model=ChatbotResponse)
@@ -61,7 +61,7 @@ async def send_chatbot_message(
         "inputs": {
             "question_text": question.description,
             "database_schema": question.schema_sql,
-            "student_query": student_query,
+            "student_current_query": student_query,
             "user_message": request.user_message
         },
         "user": str(current_user.id),
@@ -83,7 +83,14 @@ async def send_chatbot_message(
             response.raise_for_status()
 
         dify_response = response.json()
-        answer = dify_response.get("answer", "")
+
+        # Extract answer from workflow response
+        # Workflow response format: {"data": {"outputs": {"text": "..."}}}
+        if "data" in dify_response and "outputs" in dify_response["data"]:
+            answer = dify_response["data"]["outputs"].get("text", "")
+        else:
+            # Fallback to direct answer field (for compatibility)
+            answer = dify_response.get("answer", "")
 
         return ChatbotResponse(
             answer=answer,

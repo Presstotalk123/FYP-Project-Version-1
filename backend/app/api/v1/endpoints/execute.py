@@ -106,6 +106,21 @@ def execute_query(
         )
         db.add(progress)
 
+    # Clean up old attempts - keep only 4 most recent
+    old_attempts = (
+        db.query(Attempt)
+        .filter(
+            Attempt.user_id == current_user.id,
+            Attempt.question_id == execute_request.question_id
+        )
+        .order_by(Attempt.submitted_at.desc())
+        .offset(4)  # Skip the 4 most recent
+        .all()
+    )
+
+    for old_attempt in old_attempts:
+        db.delete(old_attempt)
+
     db.commit()
 
     # Return the response

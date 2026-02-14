@@ -22,6 +22,19 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # Dify ER rubric endpoint
+    DIFY_ER_RUBRIC_URL: Optional[str] = None
+    DIFY_ER_RUBRIC_API_KEY: Optional[str] = None
+    DIFY_ER_RUBRIC_TIMEOUT_SECONDS: int = 60
+
+    # ER model answer storage
+    ER_STORAGE_PROVIDER: str = "local"
+    ER_DIAGRAM_UPLOAD_PATH: str = "./er_diagram_uploads/"
+    ER_AZURE_CONTAINER: Optional[str] = None
+    ER_AZURE_CONNECTION_STRING: Optional[str] = None
+    ER_AZURE_ACCOUNT_URL: Optional[str] = None
+    ER_AZURE_ACCOUNT_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True

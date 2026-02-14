@@ -2,10 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram
 # Import models to register them with SQLAlchemy
 from app.models.user import User
 from app.models.question import Question
+from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.attempt import Attempt
 from app.models.progress import UserProgress
 
@@ -36,6 +37,7 @@ app.include_router(questions.router, prefix="/api/v1")
 app.include_router(execute.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(chatbot.router, prefix="/api/v1")
+app.include_router(er_diagram.router, prefix="/api/v1")
 
 
 @app.get("/")

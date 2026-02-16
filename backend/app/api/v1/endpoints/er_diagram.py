@@ -18,6 +18,8 @@ from app.schemas.er_diagram import (
     ERDiagramQuestionListItem,
     GenerateRubricMode,
     GenerateRubricResponse,
+    ERSubmissionMode,
+    ERSubmissionResponse,
 )
 from app.utils.er_storage import get_er_storage_provider
 
@@ -37,15 +39,15 @@ def _is_placeholder_value(value: str, field_name: str) -> bool:
     return normalized in placeholder_patterns
 
 
-def _build_dify_headers(content_type: Optional[str] = None) -> dict[str, str]:
+def _build_dify_headers(content_type: Optional[str] = None, api_key: Optional[str] = None) -> dict[str, str]:
     headers = {
         "Accept": "application/json",
         "User-Agent": "DatabaseAssist/1.0",
     }
     if content_type:
         headers["Content-Type"] = content_type
-    if settings.DIFY_ER_RUBRIC_API_KEY:
-        headers["Authorization"] = f"Bearer {settings.DIFY_ER_RUBRIC_API_KEY}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
 
@@ -92,17 +94,22 @@ def _derive_files_upload_url(workflow_run_url: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment))
 
 
-def _upload_model_answer_to_dify(model_answer: UploadFile) -> str:
-    filename = model_answer.filename or "model_answer"
-    content_type = model_answer.content_type or "application/octet-stream"
-    user_ref = "databaseassist-er-rubric"
-    file_bytes = model_answer.file.read()
-    model_answer.file.seek(0)
-    headers = _build_dify_headers()
-    upload_url = _derive_files_upload_url(settings.DIFY_ER_RUBRIC_URL or "")
+def _upload_file_to_dify(
+    upload_file: UploadFile,
+    workflow_run_url: str,
+    timeout_seconds: int,
+    api_key: Optional[str],
+    user_ref: str,
+) -> str:
+    filename = upload_file.filename or "upload"
+    content_type = upload_file.content_type or "application/octet-stream"
+    file_bytes = upload_file.file.read()
+    upload_file.file.seek(0)
+    headers = _build_dify_headers(api_key=api_key)
+    upload_url = _derive_files_upload_url(workflow_run_url)
 
     try:
-        with httpx.Client(timeout=float(settings.DIFY_ER_RUBRIC_TIMEOUT_SECONDS)) as client:
+        with httpx.Client(timeout=float(timeout_seconds)) as client:
             response = client.post(
                 upload_url,
                 data={"user": user_ref},
@@ -112,7 +119,7 @@ def _upload_model_answer_to_dify(model_answer: UploadFile) -> str:
     except httpx.RequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to reach Dify file upload endpoint: {str(exc)}",
+                detail=f"Unable to reach Dify file upload endpoint: {str(exc)}",
         )
     except Exception as exc:
         raise HTTPException(
@@ -138,6 +145,16 @@ def _upload_model_answer_to_dify(model_answer: UploadFile) -> str:
             detail="Dify file upload response missing id",
         )
     return upload_id
+
+
+def _upload_model_answer_to_dify(model_answer: UploadFile) -> str:
+    return _upload_file_to_dify(
+        upload_file=model_answer,
+        workflow_run_url=settings.DIFY_ER_RUBRIC_URL or "",
+        timeout_seconds=settings.DIFY_ER_RUBRIC_TIMEOUT_SECONDS,
+        api_key=settings.DIFY_ER_RUBRIC_API_KEY,
+        user_ref="databaseassist-er-rubric",
+    )
 
 
 def _call_dify_generate_rubric(
@@ -204,7 +221,7 @@ def _call_dify_generate_rubric(
         "files": files,
     }
 
-    headers = _build_dify_headers("application/json")
+    headers = _build_dify_headers("application/json", settings.DIFY_ER_RUBRIC_API_KEY)
 
     try:
         with httpx.Client(timeout=float(settings.DIFY_ER_RUBRIC_TIMEOUT_SECONDS)) as client:
@@ -298,6 +315,151 @@ def _call_dify_generate_rubric(
         "rubric_json": rubric_json,
         "rubric_md": rubric_md,
         "diff_summary": diff_summary,
+    }
+
+
+def _extract_first_text(value: Any) -> Optional[str]:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("text", "answer", "student_message", "response", "message"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for nested in value.values():
+            result = _extract_first_text(nested)
+            if result:
+                return result
+    if isinstance(value, list):
+        for nested in value:
+            result = _extract_first_text(nested)
+            if result:
+                return result
+    return None
+
+
+def _extract_structured_output(value: Any) -> Optional[dict[str, Any]]:
+    if isinstance(value, dict):
+        candidate = value.get("structured_output")
+        if isinstance(candidate, dict):
+            return candidate
+        for nested in value.values():
+            result = _extract_structured_output(nested)
+            if result is not None:
+                return result
+    if isinstance(value, list):
+        for nested in value:
+            result = _extract_structured_output(nested)
+            if result is not None:
+                return result
+    return None
+
+
+def _call_dify_er_submission(
+    question: ERDiagramQuestion,
+    mode: ERSubmissionMode,
+    student_query: Optional[str],
+    submission_xml_text: Optional[str],
+    erd_img: Optional[UploadFile],
+) -> dict[str, Any]:
+    if not settings.DIFY_ER_SUBMISSION_URL:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DIFY_ER_SUBMISSION_URL is not configured",
+        )
+
+    files: list[dict[str, str]] = []
+    if erd_img:
+        upload_file_id = _upload_file_to_dify(
+            upload_file=erd_img,
+            workflow_run_url=settings.DIFY_ER_SUBMISSION_URL,
+            timeout_seconds=settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS,
+            api_key=settings.DIFY_ER_SUBMISSION_API_KEY,
+            user_ref="databaseassist-er-submission",
+        )
+        files.append(
+            {
+                "type": "image",
+                "transfer_method": "local_file",
+                "upload_file_id": upload_file_id,
+            }
+        )
+
+    rubric = _parse_json_field(question.rubric_json, "rubric_json")
+    if not isinstance(rubric, dict):
+        rubric = {}
+    rubric_text = json.dumps(rubric, ensure_ascii=False)
+
+    chat_query = ((student_query or "").strip() if mode == "Query" else "")
+    if not chat_query:
+        chat_query = "Please evaluate this ER diagram submission."
+
+    workflow_payload = {
+        "inputs": {
+            "Problem_Statement": question.problem_statement,
+            "Problem_Difficulty": question.difficulty_label,
+            "Rubric": rubric_text,
+            "ERD_Img": "",
+            "Submission_Xml_Text": (submission_xml_text or "").strip(),
+            "Student_Query": (student_query or "").strip(),
+            "Mode": mode,
+        },
+        "query": chat_query,
+        "response_mode": "blocking",
+        "user": f"databaseassist-er-submission-{question.id}",
+        "files": files,
+    }
+
+    headers = _build_dify_headers("application/json", settings.DIFY_ER_SUBMISSION_API_KEY)
+
+    try:
+        with httpx.Client(timeout=float(settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS)) as client:
+            response = client.post(
+                settings.DIFY_ER_SUBMISSION_URL,
+                json=workflow_payload,
+                headers=headers,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unable to reach Dify submission endpoint: {str(exc)}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected Dify submission integration error: {str(exc)}",
+        )
+
+    if response.is_error:
+        raise _format_dify_http_error("submission request", response.status_code, response.text)
+
+    try:
+        payload = response.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Dify submission response is not valid JSON",
+        )
+
+    outputs = payload
+    if isinstance(payload.get("data"), dict):
+        data_section = payload["data"]
+        status_value = data_section.get("status")
+        error_value = data_section.get("error")
+        if status_value and status_value != "succeeded":
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Dify submission workflow failed with status '{status_value}': {error_value}",
+            )
+        if isinstance(data_section.get("outputs"), dict):
+            outputs = data_section["outputs"]
+
+    text = _extract_first_text(outputs) or "No response text returned from submission workflow."
+    structured_output = _extract_structured_output(outputs)
+    return {
+        "mode": mode,
+        "text": text,
+        "structured_output": structured_output,
     }
 
 
@@ -546,6 +708,62 @@ def get_er_question(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
     return _to_response(question)
+
+
+@router.post("/submission", response_model=ERSubmissionResponse)
+def submit_er_diagram(
+    question_id: int = Form(...),
+    mode: ERSubmissionMode = Form(...),
+    student_query: Optional[str] = Form(None),
+    submission_xml_text: Optional[str] = Form(None),
+    erd_img: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    del current_user
+
+    question = (
+        db.query(ERDiagramQuestion)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if not question:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    query_text = student_query.strip() if isinstance(student_query, str) else ""
+    xml_text = submission_xml_text.strip() if isinstance(submission_xml_text, str) else ""
+
+    if mode == "Query":
+        if not query_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="student_query is required when mode is Query",
+            )
+    else:
+        if not xml_text and not erd_img:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide either submission_xml_text or erd_img when mode is Submit",
+            )
+        if xml_text and erd_img:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide only one submission input: submission_xml_text or erd_img",
+            )
+        if erd_img and (not erd_img.content_type or not erd_img.content_type.startswith("image/")):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="erd_img must be an image file",
+            )
+
+    payload = _call_dify_er_submission(
+        question=question,
+        mode=mode,
+        student_query=query_text or None,
+        submission_xml_text=xml_text or None,
+        erd_img=erd_img,
+    )
+    return ERSubmissionResponse(**payload)
 
 
 @router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)

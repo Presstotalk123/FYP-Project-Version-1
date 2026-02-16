@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     DIFY_ER_RUBRIC_URL: Optional[str] = None
     DIFY_ER_RUBRIC_API_KEY: Optional[str] = None
     DIFY_ER_RUBRIC_TIMEOUT_SECONDS: int = 60
+    DIFY_ER_SUBMISSION_URL: Optional[str] = None
+    DIFY_ER_SUBMISSION_API_KEY: Optional[str] = None
+    DIFY_ER_SUBMISSION_TIMEOUT_SECONDS: int = 60
 
     # ER model answer storage
     ER_STORAGE_PROVIDER: str = "local"

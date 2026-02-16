@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 GenerateRubricMode = Literal["create", "patch"]
+ERSubmissionMode = Literal["Query", "Submit"]
 DifficultyLabel = Literal["Easy", "Medium", "Hard"]
 ERNotation = Literal["Chen"]
 
@@ -19,6 +20,12 @@ class GenerateRubricResponse(BaseModel):
     rubric_json: dict[str, Any] = Field(default_factory=dict)
     rubric_md: str
     diff_summary: list[Any] = Field(default_factory=list)
+
+
+class ERSubmissionResponse(BaseModel):
+    mode: ERSubmissionMode
+    text: str
+    structured_output: dict[str, Any] | None = None
 
 
 class ERDiagramQuestionBase(BaseModel):

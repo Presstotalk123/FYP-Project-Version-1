@@ -1,10 +1,13 @@
 import json
+import logging
 import re
+import time
 from typing import Any, Optional
 from urllib.parse import urlparse, urlunparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -19,11 +22,11 @@ from app.schemas.er_diagram import (
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
-    ERSubmissionResponse,
 )
 from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
+logger = logging.getLogger(__name__)
 
 
 def _is_placeholder_value(value: str, field_name: str) -> bool:
@@ -89,9 +92,37 @@ def _derive_files_upload_url(workflow_run_url: str) -> str:
     path = parsed.path.rstrip("/")
     if path.endswith("/workflows/run"):
         path = path[: -len("/workflows/run")] + "/files/upload"
+    elif path.endswith("/chat-messages"):
+        path = path[: -len("/chat-messages")] + "/files/upload"
     else:
         path = f"{path}/files/upload"
     return urlunparse((parsed.scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment))
+
+
+def _sse_event(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _append_stream_text(existing: str, candidate: Optional[str]) -> tuple[str, Optional[str]]:
+    if not candidate:
+        return existing, None
+
+    if not existing:
+        return candidate, candidate
+    if candidate == existing or existing.endswith(candidate):
+        return existing, None
+    if candidate.startswith(existing):
+        chunk = candidate[len(existing) :]
+        return candidate, chunk or None
+    return existing + candidate, candidate
+
+
+def _extract_stream_text_chunk(payload: dict[str, Any]) -> Optional[str]:
+    for key in ("answer", "delta", "text", "message"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _upload_file_to_dify(
@@ -361,7 +392,7 @@ def _call_dify_er_submission(
     student_query: Optional[str],
     submission_xml_text: Optional[str],
     erd_img: Optional[UploadFile],
-) -> dict[str, Any]:
+) -> Any:
     if not settings.DIFY_ER_SUBMISSION_URL:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -369,6 +400,7 @@ def _call_dify_er_submission(
         )
 
     files: list[dict[str, str]] = []
+    erd_img_input: Any = ""
     if erd_img:
         upload_file_id = _upload_file_to_dify(
             upload_file=erd_img,
@@ -377,13 +409,13 @@ def _call_dify_er_submission(
             api_key=settings.DIFY_ER_SUBMISSION_API_KEY,
             user_ref="databaseassist-er-submission",
         )
-        files.append(
-            {
-                "type": "image",
-                "transfer_method": "local_file",
-                "upload_file_id": upload_file_id,
-            }
-        )
+        file_ref = {
+            "type": "image",
+            "transfer_method": "local_file",
+            "upload_file_id": upload_file_id,
+        }
+        erd_img_input = file_ref
+        files.append(file_ref)
 
     rubric = _parse_json_field(question.rubric_json, "rubric_json")
     if not isinstance(rubric, dict):
@@ -399,68 +431,169 @@ def _call_dify_er_submission(
             "Problem_Statement": question.problem_statement,
             "Problem_Difficulty": question.difficulty_label,
             "Rubric": rubric_text,
-            "ERD_Img": "",
+            "ERD_Img": erd_img_input,
             "Submission_Xml_Text": (submission_xml_text or "").strip(),
             "Student_Query": (student_query or "").strip(),
             "Mode": mode,
         },
         "query": chat_query,
-        "response_mode": "blocking",
+        "response_mode": "streaming",
         "user": f"databaseassist-er-submission-{question.id}",
         "files": files,
     }
 
     headers = _build_dify_headers("application/json", settings.DIFY_ER_SUBMISSION_API_KEY)
+    headers["Accept"] = "text/event-stream"
 
-    try:
-        with httpx.Client(timeout=float(settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS)) as client:
-            response = client.post(
-                settings.DIFY_ER_SUBMISSION_URL,
-                json=workflow_payload,
-                headers=headers,
+    def stream_generator():
+        start_time = time.perf_counter()
+        logger.info("submission_stream_started question_id=%s mode=%s", question.id, mode)
+        yield _sse_event(
+            "start",
+            {
+                "mode": mode,
+                "question_id": question.id,
+            },
+        )
+
+        accumulated_text = ""
+        structured_output: Optional[dict[str, Any]] = None
+        parse_failures = 0
+        fallback_text: Optional[str] = None
+
+        try:
+            with httpx.Client(timeout=float(settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS)) as client:
+                with client.stream(
+                    "POST",
+                    settings.DIFY_ER_SUBMISSION_URL,
+                    json=workflow_payload,
+                    headers=headers,
+                ) as response:
+                    if response.is_error:
+                        raw = response.read().decode("utf-8", errors="ignore")
+                        raise _format_dify_http_error("submission request", response.status_code, raw)
+
+                    content_type = (response.headers.get("content-type") or "").lower()
+                    if "text/event-stream" not in content_type:
+                        raw = response.read().decode("utf-8", errors="ignore")
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail=(
+                                "Dify submission stream protocol error. "
+                                f"Expected text/event-stream, got '{content_type or 'unknown'}'. "
+                                f"Response: {raw[:500]}"
+                            ),
+                        )
+
+                    for line in response.iter_lines():
+                        if line is None:
+                            continue
+                        if isinstance(line, bytes):
+                            line = line.decode("utf-8", errors="ignore")
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith(":") or not stripped.startswith("data:"):
+                            continue
+
+                        data_text = stripped[5:].strip()
+                        if not data_text or data_text == "[DONE]":
+                            continue
+
+                        try:
+                            payload = json.loads(data_text)
+                        except Exception:
+                            parse_failures += 1
+                            if parse_failures >= 5:
+                                raise HTTPException(
+                                    status_code=status.HTTP_502_BAD_GATEWAY,
+                                    detail="Dify submission stream returned repeated invalid JSON frames",
+                                )
+                            continue
+
+                        parse_failures = 0
+                        if not isinstance(payload, dict):
+                            continue
+
+                        event_name = str(payload.get("event") or "").lower()
+                        if event_name == "error":
+                            message = _extract_first_text(payload) or payload.get("message") or "Unknown stream error"
+                            raise HTTPException(
+                                status_code=status.HTTP_502_BAD_GATEWAY,
+                                detail=f"Dify submission stream failed: {message}",
+                            )
+
+                        fallback_text = _extract_first_text(payload) or fallback_text
+                        next_text, chunk = _append_stream_text(accumulated_text, _extract_stream_text_chunk(payload))
+                        if chunk:
+                            accumulated_text = next_text
+                            yield _sse_event(
+                                "token",
+                                {
+                                    "chunk": chunk,
+                                    "text": accumulated_text,
+                                },
+                            )
+
+                        maybe_structured = _extract_structured_output(payload)
+                        if maybe_structured is not None:
+                            structured_output = maybe_structured
+                            yield _sse_event(
+                                "structured_output",
+                                {
+                                    "structured_output": structured_output,
+                                },
+                            )
+
+                        if event_name in {"message_end", "workflow_finished", "agent_message_end", "done"}:
+                            break
+
+            final_text = accumulated_text or fallback_text or "No response text returned from submission workflow."
+            done_payload = {
+                "mode": mode,
+                "text": final_text,
+                "structured_output": structured_output,
+            }
+            yield _sse_event("done", done_payload)
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.info(
+                "submission_stream_completed question_id=%s mode=%s duration_ms=%s text_len=%s",
+                question.id,
+                mode,
+                duration_ms,
+                len(final_text),
             )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to reach Dify submission endpoint: {str(exc)}",
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unexpected Dify submission integration error: {str(exc)}",
-        )
-
-    if response.is_error:
-        raise _format_dify_http_error("submission request", response.status_code, response.text)
-
-    try:
-        payload = response.json()
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify submission response is not valid JSON",
-        )
-
-    outputs = payload
-    if isinstance(payload.get("data"), dict):
-        data_section = payload["data"]
-        status_value = data_section.get("status")
-        error_value = data_section.get("error")
-        if status_value and status_value != "succeeded":
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Dify submission workflow failed with status '{status_value}': {error_value}",
+        except HTTPException as exc:
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(
+                "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s",
+                question.id,
+                mode,
+                duration_ms,
+                exc.detail,
             )
-        if isinstance(data_section.get("outputs"), dict):
-            outputs = data_section["outputs"]
+            yield _sse_event("error", {"detail": str(exc.detail)})
+        except httpx.RequestError as exc:
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            message = f"Unable to reach Dify submission endpoint: {str(exc)}"
+            logger.warning(
+                "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s",
+                question.id,
+                mode,
+                duration_ms,
+                message,
+            )
+            yield _sse_event("error", {"detail": message})
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            message = f"Unexpected Dify submission integration error: {str(exc)}"
+            logger.exception(
+                "submission_stream_failed question_id=%s mode=%s duration_ms=%s",
+                question.id,
+                mode,
+                duration_ms,
+            )
+            yield _sse_event("error", {"detail": message})
 
-    text = _extract_first_text(outputs) or "No response text returned from submission workflow."
-    structured_output = _extract_structured_output(outputs)
-    return {
-        "mode": mode,
-        "text": text,
-        "structured_output": structured_output,
-    }
+    return stream_generator()
 
 
 def _parse_json_field(value: str, field_name: str) -> Any:
@@ -710,7 +843,7 @@ def get_er_question(
     return _to_response(question)
 
 
-@router.post("/submission", response_model=ERSubmissionResponse)
+@router.post("/submission")
 def submit_er_diagram(
     question_id: int = Form(...),
     mode: ERSubmissionMode = Form(...),
@@ -756,14 +889,21 @@ def submit_er_diagram(
                 detail="erd_img must be an image file",
             )
 
-    payload = _call_dify_er_submission(
+    stream = _call_dify_er_submission(
         question=question,
         mode=mode,
         student_query=query_text or None,
         submission_xml_text=xml_text or None,
         erd_img=erd_img,
     )
-    return ERSubmissionResponse(**payload)
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)

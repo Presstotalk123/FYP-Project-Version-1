@@ -15,11 +15,17 @@ class DifficultyInfo(BaseModel):
     rationale: str = Field(..., min_length=1)
 
 
+class RubricDiffItem(BaseModel):
+    section: str | None = None
+    change: str | None = None
+    details: dict[str, Any] | None = None
+
+
 class GenerateRubricResponse(BaseModel):
     difficulty: DifficultyInfo
     rubric_json: dict[str, Any] = Field(default_factory=dict)
     rubric_md: str
-    diff_summary: list[Any] = Field(default_factory=list)
+    diff_summary: list[RubricDiffItem | str | dict[str, Any]] = Field(default_factory=list)
 
 
 class ERSubmissionResponse(BaseModel):
@@ -59,7 +65,7 @@ class ERDiagramQuestionResponse(ERDiagramQuestionBase):
 class ERDiagramQuestionListItem(BaseModel):
     id: int
     title: str
-    problem_statement: str
+    problem_statement: str = Field(..., max_length=200)
     difficulty_label: DifficultyLabel
     created_at: datetime
 

@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+from collections import deque
 from typing import Any, Optional
 from urllib.parse import urlparse, urlunparse
 
@@ -27,19 +28,14 @@ from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
+MAX_ER_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_ER_XML_CHARS = 500_000
 
 
-def _is_placeholder_value(value: str, field_name: str) -> bool:
-    normalized = value.strip().lower()
-    target = field_name.strip().lower()
-    placeholder_patterns = {
-        target,
-        f"{{{{{target}}}}}",
-        f"{{{{ {target} }}}}",
-        f"<{target}>",
-        f"[{target}]",
-    }
-    return normalized in placeholder_patterns
+def _looks_like_template_placeholder(value: str) -> bool:
+    normalized = value.strip()
+    # Reject unresolved placeholders only when the whole field is a token.
+    return bool(re.fullmatch(r"\{\{\s*[\w.-]+\s*\}\}|\[[\w.-]+\]|<[\w.-]+>", normalized))
 
 
 def _build_dify_headers(content_type: Optional[str] = None, api_key: Optional[str] = None) -> dict[str, str]:
@@ -99,6 +95,71 @@ def _derive_files_upload_url(workflow_run_url: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment))
 
 
+def _post_dify_json(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+    api_key: Optional[str],
+    stage: str,
+) -> dict[str, Any]:
+    headers = _build_dify_headers("application/json", api_key)
+    try:
+        with httpx.Client(timeout=float(timeout_seconds)) as client:
+            response = client.post(url, json=payload, headers=headers)
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unable to reach Dify endpoint: {str(exc)}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected Dify integration error: {str(exc)}",
+        )
+
+    if response.is_error:
+        raise _format_dify_http_error(stage, response.status_code, response.text)
+
+    try:
+        payload_json = response.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Dify response is not valid JSON",
+        )
+
+    if not isinstance(payload_json, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Dify response must be a JSON object",
+        )
+    return payload_json
+
+
+def _extract_dify_workflow_outputs(payload: dict[str, Any]) -> dict[str, Any]:
+    outputs = payload
+    data_section = payload.get("data")
+    if isinstance(data_section, dict):
+        status_value = data_section.get("status")
+        error_value = data_section.get("error")
+        if status_value and status_value != "succeeded":
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Dify workflow failed with status '{status_value}': {error_value}",
+            )
+        nested_outputs = data_section.get("outputs")
+        if isinstance(nested_outputs, dict):
+            outputs = nested_outputs
+
+    if not isinstance(outputs, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Dify workflow outputs must be a JSON object",
+        )
+    return outputs
+
+
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -136,6 +197,11 @@ def _upload_file_to_dify(
     content_type = upload_file.content_type or "application/octet-stream"
     file_bytes = upload_file.file.read()
     upload_file.file.seek(0)
+    if len(file_bytes) > MAX_ER_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"{filename} exceeds {MAX_ER_IMAGE_BYTES // (1024 * 1024)}MB upload limit",
+        )
     headers = _build_dify_headers(api_key=api_key)
     upload_url = _derive_files_upload_url(workflow_run_url)
 
@@ -252,49 +318,15 @@ def _call_dify_generate_rubric(
         "files": files,
     }
 
-    headers = _build_dify_headers("application/json", settings.DIFY_ER_RUBRIC_API_KEY)
-
-    try:
-        with httpx.Client(timeout=float(settings.DIFY_ER_RUBRIC_TIMEOUT_SECONDS)) as client:
-            response = client.post(
-                settings.DIFY_ER_RUBRIC_URL,
-                json=workflow_payload,
-                headers=headers,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to reach Dify endpoint: {str(exc)}",
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unexpected Dify integration error: {str(exc)}",
-        )
-
-    if response.is_error:
-        raise _format_dify_http_error("request", response.status_code, response.text)
-
-    try:
-        payload = response.json()
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify response is not valid JSON",
-        )
-
-    outputs = payload
-    if isinstance(payload.get("data"), dict):
-        data_section = payload["data"]
-        status_value = data_section.get("status")
-        error_value = data_section.get("error")
-        if status_value and status_value != "succeeded":
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Dify workflow failed with status '{status_value}': {error_value}",
-            )
-        if isinstance(data_section.get("outputs"), dict):
-            outputs = data_section["outputs"]
+    # Some existing Dify workflows still read legacy key names in Pascal/snake variants.
+    payload = _post_dify_json(
+        url=settings.DIFY_ER_RUBRIC_URL,
+        payload=workflow_payload,
+        timeout_seconds=settings.DIFY_ER_RUBRIC_TIMEOUT_SECONDS,
+        api_key=settings.DIFY_ER_RUBRIC_API_KEY,
+        stage="request",
+    )
+    outputs = _extract_dify_workflow_outputs(payload)
 
     rubric_md = outputs.get("rubric_md") if isinstance(outputs, dict) else None
     if not isinstance(rubric_md, str) or not rubric_md.strip():
@@ -350,39 +382,37 @@ def _call_dify_generate_rubric(
 
 
 def _extract_first_text(value: Any) -> Optional[str]:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    if isinstance(value, dict):
-        for key in ("text", "answer", "student_message", "response", "message"):
-            candidate = value.get(key)
-            if isinstance(candidate, str) and candidate.strip():
-                return candidate.strip()
-        for nested in value.values():
-            result = _extract_first_text(nested)
-            if result:
-                return result
-    if isinstance(value, list):
-        for nested in value:
-            result = _extract_first_text(nested)
-            if result:
-                return result
+    queue: deque[Any] = deque([value])
+    scanned = 0
+    while queue and scanned < 500:
+        current = queue.popleft()
+        scanned += 1
+        if isinstance(current, str) and current.strip():
+            return current.strip()
+        if isinstance(current, dict):
+            for key in ("text", "answer", "student_message", "response", "message"):
+                candidate = current.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+            queue.extend(current.values())
+        elif isinstance(current, list):
+            queue.extend(current)
     return None
 
 
 def _extract_structured_output(value: Any) -> Optional[dict[str, Any]]:
-    if isinstance(value, dict):
-        candidate = value.get("structured_output")
-        if isinstance(candidate, dict):
-            return candidate
-        for nested in value.values():
-            result = _extract_structured_output(nested)
-            if result is not None:
-                return result
-    if isinstance(value, list):
-        for nested in value:
-            result = _extract_structured_output(nested)
-            if result is not None:
-                return result
+    queue: deque[Any] = deque([value])
+    scanned = 0
+    while queue and scanned < 500:
+        current = queue.popleft()
+        scanned += 1
+        if isinstance(current, dict):
+            candidate = current.get("structured_output")
+            if isinstance(candidate, dict):
+                return candidate
+            queue.extend(current.values())
+        elif isinstance(current, list):
+            queue.extend(current)
     return None
 
 
@@ -645,12 +675,8 @@ def generate_er_rubric(
     refinement_instruction: Optional[str] = Form(None),
     rubric_previous: Optional[str] = Form(None),
     instruction_history: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role),
+    _: User = Depends(require_staff_role),
 ):
-    del db
-    del current_user
-
     title = problem_title.strip()
     statement = problem_statement.strip()
     refinement = refinement_instruction.strip() if refinement_instruction else None
@@ -672,7 +698,7 @@ def generate_er_rubric(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="problem_statement cannot be empty",
         )
-    if _is_placeholder_value(statement, "Problem_Statement"):
+    if _looks_like_template_placeholder(statement):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="problem_statement appears to be a template placeholder; provide concrete text",
@@ -812,25 +838,32 @@ def create_er_question(
 @router.get("/questions", response_model=list[ERDiagramQuestionListItem])
 def list_er_questions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ):
-    del current_user
     questions = (
         db.query(ERDiagramQuestion)
         .filter(ERDiagramQuestion.is_deleted == 0)
         .order_by(ERDiagramQuestion.created_at.desc())
         .all()
     )
-    return questions
+    return [
+        ERDiagramQuestionListItem(
+            id=question.id,
+            title=question.title,
+            problem_statement=question.problem_statement[:200].strip(),
+            difficulty_label=question.difficulty_label,
+            created_at=question.created_at,
+        )
+        for question in questions
+    ]
 
 
 @router.get("/questions/{question_id}", response_model=ERDiagramQuestionResponse)
 def get_er_question(
     question_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ):
-    del current_user
     question = (
         db.query(ERDiagramQuestion)
         .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
@@ -851,10 +884,8 @@ def submit_er_diagram(
     submission_xml_text: Optional[str] = Form(None),
     erd_img: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ):
-    del current_user
-
     question = (
         db.query(ERDiagramQuestion)
         .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
@@ -865,6 +896,11 @@ def submit_er_diagram(
 
     query_text = student_query.strip() if isinstance(student_query, str) else ""
     xml_text = submission_xml_text.strip() if isinstance(submission_xml_text, str) else ""
+    if len(xml_text) > MAX_ER_XML_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"submission_xml_text exceeds maximum length of {MAX_ER_XML_CHARS} characters",
+        )
 
     if mode == "Query":
         if not query_text:
@@ -910,9 +946,8 @@ def submit_er_diagram(
 def delete_er_question(
     question_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role),
+    _: User = Depends(require_staff_role),
 ):
-    del current_user
     question = (
         db.query(ERDiagramQuestion)
         .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)

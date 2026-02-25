@@ -4,6 +4,7 @@ import { ColorSchemeScript } from "@mantine/core";
 import { Providers } from "./providers";
 import { HeaderNav } from "@/components/HeaderNav";
 import "@mantine/core/styles.css";
+import "@mantine/notifications/styles.css";
 import "./globals.css";
 
 const geistSans = Geist({

@@ -1,6 +1,8 @@
 "use client";
 
 import { localStorageColorSchemeManager, MantineProvider } from "@mantine/core";
+import { ModalsProvider } from "@mantine/modals";
+import { Notifications } from "@mantine/notifications";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -11,7 +13,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
         key: "dbassist-color-scheme",
       })}
     >
-      <AuthProvider>{children}</AuthProvider>
+      <ModalsProvider>
+        <Notifications position="top-right" />
+        <AuthProvider>{children}</AuthProvider>
+      </ModalsProvider>
     </MantineProvider>
   );
 }

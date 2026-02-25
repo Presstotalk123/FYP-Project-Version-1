@@ -1,0 +1,35 @@
+.dropzoneRoot {
+  border-style: dashed;
+  border-width: 2px;
+  border-color: var(--mantine-color-gray-4);
+  background: var(--mantine-color-white);
+  transition: all 150ms ease;
+  cursor: pointer;
+}
+
+.dropzoneRoot:hover {
+  background: var(--mantine-color-gray-0);
+  border-color: var(--mantine-color-gray-5);
+}
+
+.dropzoneInner {
+  pointer-events: none;
+}
+
+.outputStack {
+  height: 100%;
+}
+
+.outputBox {
+  flex: 1;
+  min-height: 280px;
+  max-height: min(60vh, 520px);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--mantine-color-gray-0);
+  white-space: pre-wrap;
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-break: break-word;
+}

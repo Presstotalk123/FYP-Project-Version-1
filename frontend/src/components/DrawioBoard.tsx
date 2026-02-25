@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Box, Button, Group, Text } from "@mantine/core";
+import { Box, Button, Group } from "@mantine/core";
 
 type DrawioBoardProps = {
-  onExport?: (xml: string) => void;
+  onExport?: (xml: string) => void | Promise<void>;
+  submitting?: boolean;
 };
 
 const DRAWIO_ORIGIN = "http://localhost:8080";
@@ -21,15 +22,10 @@ const isDrawioMessage = (value: unknown): value is DrawioMessage => {
   return event === "init" || event === "export";
 };
 
-export function DrawioBoard({ onExport }: DrawioBoardProps) {
+export function DrawioBoard({ onExport, submitting = false }: DrawioBoardProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
-  const submitToYourBackend = (xmlData: string) => {
-    alert("Diagram data captured! Ready for analysis.");
-    console.log("xmldata:", xmlData);
-    // Example: fetch("/api/analyze", { method: "POST", body: xmlData });
-  };
 
   const sendLoad = () => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -88,7 +84,6 @@ export function DrawioBoard({ onExport }: DrawioBoardProps) {
       if (data.event === "export") {
         const diagramXml = data.data ?? "";
         onExport?.(diagramXml);
-        submitToYourBackend(diagramXml);
       }
     };
 
@@ -129,7 +124,7 @@ export function DrawioBoard({ onExport }: DrawioBoardProps) {
         />
       </Box>
       <Group justify="flex-end">
-        <Button size="xs" mt="xs" onClick={handleExport}>
+        <Button size="xs" mt="xs" onClick={handleExport} loading={submitting}>
           Submit Diagram
         </Button>
       </Group>

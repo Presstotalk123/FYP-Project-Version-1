@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Question databases path
     QUESTION_DB_PATH: str = "./question_databases/"
 
+    # Lab databases path
+    LAB_DB_PATH: str = "./lab_databases/"
+
     # AI Chatbot
     DIFY_API_KEY: str
 

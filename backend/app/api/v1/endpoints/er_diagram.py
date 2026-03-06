@@ -30,6 +30,7 @@ router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
 MAX_ER_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_ER_XML_CHARS = 500_000
+RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
 
 
 def _looks_like_template_placeholder(value: str) -> bool:
@@ -158,6 +159,121 @@ def _extract_dify_workflow_outputs(payload: dict[str, Any]) -> dict[str, Any]:
             detail="Dify workflow outputs must be a JSON object",
         )
     return outputs
+
+
+def _extract_workflow_outputs_from_stream_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    data_section = payload.get("data")
+    if isinstance(data_section, dict):
+        status_value = str(data_section.get("status") or "").lower()
+        error_value = data_section.get("error")
+        if status_value in {"failed", "error", "stopped"}:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Dify workflow failed with status '{status_value}': {error_value}",
+            )
+        nested_outputs = data_section.get("outputs")
+        if isinstance(nested_outputs, dict):
+            return nested_outputs
+
+    top_outputs = payload.get("outputs")
+    if isinstance(top_outputs, dict):
+        return top_outputs
+    return None
+
+
+def _post_dify_workflow_stream_outputs(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+    api_key: Optional[str],
+    stage: str,
+) -> dict[str, Any]:
+    headers = _build_dify_headers("application/json", api_key)
+    headers["Accept"] = "text/event-stream"
+    latest_outputs: Optional[dict[str, Any]] = None
+    parse_failures = 0
+
+    try:
+        with httpx.Client(timeout=float(timeout_seconds)) as client:
+            with client.stream("POST", url, json=payload, headers=headers) as response:
+                if response.is_error:
+                    raw = response.read().decode("utf-8", errors="ignore")
+                    raise _format_dify_http_error(stage, response.status_code, raw)
+
+                content_type = (response.headers.get("content-type") or "").lower()
+                if "text/event-stream" not in content_type:
+                    raw = response.read().decode("utf-8", errors="ignore")
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=(
+                            "Dify rubric stream protocol error. "
+                            f"Expected text/event-stream, got '{content_type or 'unknown'}'. "
+                            f"Response: {raw[:500]}"
+                        ),
+                    )
+
+                for line in response.iter_lines():
+                    if line is None:
+                        continue
+                    if isinstance(line, bytes):
+                        line = line.decode("utf-8", errors="ignore")
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith(":") or not stripped.startswith("data:"):
+                        continue
+
+                    data_text = stripped[5:].strip()
+                    if not data_text or data_text == "[DONE]":
+                        continue
+
+                    try:
+                        stream_payload = json.loads(data_text)
+                    except Exception:
+                        parse_failures += 1
+                        if parse_failures >= 5:
+                            raise HTTPException(
+                                status_code=status.HTTP_502_BAD_GATEWAY,
+                                detail="Dify rubric stream returned repeated invalid JSON frames",
+                            )
+                        continue
+
+                    parse_failures = 0
+                    if not isinstance(stream_payload, dict):
+                        continue
+
+                    event_name = str(stream_payload.get("event") or "").lower()
+                    if event_name == "error":
+                        message = _extract_first_text(stream_payload) or stream_payload.get("message") or "Unknown stream error"
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail=f"Dify rubric stream failed: {message}",
+                        )
+
+                    maybe_outputs = _extract_workflow_outputs_from_stream_payload(stream_payload)
+                    if isinstance(maybe_outputs, dict):
+                        latest_outputs = maybe_outputs
+
+                    if event_name in {"message_end", "workflow_finished", "agent_message_end", "done"}:
+                        break
+    except HTTPException:
+        raise
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unable to reach Dify endpoint: {str(exc)}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected Dify integration error: {str(exc)}",
+        )
+
+    if not isinstance(latest_outputs, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Dify rubric stream completed without workflow outputs",
+        )
+    return latest_outputs
 
 
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
@@ -313,35 +429,43 @@ def _call_dify_generate_rubric(
             "Rubric_Previous": effective_rubric_previous,
             "Instruction_History": effective_instruction_history_dict,
         },
-        "response_mode": "blocking",
+        "response_mode": "streaming",
         "user": "databaseassist-er-rubric",
         "files": files,
     }
 
     # Some existing Dify workflows still read legacy key names in Pascal/snake variants.
-    payload = _post_dify_json(
+    outputs = _post_dify_workflow_stream_outputs(
         url=settings.DIFY_ER_RUBRIC_URL,
         payload=workflow_payload,
         timeout_seconds=settings.DIFY_ER_RUBRIC_TIMEOUT_SECONDS,
         api_key=settings.DIFY_ER_RUBRIC_API_KEY,
-        stage="request",
+        stage="rubric request",
     )
-    outputs = _extract_dify_workflow_outputs(payload)
+    output_keys = set(outputs.keys()) if isinstance(outputs, dict) else set()
+    missing_keys = sorted(RUBRIC_REQUIRED_OUTPUT_KEYS - output_keys)
+    unexpected_keys = sorted(output_keys - RUBRIC_REQUIRED_OUTPUT_KEYS)
+    if missing_keys or unexpected_keys:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Dify response output keys invalid. "
+                f"Missing: {missing_keys}; Unexpected: {unexpected_keys}; Observed: {sorted(output_keys)}"
+            ),
+        )
 
     rubric_md = outputs.get("rubric_md") if isinstance(outputs, dict) else None
     if not isinstance(rubric_md, str) or not rubric_md.strip():
-        output_keys = list(outputs.keys()) if isinstance(outputs, dict) else []
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Dify response missing non-empty rubric_md. Available output keys: {output_keys}",
+            detail=f"Dify response has invalid rubric_md. Available output keys: {sorted(output_keys)}",
         )
 
     difficulty = outputs.get("difficulty") if isinstance(outputs, dict) else None
     if not isinstance(difficulty, dict):
-        output_keys = list(outputs.keys()) if isinstance(outputs, dict) else []
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Dify response missing difficulty object. Available output keys: {output_keys}",
+            detail=f"Dify response missing difficulty object. Available output keys: {sorted(output_keys)}",
         )
 
     label = difficulty.get("label")
@@ -353,8 +477,6 @@ def _call_dify_generate_rubric(
         )
 
     rubric_json = outputs.get("rubric_json") if isinstance(outputs, dict) else None
-    if rubric_json is None:
-        rubric_json = {}
     if not isinstance(rubric_json, dict):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -362,8 +484,6 @@ def _call_dify_generate_rubric(
         )
 
     diff_summary = outputs.get("diff_summary") if isinstance(outputs, dict) else None
-    if diff_summary is None:
-        diff_summary = []
     if not isinstance(diff_summary, list):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

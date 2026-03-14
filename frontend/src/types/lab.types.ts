@@ -106,3 +106,47 @@ export interface TableState {
 export interface DatabaseState {
   tables: TableState[];
 }
+
+// Lab Task Types
+export interface LabTask {
+  id: number;
+  lab_id: number;
+  title: string;
+  description: string;
+  order_index: number;
+  has_answer: boolean;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LabTaskDetail extends LabTask {
+  correct_query: string | null;
+}
+
+export interface LabTaskCreate {
+  title: string;
+  description: string;
+  order_index?: number;
+}
+
+export interface LabTaskAssignAnswer {
+  query: string;
+}
+
+export interface LabTaskUpdate {
+  title?: string;
+  description?: string;
+  order_index?: number;
+}
+
+export interface LabTaskValidateRequest {
+  task_id: number;
+  session_id: number;
+  user_query: string;
+}
+
+export interface LabTaskValidateResponse {
+  is_correct: boolean;
+  message: string;
+}

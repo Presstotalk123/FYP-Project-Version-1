@@ -14,10 +14,10 @@ import {
   Alert,
   Button,
 } from '@mantine/core';
-import { IconArrowLeft, IconAlertCircle, IconLogout, IconRefresh } from '@tabler/icons-react';
+import { IconArrowLeft, IconAlertCircle, IconLogout, IconRefresh, IconInfoCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { LabDetail, LabExecuteResponse, LabAttemptResponse, DatabaseState } from '@/types/lab.types';
+import { LabDetail, LabExecuteResponse, LabAttemptResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskAssignAnswer } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
@@ -25,9 +25,10 @@ import { LabResultsPanel } from './LabResultsPanel';
 
 interface LabWorkspaceProps {
   labId: number;
+  isStaffMode?: boolean;
 }
 
-export function LabWorkspace({ labId }: LabWorkspaceProps) {
+export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -43,6 +44,10 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
   const [isResetting, setIsResetting] = useState(false);
   const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
   const [isLoadingDatabase, setIsLoadingDatabase] = useState(false);
+
+  // Task state
+  const [tasks, setTasks] = useState<LabTask[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);
@@ -61,8 +66,8 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
         const labData = await labService.getLabById(labId);
         setLab(labData);
 
-        // Check if lab is running
-        if (!labData.is_running) {
+        // Check if lab is running (students only - staff can access any lab for testing)
+        if (!isStaffMode && !labData.is_running) {
           setError('This lab is not currently running');
           return;
         }
@@ -105,6 +110,25 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
     };
 
     initializeLab();
+  }, [labId]);
+
+  // Fetch tasks on mount
+  useEffect(() => {
+    const fetchTasks = async () => {
+      if (!labId) return;
+
+      setIsLoadingTasks(true);
+      try {
+        const tasksData = await labService.getLabTasks(labId);
+        setTasks(tasksData);
+      } catch (err) {
+        console.error('Failed to fetch tasks:', err);
+      } finally {
+        setIsLoadingTasks(false);
+      }
+    };
+
+    fetchTasks();
   }, [labId]);
 
   // Execute query
@@ -230,12 +254,70 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
         message: 'Your lab session has been terminated',
         color: 'blue',
       });
-      router.push('/student/labs');
+      router.push(isStaffMode ? '/admin/labs' : '/student/labs');
     } catch (err) {
       const error = err as { response?: { data?: { detail?: string } } };
       notifications.show({
         title: 'Error',
         message: error.response?.data?.detail || 'Failed to exit session',
+        color: 'red',
+      });
+    }
+  };
+
+  // Task management handlers
+  const handleCreateTask = async (taskData: LabTaskCreate) => {
+    try {
+      const newTask = await labService.createLabTask(labId, taskData);
+      setTasks(prev => [...prev, newTask].sort((a, b) => a.order_index - b.order_index));
+      notifications.show({
+        title: 'Task Created',
+        message: 'Lab task created successfully',
+        color: 'green',
+      });
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: error.response?.data?.detail || 'Failed to create task',
+        color: 'red',
+      });
+    }
+  };
+
+  const handleDeleteTask = async (taskId: number) => {
+    try {
+      await labService.deleteLabTask(labId, taskId);
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+      notifications.show({
+        title: 'Task Deleted',
+        message: 'Task deleted successfully',
+        color: 'green',
+      });
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: error.response?.data?.detail || 'Failed to delete task',
+        color: 'red',
+      });
+    }
+  };
+
+  const handleAssignTaskAnswer = async (taskId: number, query: string) => {
+    try {
+      const updatedTask = await labService.assignTaskAnswer(labId, taskId, { query });
+      setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
+      notifications.show({
+        title: 'Answer Assigned',
+        message: 'Query result assigned as correct answer',
+        color: 'green',
+      });
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: error.response?.data?.detail || 'Failed to assign answer',
         color: 'red',
       });
     }
@@ -285,7 +367,7 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
         <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
           {error || 'Lab not found'}
         </Alert>
-        <Button mt="md" variant="light" onClick={() => router.push('/student/labs')}>
+        <Button mt="md" variant="light" onClick={() => router.push(isStaffMode ? '/admin/labs' : '/student/labs')}>
           Back to Labs
         </Button>
       </Container>
@@ -301,7 +383,7 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
         <Group justify="space-between" align="center">
           <Group align="baseline" gap="sm">
             <ActionIcon
-              onClick={() => router.push('/student/labs')}
+              onClick={() => router.push(isStaffMode ? '/admin/labs' : '/student/labs')}
               variant="subtle"
               size="sm"
               aria-label="Back to labs"
@@ -333,6 +415,18 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
           </Group>
         </Group>
 
+        {/* Staff Testing Mode Banner */}
+        {isStaffMode && (
+          <Alert
+            icon={<IconInfoCircle size={16} />}
+            color="cyan"
+            variant="light"
+            title="Staff Testing Mode"
+          >
+            You are testing this lab as staff. Your session is independent from student sessions.
+          </Alert>
+        )}
+
         {/* 3-Panel Layout */}
         <Box
           ref={containerRef}
@@ -359,6 +453,11 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
             <LabDescriptionPanel
               lab={lab}
               sessionId={sessionId}
+              isStaffMode={isStaffMode}
+              tasks={tasks}
+              isLoadingTasks={isLoadingTasks}
+              onCreateTask={handleCreateTask}
+              onDeleteTask={handleDeleteTask}
             />
           </Box>
 
@@ -473,6 +572,10 @@ export function LabWorkspace({ labId }: LabWorkspaceProps) {
               attempts={attempts}
               databaseState={databaseState}
               isLoadingDatabase={isLoadingDatabase}
+              isStaffMode={isStaffMode}
+              tasks={tasks}
+              currentQuery={query}
+              onAssignToTask={handleAssignTaskAnswer}
             />
           </Box>
         </Box>

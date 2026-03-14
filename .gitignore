@@ -76,6 +76,10 @@ frontend/.env.local
 frontend/.env.production.local
 frontend/.env.development.local
 frontend/.env.test.local
+.claude
 
 # Documentation
 docs/_build/
+
+
+

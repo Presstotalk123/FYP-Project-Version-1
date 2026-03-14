@@ -44,5 +44,9 @@ export const API_ENDPOINTS = {
     SESSION_RESET: (id: number) => `/labs/${id}/session/reset`,
     SESSION_EXIT: (id: number) => `/labs/${id}/session/exit`,
     PREVIEW: (id: number) => `/labs/${id}/preview/schema`,
+    TASKS: (labId: number) => `/labs/${labId}/tasks`,
+    TASK_DETAIL: (labId: number, taskId: number) => `/labs/${labId}/tasks/${taskId}`,
+    TASK_ASSIGN: (labId: number, taskId: number) => `/labs/${labId}/tasks/${taskId}/assign`,
+    TASK_VALIDATE: '/labs/tasks/validate',
   },
 };

@@ -10,10 +10,15 @@ from app.models.user import User
 from app.models.lab import Lab
 from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
+from app.models.lab_task import LabTask
 from app.schemas.lab import (
     LabCreate, LabUpdate, LabListItem, LabDetail, LabResponse,
     SessionStart, SessionResponse, LabExecuteRequest, LabExecuteResponse,
     SchemaPreview, StopLabResponse, LabAttemptResponse, DatabaseStateResponse
+)
+from app.schemas.lab_task import (
+    LabTaskCreate, LabTaskAssignAnswer, LabTaskUpdate, LabTaskResponse,
+    LabTaskDetail, LabTaskValidateRequest, LabTaskValidateResponse
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.utils.lab_db_manager import (
@@ -22,6 +27,7 @@ from app.utils.lab_db_manager import (
 )
 from app.utils.lab_cleanup import terminate_all_lab_sessions
 from app.core.lab_query_executor import execute_lab_query
+from app.core.answer_validator import generate_hash
 
 router = APIRouter(prefix="/labs", tags=["labs"])
 
@@ -452,10 +458,11 @@ def start_session(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Start a lab session (Student).
-    Requires lab to be published AND running.
+    Start a lab session (Student/Staff).
+    Students: Requires lab to be published AND running.
+    Staff: Can access any lab for testing purposes.
     Idempotent: returns existing session if active.
-    Creates a database copy for the student.
+    Creates a database copy for the user.
     """
     # Get lab
     lab = db.query(Lab).filter(
@@ -469,12 +476,13 @@ def start_session(
             detail="Lab not found"
         )
 
-    # Check if lab is published and running
-    if not lab.is_published or not lab.is_running:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Lab is not available for sessions"
-        )
+    # Check if lab is published and running (students only - staff can test any lab)
+    if current_user.role.value == "student":
+        if not lab.is_published or not lab.is_running:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lab is not available for sessions"
+            )
 
     # Check for existing active session (idempotent)
     existing_session = db.query(LabSession).filter(
@@ -524,7 +532,7 @@ def get_session(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get active session for current user (Student).
+    Get active session for current user (Student/Staff).
     Returns 404 if no active session exists.
     """
     session = db.query(LabSession).filter(
@@ -557,7 +565,7 @@ def execute_query(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Execute a SQL query in a lab session (Student).
+    Execute a SQL query in a lab session (Student/Staff).
     Verifies session is active and belongs to current user.
     Allows all SQL statements (SELECT, INSERT, UPDATE, DELETE, CREATE, etc.)
     15-second timeout.
@@ -587,10 +595,16 @@ def execute_query(
             detail="Session is not active"
         )
 
-    # Verify lab is still running
+    # Verify lab is still running (students only - staff can execute queries anytime for testing)
     lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
-    if not lab or not lab.is_running:
-        # Auto-terminate session if lab stopped
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    if current_user.role.value == "student" and not lab.is_running:
+        # Auto-terminate session if lab stopped (students only)
         from app.utils.lab_cleanup import terminate_session
         terminate_session(session, db)
         raise HTTPException(
@@ -632,7 +646,7 @@ def get_session_attempts(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get attempt history for a lab session (Student).
+    Get attempt history for a lab session (Student/Staff).
     Returns list of previous queries and their results.
     """
     # Get session
@@ -750,7 +764,7 @@ def reset_session(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Reset lab session database to original template (Student).
+    Reset lab session database to original template (Student/Staff).
     Deletes current database and creates fresh copy from template.
     """
     # Get active session
@@ -790,7 +804,7 @@ def exit_session(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Exit a lab session (Student).
+    Exit a lab session (Student/Staff).
     Terminates active session and deletes database file.
     """
     # Get active session
@@ -861,3 +875,373 @@ def preview_schema(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to read schema: {str(e)}"
         )
+
+
+# ==============================================================================
+# Lab Task Endpoints
+# ==============================================================================
+
+@router.post("/{lab_id}/tasks", response_model=LabTaskResponse, status_code=status.HTTP_201_CREATED)
+def create_lab_task(
+    lab_id: int,
+    task_data: LabTaskCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Create a new lab task without answer (Staff only).
+    Answer can be assigned later via the assign endpoint.
+    """
+    # Verify lab exists
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Create task without answer
+    task = LabTask(
+        lab_id=lab_id,
+        title=task_data.title,
+        description=task_data.description,
+        order_index=task_data.order_index,
+        created_by=current_user.id,
+        correct_answer_hash=None,  # Will be assigned later
+        correct_query=None
+    )
+
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    # Return response with has_answer computed field
+    return LabTaskResponse(
+        id=task.id,
+        lab_id=task.lab_id,
+        title=task.title,
+        description=task.description,
+        order_index=task.order_index,
+        has_answer=task.correct_answer_hash is not None,
+        created_by=task.created_by,
+        created_at=task.created_at,
+        updated_at=task.updated_at
+    )
+
+
+@router.get("/{lab_id}/tasks", response_model=List[LabTaskResponse])
+def list_lab_tasks(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    List all tasks for a lab (Student/Staff).
+    Students: Only if lab is published
+    Staff: Always
+    """
+    # Verify lab exists and check permissions
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Check permissions for students
+    if current_user.role.value == "student" and not lab.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Get tasks
+    tasks = db.query(LabTask).filter(
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).order_by(LabTask.order_index, LabTask.created_at).all()
+
+    # Return with has_answer computed field
+    return [
+        LabTaskResponse(
+            id=task.id,
+            lab_id=task.lab_id,
+            title=task.title,
+            description=task.description,
+            order_index=task.order_index,
+            has_answer=task.correct_answer_hash is not None,
+            created_by=task.created_by,
+            created_at=task.created_at,
+            updated_at=task.updated_at
+        )
+        for task in tasks
+    ]
+
+
+@router.post("/{lab_id}/tasks/{task_id}/assign", response_model=LabTaskResponse)
+def assign_task_answer(
+    lab_id: int,
+    task_id: int,
+    assign_data: LabTaskAssignAnswer,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Assign a query result as the correct answer for a task (Staff only).
+    Executes the query on the template database and generates a hash.
+    """
+    # Get task
+    task = db.query(LabTask).filter(
+        LabTask.id == task_id,
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    # Execute query on template database to generate hash
+    try:
+        template_path = get_lab_template_path(lab_id)
+        result = execute_lab_query(template_path, assign_data.query, timeout=15)
+
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Query validation failed: {result['error_message']}"
+            )
+
+        # Convert dict results to tuple format for hash generation
+        results_tuples = [
+            tuple(row[col] for col in result["columns"])
+            for row in result["results"]
+        ]
+
+        # Generate hash from results
+        correct_hash = generate_hash(results_tuples, result["columns"])
+
+        # Update task with answer
+        task.correct_query = assign_data.query
+        task.correct_answer_hash = correct_hash
+        task.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(task)
+
+    except LabDatabaseError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to execute query: {str(e)}"
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to assign answer: {str(e)}"
+        )
+
+    return LabTaskResponse(
+        id=task.id,
+        lab_id=task.lab_id,
+        title=task.title,
+        description=task.description,
+        order_index=task.order_index,
+        has_answer=task.correct_answer_hash is not None,
+        created_by=task.created_by,
+        created_at=task.created_at,
+        updated_at=task.updated_at
+    )
+
+
+@router.get("/{lab_id}/tasks/{task_id}", response_model=LabTaskDetail)
+def get_lab_task(
+    lab_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Get detailed task information including correct query (Staff only).
+    """
+    task = db.query(LabTask).filter(
+        LabTask.id == task_id,
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    return LabTaskDetail(
+        id=task.id,
+        lab_id=task.lab_id,
+        title=task.title,
+        description=task.description,
+        order_index=task.order_index,
+        has_answer=task.correct_answer_hash is not None,
+        correct_query=task.correct_query,
+        created_by=task.created_by,
+        created_at=task.created_at,
+        updated_at=task.updated_at
+    )
+
+
+@router.put("/{lab_id}/tasks/{task_id}", response_model=LabTaskResponse)
+def update_lab_task(
+    lab_id: int,
+    task_id: int,
+    task_data: LabTaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Update a lab task metadata (Staff only).
+    Does not update the answer - use assign endpoint for that.
+    """
+    task = db.query(LabTask).filter(
+        LabTask.id == task_id,
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    # Update fields
+    if task_data.title is not None:
+        task.title = task_data.title
+    if task_data.description is not None:
+        task.description = task_data.description
+    if task_data.order_index is not None:
+        task.order_index = task_data.order_index
+
+    task.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(task)
+
+    return LabTaskResponse(
+        id=task.id,
+        lab_id=task.lab_id,
+        title=task.title,
+        description=task.description,
+        order_index=task.order_index,
+        has_answer=task.correct_answer_hash is not None,
+        created_by=task.created_by,
+        created_at=task.created_at,
+        updated_at=task.updated_at
+    )
+
+
+@router.delete("/{lab_id}/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lab_task(
+    lab_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Soft delete a lab task (Staff only).
+    """
+    task = db.query(LabTask).filter(
+        LabTask.id == task_id,
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    task.is_deleted = 1
+    task.updated_at = datetime.utcnow()
+    db.commit()
+
+    return None
+
+
+@router.post("/tasks/validate", response_model=LabTaskValidateResponse)
+def validate_task_answer(
+    validate_request: LabTaskValidateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Validate student's answer against task's correct hash (Student/Staff).
+    Verifies session belongs to user and is active.
+    """
+    # Get task
+    task = db.query(LabTask).filter(
+        LabTask.id == validate_request.task_id,
+        LabTask.is_deleted == 0
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    # Check if task has an answer assigned
+    if not task.correct_answer_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task does not have an answer assigned yet"
+        )
+
+    # Get session and verify ownership
+    session = db.query(LabSession).filter(
+        LabSession.id == validate_request.session_id,
+        LabSession.user_id == current_user.id,
+        LabSession.is_active == 1
+    ).first()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Active session not found"
+        )
+
+    # Execute user's query on their session database
+    result = execute_lab_query(session.db_file_path, validate_request.user_query, timeout=15)
+
+    if not result["success"]:
+        return LabTaskValidateResponse(
+            is_correct=False,
+            message=f"Query failed: {result['error_message']}"
+        )
+
+    # Generate hash from user results
+    results_tuples = [
+        tuple(row[col] for col in result["columns"])
+        for row in result["results"]
+    ]
+    user_hash = generate_hash(results_tuples, result["columns"])
+
+    # Compare hashes
+    is_correct = user_hash == task.correct_answer_hash
+
+    return LabTaskValidateResponse(
+        is_correct=is_correct,
+        message="Correct! Your query produces the expected result." if is_correct
+                else "Incorrect. Your query result doesn't match the expected answer."
+    )

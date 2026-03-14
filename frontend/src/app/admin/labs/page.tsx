@@ -25,6 +25,7 @@ import {
   IconPlayerStop,
   IconEye,
   IconEyeOff,
+  IconFlask,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
@@ -148,6 +149,10 @@ export default function AdminLabsPage() {
     setDeleteModalOpen(true);
   };
 
+  const handleAccessLab = (labId: number) => {
+    router.push(`/admin/labs/${labId}/workspace`);
+  };
+
   return (
     <ProtectedRoute requiredRole={UserRole.STAFF}>
       <DashboardLayout>
@@ -228,6 +233,15 @@ export default function AdminLabsPage() {
                             onClick={() => handlePublish(lab.id, lab.is_published)}
                           >
                             {lab.is_published ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Access Lab (Test)">
+                          <ActionIcon
+                            color="cyan"
+                            variant="light"
+                            onClick={() => handleAccessLab(lab.id)}
+                          >
+                            <IconFlask size={16} />
                           </ActionIcon>
                         </Tooltip>
                         {lab.is_published && (

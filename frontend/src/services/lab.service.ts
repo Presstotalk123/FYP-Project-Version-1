@@ -12,6 +12,12 @@ import {
   SchemaPreview,
   StopLabResponse,
   LabAttemptResponse,
+  LabTask,
+  LabTaskCreate,
+  LabTaskAssignAnswer,
+  LabTaskUpdate,
+  LabTaskValidateRequest,
+  LabTaskValidateResponse,
 } from '@/types/lab.types';
 
 export const labService = {
@@ -116,6 +122,55 @@ export const labService = {
 
   async getSchemaPreview(labId: number): Promise<SchemaPreview> {
     const response = await api.get(API_ENDPOINTS.LABS.PREVIEW(labId));
+    return response.data;
+  },
+
+  // ============================================================================
+  // Task Management
+  // ============================================================================
+
+  async getLabTasks(labId: number): Promise<LabTask[]> {
+    const response = await api.get(API_ENDPOINTS.LABS.TASKS(labId));
+    return response.data;
+  },
+
+  async createLabTask(labId: number, data: LabTaskCreate): Promise<LabTask> {
+    const response = await api.post(API_ENDPOINTS.LABS.TASKS(labId), data);
+    return response.data;
+  },
+
+  async assignTaskAnswer(
+    labId: number,
+    taskId: number,
+    data: LabTaskAssignAnswer
+  ): Promise<LabTask> {
+    const response = await api.post(
+      API_ENDPOINTS.LABS.TASK_ASSIGN(labId, taskId),
+      data
+    );
+    return response.data;
+  },
+
+  async updateLabTask(
+    labId: number,
+    taskId: number,
+    data: LabTaskUpdate
+  ): Promise<LabTask> {
+    const response = await api.put(
+      API_ENDPOINTS.LABS.TASK_DETAIL(labId, taskId),
+      data
+    );
+    return response.data;
+  },
+
+  async deleteLabTask(labId: number, taskId: number): Promise<void> {
+    await api.delete(API_ENDPOINTS.LABS.TASK_DETAIL(labId, taskId));
+  },
+
+  async validateTaskAnswer(
+    data: LabTaskValidateRequest
+  ): Promise<LabTaskValidateResponse> {
+    const response = await api.post(API_ENDPOINTS.LABS.TASK_VALIDATE, data);
     return response.data;
   },
 };

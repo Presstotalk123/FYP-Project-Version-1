@@ -1,19 +1,35 @@
 'use client';
 
 import { useState } from 'react';
-import { Stack, Group, Text, Badge, Alert, Table, ScrollArea, Tabs, Card, ActionIcon, Divider, Code, Loader } from '@mantine/core';
-import { IconAlertCircle, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
-import { LabExecuteResponse, LabAttemptResponse, DatabaseState } from '@/types/lab.types';
+import { Stack, Group, Text, Badge, Alert, Table, ScrollArea, Tabs, Card, ActionIcon, Divider, Code, Loader, Select, Button } from '@mantine/core';
+import { IconAlertCircle, IconChevronDown, IconChevronRight, IconCheck } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { LabExecuteResponse, LabAttemptResponse, DatabaseState, LabTask } from '@/types/lab.types';
 
 interface LabResultsPanelProps {
   result: LabExecuteResponse | null;
   attempts: LabAttemptResponse[];
   databaseState: DatabaseState | null;
   isLoadingDatabase: boolean;
+  isStaffMode: boolean;
+  tasks: LabTask[];
+  currentQuery: string;
+  onAssignToTask: (taskId: number, query: string) => Promise<void>;
 }
 
-export function LabResultsPanel({ result, attempts, databaseState, isLoadingDatabase }: LabResultsPanelProps) {
+export function LabResultsPanel({
+  result,
+  attempts,
+  databaseState,
+  isLoadingDatabase,
+  isStaffMode,
+  tasks,
+  currentQuery,
+  onAssignToTask
+}: LabResultsPanelProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+  const [isAssigning, setIsAssigning] = useState(false);
 
   const toggleTable = (tableName: string) => {
     const newExpanded = new Set(expandedTables);
@@ -24,6 +40,29 @@ export function LabResultsPanel({ result, attempts, databaseState, isLoadingData
     }
     setExpandedTables(newExpanded);
   };
+
+  const handleAssignAnswer = async () => {
+    if (!selectedTaskId || !currentQuery.trim()) {
+      notifications.show({
+        title: 'Validation Error',
+        message: 'Please select a task',
+        color: 'yellow',
+      });
+      return;
+    }
+
+    setIsAssigning(true);
+    try {
+      await onAssignToTask(parseInt(selectedTaskId), currentQuery);
+      setSelectedTaskId('');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  // Get tasks without answers for the dropdown
+  const tasksWithoutAnswers = tasks.filter(task => !task.has_answer);
+
   return (
     <Tabs defaultValue="results" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Tabs.List>
@@ -69,6 +108,49 @@ export function LabResultsPanel({ result, attempts, databaseState, isLoadingData
                 </Badge>
               </Group>
             </Group>
+
+            {/* Assign to Task Section (Staff Only) */}
+            {isStaffMode && result.success && (
+              <>
+                <Divider label="Assign to Task" labelPosition="center" />
+                <Card withBorder padding="sm" bg="cyan.0">
+                  <Stack gap="sm">
+                    <Text size="sm" fw={500}>
+                      Assign this query result as the correct answer for a task
+                    </Text>
+                    {tasksWithoutAnswers.length === 0 ? (
+                      <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+                        All tasks have answers assigned. Create a new task in the Tasks tab to
+                        assign this result.
+                      </Alert>
+                    ) : (
+                      <>
+                        <Select
+                          label="Select Task"
+                          placeholder="Choose a task without an answer"
+                          value={selectedTaskId}
+                          onChange={(value) => setSelectedTaskId(value || '')}
+                          data={tasksWithoutAnswers.map((task) => ({
+                            value: task.id.toString(),
+                            label: task.title,
+                          }))}
+                        />
+                        <Button
+                          leftSection={<IconCheck size={16} />}
+                          onClick={handleAssignAnswer}
+                          loading={isAssigning}
+                          disabled={!selectedTaskId}
+                          fullWidth
+                          color="cyan"
+                        >
+                          Assign Answer
+                        </Button>
+                      </>
+                    )}
+                  </Stack>
+                </Card>
+              </>
+            )}
 
             {!result.success && result.error_message && (
               <Alert color="red" icon={<IconAlertCircle size={16} />}>

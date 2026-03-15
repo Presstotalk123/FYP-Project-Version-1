@@ -25,14 +25,17 @@ def normalize_results(results: List[Tuple], columns: List[str]) -> List[Dict[str
             if value is None:
                 row_dict[col_name] = None
             elif isinstance(value, (int, float)):
-                # Keep numbers as-is but ensure consistent type
-                row_dict[col_name] = value
+                # Convert all numbers to float for consistent type and hashing
+                row_dict[col_name] = float(value)
             elif isinstance(value, bytes):
                 # Convert bytes to string
                 row_dict[col_name] = value.decode('utf-8')
             else:
-                # Convert to string and strip whitespace
-                row_dict[col_name] = str(value).strip()
+                # Convert to string and normalize whitespace
+                normalized = str(value).strip()
+                # Normalize internal whitespace: multiple spaces → single space
+                normalized = ' '.join(normalized.split())
+                row_dict[col_name] = normalized
 
         result_dicts.append(row_dict)
 

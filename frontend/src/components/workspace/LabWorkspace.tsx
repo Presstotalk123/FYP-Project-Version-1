@@ -17,7 +17,7 @@ import {
 import { IconArrowLeft, IconAlertCircle, IconLogout, IconRefresh, IconInfoCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { LabDetail, LabExecuteResponse, LabAttemptResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskAssignAnswer } from '@/types/lab.types';
+import { LabDetail, LabExecuteResponse, LabAttemptResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskAssignAnswer, LabTaskProgress } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
@@ -40,7 +40,7 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
   const [isExecuting, setIsExecuting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [attempts, setAttempts] = useState<LabAttemptResponse[]>([]);
+  const [attempts, setAttempts] = useState<LabQueryHistoryResponse[]>([]);
   const [isResetting, setIsResetting] = useState(false);
   const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
   const [isLoadingDatabase, setIsLoadingDatabase] = useState(false);
@@ -48,6 +48,7 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
   // Task state
   const [tasks, setTasks] = useState<LabTask[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+  const [taskProgress, setTaskProgress] = useState<Record<number, LabTaskProgress>>({});
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);
@@ -76,8 +77,8 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
         const sessionData = await labService.startSession(labId);
         setSessionId(sessionData.session_id);
 
-        // Fetch attempts history
-        const attemptsData = await labService.getSessionAttempts(sessionData.session_id);
+        // Fetch comprehensive query history (all sessions)
+        const attemptsData = await labService.getLabHistory(labId);
         setAttempts(attemptsData);
 
         // Fetch database state
@@ -131,6 +132,25 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
     fetchTasks();
   }, [labId]);
 
+  // Fetch task progress on mount
+  useEffect(() => {
+    const fetchProgress = async () => {
+      if (!labId) return;
+
+      try {
+        const progressData = await labService.getLabTaskProgress(labId);
+        const progressMap = Object.fromEntries(
+          progressData.tasks.map(p => [p.task_id, p])
+        );
+        setTaskProgress(progressMap);
+      } catch (err) {
+        console.error('Failed to fetch task progress:', err);
+      }
+    };
+
+    fetchProgress();
+  }, [labId]);
+
   // Execute query
   const handleExecute = async () => {
     if (!sessionId || !query.trim()) {
@@ -147,8 +167,8 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
       const response = await labService.executeQuery(sessionId, query);
       setResult(response);
 
-      // Refresh attempts history
-      const attemptsData = await labService.getSessionAttempts(sessionId);
+      // Refresh comprehensive query history
+      const attemptsData = await labService.getLabHistory(labId);
       setAttempts(attemptsData);
 
       // Refresh database state
@@ -208,9 +228,9 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
         try {
           await labService.resetSession(labId);
 
-          // Refresh attempts history after reset
+          // Refresh comprehensive query history after reset
           if (sessionId) {
-            const attemptsData = await labService.getSessionAttempts(sessionId);
+            const attemptsData = await labService.getLabHistory(labId);
             setAttempts(attemptsData);
 
             // Refresh database state
@@ -318,6 +338,42 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
       notifications.show({
         title: 'Error',
         message: error.response?.data?.detail || 'Failed to assign answer',
+        color: 'red',
+      });
+    }
+  };
+
+  const handleSubmitToTask = async (taskId: number) => {
+    if (!result || !sessionId || !query.trim()) return;
+
+    try {
+      const response = await labService.submitTaskAnswer({
+        task_id: taskId,
+        session_id: sessionId,
+        columns: result.columns,
+        results: result.results,
+        query: query,
+        execution_time_ms: result.execution_time_ms,
+        row_count: result.row_count,
+      });
+
+      notifications.show({
+        title: response.is_correct ? 'Correct!' : 'Incorrect',
+        message: response.message,
+        color: response.is_correct ? 'green' : 'red',
+      });
+
+      // Refresh progress
+      const progressData = await labService.getLabTaskProgress(labId);
+      const progressMap = Object.fromEntries(
+        progressData.tasks.map(p => [p.task_id, p])
+      );
+      setTaskProgress(progressMap);
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Submission Failed',
+        message: error.response?.data?.detail || 'Failed to submit answer',
         color: 'red',
       });
     }
@@ -456,6 +512,7 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
               isStaffMode={isStaffMode}
               tasks={tasks}
               isLoadingTasks={isLoadingTasks}
+              taskProgress={taskProgress}
               onCreateTask={handleCreateTask}
               onDeleteTask={handleDeleteTask}
             />
@@ -575,7 +632,9 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
               isStaffMode={isStaffMode}
               tasks={tasks}
               currentQuery={query}
+              taskProgress={taskProgress}
               onAssignToTask={handleAssignTaskAnswer}
+              onSubmitToTask={handleSubmitToTask}
             />
           </Box>
         </Box>

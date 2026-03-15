@@ -4,17 +4,19 @@ import { useState } from 'react';
 import { Stack, Group, Text, Badge, Alert, Table, ScrollArea, Tabs, Card, ActionIcon, Divider, Code, Loader, Select, Button } from '@mantine/core';
 import { IconAlertCircle, IconChevronDown, IconChevronRight, IconCheck } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { LabExecuteResponse, LabAttemptResponse, DatabaseState, LabTask } from '@/types/lab.types';
+import { LabExecuteResponse, LabAttemptResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress } from '@/types/lab.types';
 
 interface LabResultsPanelProps {
   result: LabExecuteResponse | null;
-  attempts: LabAttemptResponse[];
+  attempts: LabQueryHistoryResponse[];
   databaseState: DatabaseState | null;
   isLoadingDatabase: boolean;
   isStaffMode: boolean;
   tasks: LabTask[];
   currentQuery: string;
+  taskProgress: Record<number, LabTaskProgress>;
   onAssignToTask: (taskId: number, query: string) => Promise<void>;
+  onSubmitToTask: (taskId: number) => Promise<void>;
 }
 
 export function LabResultsPanel({
@@ -25,11 +27,15 @@ export function LabResultsPanel({
   isStaffMode,
   tasks,
   currentQuery,
-  onAssignToTask
+  taskProgress,
+  onAssignToTask,
+  onSubmitToTask
 }: LabResultsPanelProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   const [isAssigning, setIsAssigning] = useState(false);
+  const [selectedSubmitTaskId, setSelectedSubmitTaskId] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const toggleTable = (tableName: string) => {
     const newExpanded = new Set(expandedTables);
@@ -60,8 +66,30 @@ export function LabResultsPanel({
     }
   };
 
-  // Get tasks without answers for the dropdown
+  const handleSubmitAnswer = async () => {
+    if (!selectedSubmitTaskId) {
+      notifications.show({
+        title: 'Validation Error',
+        message: 'Please select a task',
+        color: 'yellow',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await onSubmitToTask(parseInt(selectedSubmitTaskId));
+      setSelectedSubmitTaskId('');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Get tasks without answers for the dropdown (staff)
   const tasksWithoutAnswers = tasks.filter(task => !task.has_answer);
+
+  // Get tasks with answers for the dropdown (students)
+  const tasksWithAnswers = tasks.filter(task => task.has_answer);
 
   return (
     <Tabs defaultValue="results" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -144,6 +172,53 @@ export function LabResultsPanel({
                           color="cyan"
                         >
                           Assign Answer
+                        </Button>
+                      </>
+                    )}
+                  </Stack>
+                </Card>
+              </>
+            )}
+
+            {/* Submit to Task Section (Student Only) */}
+            {!isStaffMode && result.success && (
+              <>
+                <Divider label="Submit to Task" labelPosition="center" />
+                <Card withBorder padding="sm" bg="blue.0">
+                  <Stack gap="sm">
+                    <Text size="sm" fw={500}>
+                      Submit this result as your answer to a task
+                    </Text>
+                    {tasksWithAnswers.length === 0 ? (
+                      <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+                        No tasks available for submission yet.
+                      </Alert>
+                    ) : (
+                      <>
+                        <Select
+                          label="Select Task"
+                          placeholder="Choose a task to submit for"
+                          value={selectedSubmitTaskId}
+                          onChange={(value) => setSelectedSubmitTaskId(value || '')}
+                          data={tasksWithAnswers.map((task) => ({
+                            value: task.id.toString(),
+                            label: `${task.title}${taskProgress[task.id]?.is_completed ? ' ✓' : ''}`,
+                          }))}
+                        />
+                        {selectedSubmitTaskId && taskProgress[parseInt(selectedSubmitTaskId)]?.is_completed && (
+                          <Alert color="green" icon={<IconCheck size={16} />}>
+                            You've already solved this task! You can still resubmit.
+                          </Alert>
+                        )}
+                        <Button
+                          leftSection={<IconCheck size={16} />}
+                          onClick={handleSubmitAnswer}
+                          loading={isSubmitting}
+                          disabled={!selectedSubmitTaskId}
+                          fullWidth
+                          color="blue"
+                        >
+                          Submit Answer
                         </Button>
                       </>
                     )}

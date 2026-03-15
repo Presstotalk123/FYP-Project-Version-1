@@ -147,6 +147,25 @@ class LabAttemptResponse(BaseModel):
         from_attributes = True
 
 
+class LabQueryHistoryResponse(BaseModel):
+    """Schema for comprehensive lab query history across sessions"""
+    id: int
+    lab_id: int
+    lab_title: str
+    session_id: int
+    session_started_at: datetime
+    session_ended_at: Optional[datetime] = None
+    query: str
+    success: bool
+    execution_time_ms: float
+    row_count: int
+    error_message: Optional[str] = None
+    submitted_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Database state schemas
 class TableSampleData(BaseModel):
     """Schema for table sample data"""
@@ -166,3 +185,25 @@ class TableStateResponse(BaseModel):
 class DatabaseStateResponse(BaseModel):
     """Schema for complete database state"""
     tables: List[TableStateResponse]
+
+
+# Student attempts schemas
+class StudentAttemptSummary(BaseModel):
+    """Summary of a student's task attempts for a lab"""
+    user_id: int
+    email: str
+    correct_count: int
+    not_solved_count: int
+    total_tasks: int
+    last_submission_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LabStudentAttemptsResponse(BaseModel):
+    """Response containing all student attempt summaries for a lab"""
+    lab_id: int
+    lab_title: str
+    total_tasks: int
+    students: List[StudentAttemptSummary]

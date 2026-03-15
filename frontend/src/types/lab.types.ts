@@ -90,6 +90,21 @@ export interface LabAttemptResponse {
   submitted_at: string;
 }
 
+export interface LabQueryHistoryResponse {
+  id: number;
+  lab_id: number;
+  lab_title: string;
+  session_id: number;
+  session_started_at: string;
+  session_ended_at: string | null;
+  query: string;
+  success: boolean;
+  execution_time_ms: number;
+  row_count: number;
+  error_message: string | null;
+  submitted_at: string;
+}
+
 export interface TableSampleData {
   columns: string[];
   rows: Record<string, any>[];
@@ -149,4 +164,49 @@ export interface LabTaskValidateRequest {
 export interface LabTaskValidateResponse {
   is_correct: boolean;
   message: string;
+}
+
+export interface LabTaskSubmitRequest {
+  task_id: number;
+  session_id: number;
+  columns: string[];
+  results: any[];
+  query: string;
+  execution_time_ms: number;
+  row_count: number;
+}
+
+export interface LabTaskSubmitResponse {
+  submission_id: number;
+  is_correct: boolean;
+  message: string;
+  submitted_at: string;
+}
+
+export interface LabTaskProgress {
+  task_id: number;
+  is_completed: boolean;
+  attempt_count: number;
+  last_submitted_at: string | null;
+}
+
+export interface LabTaskProgressResponse {
+  tasks: LabTaskProgress[];
+}
+
+// Student Attempts Types
+export interface StudentAttemptSummary {
+  user_id: number;
+  email: string;
+  correct_count: number;
+  not_solved_count: number;
+  total_tasks: number;
+  last_submission_at: string | null;
+}
+
+export interface LabStudentAttemptsResponse {
+  lab_id: number;
+  lab_title: string;
+  total_tasks: number;
+  students: StudentAttemptSummary[];
 }

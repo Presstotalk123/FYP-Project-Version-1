@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 class LabTaskCreate(BaseModel):
@@ -57,3 +57,35 @@ class LabTaskValidateResponse(BaseModel):
     """Schema for validation response"""
     is_correct: bool
     message: str
+
+
+class LabTaskSubmitRequest(BaseModel):
+    """Schema for submitting student answer to a task"""
+    task_id: int
+    session_id: int
+    columns: List[str] = Field(..., description="Column names from query result")
+    results: List[dict] = Field(..., description="Query result rows")
+    query: str = Field(..., min_length=1, description="The SQL query that produced these results")
+    execution_time_ms: float
+    row_count: int
+
+
+class LabTaskSubmitResponse(BaseModel):
+    """Schema for task submission response"""
+    submission_id: int
+    is_correct: bool
+    message: str
+    submitted_at: datetime
+
+
+class LabTaskProgress(BaseModel):
+    """Schema for individual task progress"""
+    task_id: int
+    is_completed: bool  # Has at least one correct submission
+    attempt_count: int  # Total number of submissions
+    last_submitted_at: Optional[datetime] = None
+
+
+class LabTaskProgressResponse(BaseModel):
+    """Schema for lab task progress response"""
+    tasks: List[LabTaskProgress]

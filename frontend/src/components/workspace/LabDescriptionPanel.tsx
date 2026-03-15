@@ -26,7 +26,7 @@ import {
   IconChecks,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { LabDetail, LabTask, LabTaskCreate } from '@/types/lab.types';
+import { LabDetail, LabTask, LabTaskCreate, LabTaskProgress } from '@/types/lab.types';
 
 interface LabDescriptionPanelProps {
   lab: LabDetail | null;
@@ -34,6 +34,7 @@ interface LabDescriptionPanelProps {
   isStaffMode: boolean;
   tasks: LabTask[];
   isLoadingTasks: boolean;
+  taskProgress: Record<number, LabTaskProgress>;
   onCreateTask: (taskData: LabTaskCreate) => Promise<void>;
   onDeleteTask: (taskId: number) => Promise<void>;
 }
@@ -44,6 +45,7 @@ export function LabDescriptionPanel({
   isStaffMode,
   tasks,
   isLoadingTasks,
+  taskProgress,
   onCreateTask,
   onDeleteTask,
 }: LabDescriptionPanelProps) {
@@ -169,14 +171,31 @@ export function LabDescriptionPanel({
                         <Text fw={600} size="sm">
                           {index + 1}. {task.title}
                         </Text>
-                        {task.has_answer ? (
-                          <Badge color="green" size="xs" leftSection={<IconChecks size={12} />}>
-                            Has Answer
-                          </Badge>
-                        ) : (
-                          <Badge color="yellow" size="xs" leftSection={<IconAlertCircle size={12} />}>
-                            No Answer
-                          </Badge>
+
+                        {/* Student progress badge */}
+                        {!isStaffMode && taskProgress[task.id] && (
+                          taskProgress[task.id].is_completed ? (
+                            <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
+                              Completed
+                            </Badge>
+                          ) : taskProgress[task.id].attempt_count > 0 ? (
+                            <Badge color="yellow" size="xs">
+                              {taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''}
+                            </Badge>
+                          ) : null
+                        )}
+
+                        {/* Staff has_answer badge */}
+                        {isStaffMode && (
+                          task.has_answer ? (
+                            <Badge color="green" size="xs" leftSection={<IconChecks size={12} />}>
+                              Has Answer
+                            </Badge>
+                          ) : (
+                            <Badge color="yellow" size="xs" leftSection={<IconAlertCircle size={12} />}>
+                              No Answer
+                            </Badge>
+                          )
                         )}
                       </Group>
                       {isStaffMode && (

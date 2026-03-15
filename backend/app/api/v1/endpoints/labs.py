@@ -11,14 +11,17 @@ from app.models.lab import Lab
 from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task import LabTask
+from app.models.lab_task_submission import LabTaskSubmission
 from app.schemas.lab import (
     LabCreate, LabUpdate, LabListItem, LabDetail, LabResponse,
     SessionStart, SessionResponse, LabExecuteRequest, LabExecuteResponse,
-    SchemaPreview, StopLabResponse, LabAttemptResponse, DatabaseStateResponse
+    SchemaPreview, StopLabResponse, LabAttemptResponse, DatabaseStateResponse,
+    LabQueryHistoryResponse, StudentAttemptSummary, LabStudentAttemptsResponse
 )
 from app.schemas.lab_task import (
     LabTaskCreate, LabTaskAssignAnswer, LabTaskUpdate, LabTaskResponse,
-    LabTaskDetail, LabTaskValidateRequest, LabTaskValidateResponse
+    LabTaskDetail, LabTaskValidateRequest, LabTaskValidateResponse,
+    LabTaskSubmitRequest, LabTaskSubmitResponse, LabTaskProgress, LabTaskProgressResponse
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.utils.lab_db_manager import (
@@ -686,6 +689,139 @@ def get_session_attempts(
     ]
 
 
+@router.get("/{lab_id}/history", response_model=List[LabQueryHistoryResponse])
+def get_lab_query_history(
+    lab_id: int,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive query history for a user in a specific lab (Student/Staff).
+    Returns all queries across all sessions (past and current) for this lab.
+    Useful for reviewing learning progress when student re-enters a lab.
+    """
+    # Verify lab exists
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Query attempts with joined session and lab info
+    from sqlalchemy import and_
+
+    attempts_query = (
+        db.query(
+            LabAttempt.id,
+            LabAttempt.lab_id,
+            Lab.title.label("lab_title"),
+            LabAttempt.session_id,
+            LabSession.started_at.label("session_started_at"),
+            LabSession.ended_at.label("session_ended_at"),
+            LabAttempt.query,
+            LabAttempt.success,
+            LabAttempt.execution_time_ms,
+            LabAttempt.row_count,
+            LabAttempt.error_message,
+            LabAttempt.submitted_at
+        )
+        .join(Lab, LabAttempt.lab_id == Lab.id)
+        .join(LabSession, LabAttempt.session_id == LabSession.id)
+        .filter(
+            and_(
+                LabAttempt.lab_id == lab_id,
+                LabAttempt.user_id == current_user.id
+            )
+        )
+        .order_by(LabAttempt.submitted_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+
+    attempts = attempts_query.all()
+
+    return [
+        LabQueryHistoryResponse(
+            id=attempt.id,
+            lab_id=attempt.lab_id,
+            lab_title=attempt.lab_title,
+            session_id=attempt.session_id,
+            session_started_at=attempt.session_started_at,
+            session_ended_at=attempt.session_ended_at,
+            query=attempt.query,
+            success=bool(attempt.success),
+            execution_time_ms=attempt.execution_time_ms,
+            row_count=attempt.row_count,
+            error_message=attempt.error_message,
+            submitted_at=attempt.submitted_at
+        )
+        for attempt in attempts
+    ]
+
+
+@router.get("/history", response_model=List[LabQueryHistoryResponse])
+def get_all_labs_query_history(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive query history for a user across all labs (Student/Staff).
+    Returns all queries from all labs and all sessions.
+    """
+    # Query attempts with joined session and lab info
+    attempts_query = (
+        db.query(
+            LabAttempt.id,
+            LabAttempt.lab_id,
+            Lab.title.label("lab_title"),
+            LabAttempt.session_id,
+            LabSession.started_at.label("session_started_at"),
+            LabSession.ended_at.label("session_ended_at"),
+            LabAttempt.query,
+            LabAttempt.success,
+            LabAttempt.execution_time_ms,
+            LabAttempt.row_count,
+            LabAttempt.error_message,
+            LabAttempt.submitted_at
+        )
+        .join(Lab, LabAttempt.lab_id == Lab.id)
+        .join(LabSession, LabAttempt.session_id == LabSession.id)
+        .filter(LabAttempt.user_id == current_user.id)
+        .order_by(LabAttempt.submitted_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+
+    attempts = attempts_query.all()
+
+    return [
+        LabQueryHistoryResponse(
+            id=attempt.id,
+            lab_id=attempt.lab_id,
+            lab_title=attempt.lab_title,
+            session_id=attempt.session_id,
+            session_started_at=attempt.session_started_at,
+            session_ended_at=attempt.session_ended_at,
+            query=attempt.query,
+            success=bool(attempt.success),
+            execution_time_ms=attempt.execution_time_ms,
+            row_count=attempt.row_count,
+            error_message=attempt.error_message,
+            submitted_at=attempt.submitted_at
+        )
+        for attempt in attempts
+    ]
+
+
 @router.get("/session/{session_id}/database", response_model=DatabaseStateResponse)
 def get_session_database_state(
     session_id: int,
@@ -1244,4 +1380,218 @@ def validate_task_answer(
         is_correct=is_correct,
         message="Correct! Your query produces the expected result." if is_correct
                 else "Incorrect. Your query result doesn't match the expected answer."
+    )
+
+
+@router.post("/tasks/submit", response_model=LabTaskSubmitResponse)
+def submit_task_answer(
+    submit_request: LabTaskSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Submit student's query result as an answer to a task (Student/Staff).
+    Hashes the result and compares against task's correct hash.
+    Saves submission record regardless of correctness.
+    """
+    # 1. Get task and verify it has an answer
+    task = db.query(LabTask).filter(
+        LabTask.id == submit_request.task_id,
+        LabTask.is_deleted == 0
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    if not task.correct_answer_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task does not have an answer assigned yet"
+        )
+
+    # 2. Get session and verify ownership + active
+    session = db.query(LabSession).filter(
+        LabSession.id == submit_request.session_id,
+        LabSession.user_id == current_user.id,
+        LabSession.is_active == 1
+    ).first()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Active session not found"
+        )
+
+    # 3. Verify session belongs to the same lab as the task
+    if session.lab_id != task.lab_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task does not belong to this lab session"
+        )
+
+    # 4. Generate hash from submitted results
+    # Convert dict results to tuple format for hash generation
+    results_tuples = [
+        tuple(row[col] for col in submit_request.columns)
+        for row in submit_request.results
+    ]
+    submitted_hash = generate_hash(results_tuples, submit_request.columns)
+
+    # 5. Compare hashes
+    is_correct = submitted_hash == task.correct_answer_hash
+
+    # 6. Save submission
+    submission = LabTaskSubmission(
+        task_id=submit_request.task_id,
+        user_id=current_user.id,
+        session_id=submit_request.session_id,
+        lab_id=session.lab_id,
+        submitted_query=submit_request.query,
+        submitted_result_hash=submitted_hash,
+        is_correct=1 if is_correct else 0,
+        execution_time_ms=submit_request.execution_time_ms,
+        row_count=submit_request.row_count
+    )
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+
+    # 7. Return result
+    message = (
+        "Correct! Your query produces the expected result." if is_correct
+        else "Incorrect. Your query result doesn't match the expected answer."
+    )
+
+    return LabTaskSubmitResponse(
+        submission_id=submission.id,
+        is_correct=is_correct,
+        message=message,
+        submitted_at=submission.submitted_at
+    )
+
+
+@router.get("/{lab_id}/progress", response_model=LabTaskProgressResponse)
+def get_lab_task_progress(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get student's task progress for a lab (Student/Staff).
+    Returns progress for all tasks: is_completed, attempt_count, last_submitted_at.
+    """
+    # Verify lab exists
+    lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Get all tasks for this lab
+    tasks = db.query(LabTask).filter(
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).order_by(LabTask.order_index, LabTask.created_at).all()
+
+    # For each task, get submission statistics
+    task_progress_list = []
+    for task in tasks:
+        # Get all submissions for this task by current user
+        submissions = db.query(LabTaskSubmission).filter(
+            LabTaskSubmission.task_id == task.id,
+            LabTaskSubmission.user_id == current_user.id
+        ).all()
+
+        # Calculate progress
+        attempt_count = len(submissions)
+        is_completed = any(sub.is_correct == 1 for sub in submissions)
+        last_submitted_at = max(
+            (sub.submitted_at for sub in submissions),
+            default=None
+        )
+
+        task_progress_list.append(
+            LabTaskProgress(
+                task_id=task.id,
+                is_completed=is_completed,
+                attempt_count=attempt_count,
+                last_submitted_at=last_submitted_at
+            )
+        )
+
+    return LabTaskProgressResponse(tasks=task_progress_list)
+
+
+@router.get("/{lab_id}/student-attempts", response_model=LabStudentAttemptsResponse)
+def get_student_attempts(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Get aggregated student attempts for all tasks in a lab (Staff only).
+    Returns per-student summary: correct, incorrect, not attempted counts.
+    """
+    # Verify lab exists
+    lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Get total task count
+    total_tasks = db.query(LabTask).filter(
+        LabTask.lab_id == lab_id,
+        LabTask.is_deleted == 0
+    ).count()
+
+    # Get all students who have submitted to this lab
+    # Aggregate: correct count, incorrect count, attempted tasks
+    from sqlalchemy import func, case
+
+    student_data = db.query(
+        LabTaskSubmission.user_id,
+        User.email,
+        func.count(func.distinct(
+            case((LabTaskSubmission.is_correct == 1, LabTaskSubmission.task_id))
+        )).label('correct_count'),
+        func.max(LabTaskSubmission.submitted_at).label('last_submission_at')
+    ).join(
+        User, LabTaskSubmission.user_id == User.id
+    ).filter(
+        LabTaskSubmission.lab_id == lab_id
+    ).group_by(
+        LabTaskSubmission.user_id,
+        User.email
+    ).order_by(
+        func.max(LabTaskSubmission.submitted_at).desc()
+    ).all()
+
+    # Build response
+    students = []
+    for row in student_data:
+        # Calculate counts:
+        # - correct_count: unique tasks with at least one correct submission
+        # - not_solved_count: total tasks - correct (includes incorrect + not attempted)
+        not_solved = total_tasks - row.correct_count
+
+        students.append(StudentAttemptSummary(
+            user_id=row.user_id,
+            email=row.email,
+            correct_count=row.correct_count,
+            not_solved_count=not_solved,
+            total_tasks=total_tasks,
+            last_submission_at=row.last_submission_at
+        ))
+
+    return LabStudentAttemptsResponse(
+        lab_id=lab_id,
+        lab_title=lab.title,
+        total_tasks=total_tasks,
+        students=students
     )

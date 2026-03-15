@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 def terminate_session(session: LabSession, db: Session) -> bool:
     """
     Terminate a single session and cleanup resources.
+    Query history is preserved for learning analytics and student review.
 
     Args:
         session: LabSession object to terminate
@@ -22,19 +23,12 @@ def terminate_session(session: LabSession, db: Session) -> bool:
         True if successful, False otherwise
     """
     try:
-        # Delete all query attempts for this session
-        from app.models.lab_attempt import LabAttempt
-
-        deleted_count = db.query(LabAttempt).filter(
-            LabAttempt.session_id == session.id
-        ).delete(synchronize_session=False)
-
-        logger.info(f"Deleted {deleted_count} query attempts for session {session.id}")
-
-        # Update session record
+        # Update session record (query attempts are preserved for history)
         session.is_active = 0
         session.ended_at = datetime.utcnow()
         db.commit()
+
+        logger.info(f"Terminated session {session.id}, query history preserved")
 
         # Force garbage collection to close any lingering SQLite connections
         gc.collect()

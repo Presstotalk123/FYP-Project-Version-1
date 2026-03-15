@@ -7,5 +7,6 @@ from app.models.lab import Lab
 from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task import LabTask
+from app.models.lab_task_submission import LabTaskSubmission
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission"]

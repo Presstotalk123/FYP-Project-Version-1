@@ -12,12 +12,17 @@ import {
   SchemaPreview,
   StopLabResponse,
   LabAttemptResponse,
+  LabQueryHistoryResponse,
   LabTask,
   LabTaskCreate,
   LabTaskAssignAnswer,
   LabTaskUpdate,
   LabTaskValidateRequest,
   LabTaskValidateResponse,
+  LabTaskSubmitRequest,
+  LabTaskSubmitResponse,
+  LabTaskProgressResponse,
+  LabStudentAttemptsResponse,
 } from '@/types/lab.types';
 
 export const labService = {
@@ -107,6 +112,16 @@ export const labService = {
     return response.data;
   },
 
+  async getLabHistory(labId: number): Promise<LabQueryHistoryResponse[]> {
+    const response = await api.get(API_ENDPOINTS.LABS.LAB_HISTORY(labId));
+    return response.data;
+  },
+
+  async getAllLabsHistory(): Promise<LabQueryHistoryResponse[]> {
+    const response = await api.get(API_ENDPOINTS.LABS.ALL_HISTORY);
+    return response.data;
+  },
+
   async resetSession(labId: number): Promise<void> {
     await api.post(API_ENDPOINTS.LABS.SESSION_RESET(labId));
   },
@@ -171,6 +186,25 @@ export const labService = {
     data: LabTaskValidateRequest
   ): Promise<LabTaskValidateResponse> {
     const response = await api.post(API_ENDPOINTS.LABS.TASK_VALIDATE, data);
+    return response.data;
+  },
+
+  async submitTaskAnswer(
+    data: LabTaskSubmitRequest
+  ): Promise<LabTaskSubmitResponse> {
+    const response = await api.post(API_ENDPOINTS.LABS.TASK_SUBMIT, data);
+    return response.data;
+  },
+
+  async getLabTaskProgress(labId: number): Promise<LabTaskProgressResponse> {
+    const response = await api.get(API_ENDPOINTS.LABS.TASK_PROGRESS(labId));
+    return response.data;
+  },
+
+  async getStudentAttempts(
+    labId: number
+  ): Promise<LabStudentAttemptsResponse> {
+    const response = await api.get(API_ENDPOINTS.LABS.STUDENT_ATTEMPTS(labId));
     return response.data;
   },
 };

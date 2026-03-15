@@ -26,10 +26,12 @@ import {
   IconEye,
   IconEyeOff,
   IconFlask,
+  IconChartBar,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
+import { StudentAttemptsModal } from '@/components/admin/StudentAttemptsModal';
 import { UserRole } from '@/types/user.types';
 import { Lab } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
@@ -43,6 +45,8 @@ export default function AdminLabsPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [labToDelete, setLabToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [studentAttemptsModalOpen, setStudentAttemptsModalOpen] = useState(false);
+  const [selectedLabForAttempts, setSelectedLabForAttempts] = useState<{id: number, title: string} | null>(null);
 
   useEffect(() => {
     fetchLabs();
@@ -153,6 +157,11 @@ export default function AdminLabsPage() {
     router.push(`/admin/labs/${labId}/workspace`);
   };
 
+  const handleViewStudentAttempts = (labId: number, labTitle: string) => {
+    setSelectedLabForAttempts({ id: labId, title: labTitle });
+    setStudentAttemptsModalOpen(true);
+  };
+
   return (
     <ProtectedRoute requiredRole={UserRole.STAFF}>
       <DashboardLayout>
@@ -244,6 +253,15 @@ export default function AdminLabsPage() {
                             <IconFlask size={16} />
                           </ActionIcon>
                         </Tooltip>
+                        <Tooltip label="View Student Attempts">
+                          <ActionIcon
+                            color="violet"
+                            variant="light"
+                            onClick={() => handleViewStudentAttempts(lab.id, lab.title)}
+                          >
+                            <IconChartBar size={16} />
+                          </ActionIcon>
+                        </Tooltip>
                         {lab.is_published && (
                           <Tooltip label={lab.is_running ? 'Stop Lab' : 'Start Lab'}>
                             <ActionIcon
@@ -300,6 +318,15 @@ export default function AdminLabsPage() {
             </Group>
           </Stack>
         </Modal>
+
+        {selectedLabForAttempts && (
+          <StudentAttemptsModal
+            opened={studentAttemptsModalOpen}
+            onClose={() => setStudentAttemptsModalOpen(false)}
+            labId={selectedLabForAttempts.id}
+            labTitle={selectedLabForAttempts.title}
+          />
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

@@ -1508,13 +1508,26 @@ def submit_task_answer(
 @router.get("/{lab_id}/progress", response_model=LabTaskProgressResponse)
 def get_lab_task_progress(
     lab_id: int,
+    student_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get student's task progress for a lab (Student/Staff).
     Returns progress for all tasks: is_completed, attempt_count, last_submitted_at.
+
+    For staff: Can optionally pass student_id to fetch a specific student's progress.
     """
+    # If fetching for a specific student, require staff role
+    if student_id and current_user.role != "staff":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff only"
+        )
+
+    # Determine which user's progress to fetch
+    target_user_id = student_id if student_id else current_user.id
+
     # Verify lab exists
     lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
     if not lab:
@@ -1532,10 +1545,10 @@ def get_lab_task_progress(
     # For each task, get submission statistics
     task_progress_list = []
     for task in tasks:
-        # Get all submissions for this task by current user
+        # Get all submissions for this task by target user
         submissions = db.query(LabTaskSubmission).filter(
             LabTaskSubmission.task_id == task.id,
-            LabTaskSubmission.user_id == current_user.id
+            LabTaskSubmission.user_id == target_user_id
         ).all()
 
         # Calculate progress

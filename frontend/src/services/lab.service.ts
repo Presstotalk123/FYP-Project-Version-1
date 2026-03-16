@@ -197,8 +197,15 @@ export const labService = {
     return response.data;
   },
 
-  async getLabTaskProgress(labId: number, signal?: AbortSignal): Promise<LabTaskProgressResponse> {
-    const response = await api.get(API_ENDPOINTS.LABS.TASK_PROGRESS(labId), { signal });
+  async getLabTaskProgress(
+    labId: number,
+    signal?: AbortSignal,
+    studentId?: number
+  ): Promise<LabTaskProgressResponse> {
+    const url = studentId
+      ? `${API_ENDPOINTS.LABS.TASK_PROGRESS(labId)}?student_id=${studentId}`
+      : API_ENDPOINTS.LABS.TASK_PROGRESS(labId);
+    const response = await api.get(url, { signal });
     return response.data;
   },
 

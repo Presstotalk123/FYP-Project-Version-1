@@ -175,7 +175,11 @@ export function LabWorkspace({
       if (!labId) return;
 
       try {
-        const progressData = await labService.getLabTaskProgress(labId, controller.signal);
+        const progressData = await labService.getLabTaskProgress(
+          labId,
+          controller.signal,
+          reviewMode ? reviewStudentId : undefined
+        );
         if (controller.signal.aborted) return;
         const progressMap = Object.fromEntries(
           progressData.tasks.map(p => [p.task_id, p])
@@ -189,7 +193,7 @@ export function LabWorkspace({
 
     fetchProgress();
     return () => controller.abort();
-  }, [labId]);
+  }, [labId, reviewMode, reviewStudentId]);
 
   // Fetch student query history in review mode
   useEffect(() => {

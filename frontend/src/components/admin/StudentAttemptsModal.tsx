@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Modal,
   Table,
@@ -10,8 +11,9 @@ import {
   Text,
   Group,
   Stack,
+  Button,
 } from '@mantine/core';
-import { IconAlertCircle, IconUsers } from '@tabler/icons-react';
+import { IconAlertCircle, IconUsers, IconPlayerPlay } from '@tabler/icons-react';
 import { labService } from '@/services/lab.service';
 import { LabStudentAttemptsResponse } from '@/types/lab.types';
 
@@ -28,6 +30,7 @@ export function StudentAttemptsModal({
   labId,
   labTitle,
 }: StudentAttemptsModalProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LabStudentAttemptsResponse | null>(null);
@@ -94,6 +97,7 @@ export function StudentAttemptsModal({
                   <Table.Th style={{ fontSize: '0.95rem' }}>Not Solved</Table.Th>
                   <Table.Th style={{ fontSize: '0.95rem' }}>Total Tasks</Table.Th>
                   <Table.Th style={{ fontSize: '0.95rem' }}>Last Activity</Table.Th>
+                  <Table.Th style={{ fontSize: '0.95rem' }}>Actions</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -126,6 +130,20 @@ export function StudentAttemptsModal({
                           Never
                         </Text>
                       )}
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="sm"
+                        variant="light"
+                        color="violet"
+                        leftSection={<IconPlayerPlay size={16} />}
+                        onClick={() => {
+                          router.push(`/admin/labs/${labId}/review/${student.user_id}`);
+                          onClose();
+                        }}
+                      >
+                        Review Activity
+                      </Button>
                     </Table.Td>
                   </Table.Tr>
                 ))}

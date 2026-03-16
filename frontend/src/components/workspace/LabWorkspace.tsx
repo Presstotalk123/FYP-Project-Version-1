@@ -26,9 +26,16 @@ import { LabResultsPanel } from './LabResultsPanel';
 interface LabWorkspaceProps {
   labId: number;
   isStaffMode?: boolean;
+  reviewMode?: boolean;
+  reviewStudentId?: number;
 }
 
-export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) {
+export function LabWorkspace({
+  labId,
+  isStaffMode = false,
+  reviewMode = false,
+  reviewStudentId,
+}: LabWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -49,6 +56,13 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
   const [tasks, setTasks] = useState<LabTask[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [taskProgress, setTaskProgress] = useState<Record<number, LabTaskProgress>>({});
+
+  // Review mode state
+  const [studentQueries, setStudentQueries] = useState<LabQueryHistoryResponse[]>([]);
+  const [currentQueryIndex, setCurrentQueryIndex] = useState<number>(0);
+  const [executedIndices, setExecutedIndices] = useState<Set<number>>(new Set());
+  const [isLoadingStudentHistory, setIsLoadingStudentHistory] = useState(false);
+  const [studentEmail, setStudentEmail] = useState<string>('');
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);
@@ -151,6 +165,39 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
     fetchProgress();
   }, [labId]);
 
+  // Fetch student query history in review mode
+  useEffect(() => {
+    const fetchStudentHistory = async () => {
+      if (!reviewMode || !reviewStudentId) return;
+
+      setIsLoadingStudentHistory(true);
+      try {
+        const history = await labService.getStudentQueryHistory(labId, reviewStudentId);
+        setStudentQueries(history);
+
+        // Extract student email from first query if available
+        if (history.length > 0 && history[0].student_email) {
+          setStudentEmail(history[0].student_email);
+        } else if (history.length > 0) {
+          setStudentEmail(`Student ID: ${reviewStudentId}`);
+        } else {
+          setStudentEmail(`Student ID: ${reviewStudentId} (No queries)`);
+        }
+      } catch (err) {
+        console.error('Failed to fetch student query history:', err);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to load student query history',
+          color: 'red',
+        });
+      } finally {
+        setIsLoadingStudentHistory(false);
+      }
+    };
+
+    fetchStudentHistory();
+  }, [reviewMode, reviewStudentId, labId]);
+
   // Execute query
   const handleExecute = async () => {
     if (!sessionId || !query.trim()) {
@@ -164,7 +211,7 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
 
     setIsExecuting(true);
     try {
-      const response = await labService.executeQuery(sessionId, query);
+      const response = await labService.executeQuery(sessionId, query, reviewMode);
       setResult(response);
 
       // Refresh comprehensive query history
@@ -210,6 +257,40 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
   // Clear query
   const handleClear = () => {
     setQuery('');
+  };
+
+  // Execute next query in review mode
+  const handleExecuteNext = async () => {
+    if (!reviewMode || currentQueryIndex >= studentQueries.length || !sessionId) return;
+
+    const nextQuery = studentQueries[currentQueryIndex];
+    setQuery(nextQuery.query);
+
+    // Wait a brief moment for the query to be set in the editor
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Execute the query
+    await handleExecute();
+
+    // Mark as executed
+    setExecutedIndices((prev) => new Set([...prev, currentQueryIndex]));
+
+    // Move to next query
+    setCurrentQueryIndex((prev) => prev + 1);
+  };
+
+  // Select a specific query for viewing (not execution)
+  const handleSelectQuery = (index: number) => {
+    if (!reviewMode) return;
+
+    setCurrentQueryIndex(index);
+    setQuery(studentQueries[index].query);
+
+    notifications.show({
+      title: 'Query Loaded',
+      message: 'Query loaded into editor. Use "Execute Next" to run it sequentially.',
+      color: 'blue',
+    });
   };
 
   // Reset database
@@ -472,7 +553,7 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
         </Group>
 
         {/* Staff Testing Mode Banner */}
-        {isStaffMode && (
+        {isStaffMode && !reviewMode && (
           <Alert
             icon={<IconInfoCircle size={16} />}
             color="cyan"
@@ -480,6 +561,18 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
             title="Staff Testing Mode"
           >
             You are testing this lab as staff. Your session is independent from student sessions.
+          </Alert>
+        )}
+
+        {/* Review Mode Banner */}
+        {reviewMode && (
+          <Alert
+            icon={<IconInfoCircle size={16} />}
+            color="violet"
+            variant="light"
+            title={`Reviewing Student Activity: ${studentEmail}`}
+          >
+            You are reviewing this student&apos;s query history. Use &quot;Execute Next&quot; in the Student Queries tab to step through their queries sequentially. Each query builds on the previous ones to recreate the student&apos;s database progression.
           </Alert>
         )}
 
@@ -515,6 +608,14 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
               taskProgress={taskProgress}
               onCreateTask={handleCreateTask}
               onDeleteTask={handleDeleteTask}
+              reviewMode={reviewMode}
+              studentQueries={studentQueries}
+              currentQueryIndex={currentQueryIndex}
+              executedIndices={executedIndices}
+              onSelectQuery={handleSelectQuery}
+              onExecuteNext={handleExecuteNext}
+              isLoadingStudentHistory={isLoadingStudentHistory}
+              studentEmail={studentEmail}
             />
           </Box>
 
@@ -635,6 +736,7 @@ export function LabWorkspace({ labId, isStaffMode = false }: LabWorkspaceProps) 
               taskProgress={taskProgress}
               onAssignToTask={handleAssignTaskAnswer}
               onSubmitToTask={handleSubmitToTask}
+              reviewMode={reviewMode}
             />
           </Box>
         </Box>

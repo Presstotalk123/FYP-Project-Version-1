@@ -53,5 +53,6 @@ export const API_ENDPOINTS = {
     TASK_SUBMIT: '/labs/tasks/submit',
     TASK_PROGRESS: (labId: number) => `/labs/${labId}/progress`,
     STUDENT_ATTEMPTS: (labId: number) => `/labs/${labId}/student-attempts`,
+    STUDENT_QUERY_HISTORY: (labId: number, studentId: number) => `/labs/${labId}/students/${studentId}/history`,
   },
 };

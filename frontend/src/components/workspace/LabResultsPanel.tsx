@@ -17,6 +17,7 @@ interface LabResultsPanelProps {
   taskProgress: Record<number, LabTaskProgress>;
   onAssignToTask: (taskId: number, query: string) => Promise<void>;
   onSubmitToTask: (taskId: number) => Promise<void>;
+  reviewMode?: boolean;
 }
 
 export function LabResultsPanel({
@@ -29,7 +30,8 @@ export function LabResultsPanel({
   currentQuery,
   taskProgress,
   onAssignToTask,
-  onSubmitToTask
+  onSubmitToTask,
+  reviewMode = false
 }: LabResultsPanelProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
@@ -137,8 +139,8 @@ export function LabResultsPanel({
               </Group>
             </Group>
 
-            {/* Assign to Task Section (Staff Only) */}
-            {isStaffMode && result.success && (
+            {/* Assign to Task Section (Staff Only - Not in Review Mode) */}
+            {isStaffMode && !reviewMode && result.success && (
               <>
                 <Divider label="Assign to Task" labelPosition="center" />
                 <Card withBorder padding="sm" bg="cyan.0">

@@ -91,6 +91,7 @@ class SessionResponse(BaseModel):
 class LabExecuteRequest(BaseModel):
     """Schema for lab query execution request"""
     query: str = Field(..., min_length=1)
+    is_review_mode: Optional[bool] = False
 
 
 class LabExecuteResponse(BaseModel):
@@ -161,6 +162,7 @@ class LabQueryHistoryResponse(BaseModel):
     row_count: int
     error_message: Optional[str] = None
     submitted_at: datetime
+    student_email: Optional[str] = None
 
     class Config:
         from_attributes = True

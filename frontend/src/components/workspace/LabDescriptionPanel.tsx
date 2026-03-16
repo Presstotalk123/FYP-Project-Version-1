@@ -24,9 +24,11 @@ import {
   IconCheck,
   IconAlertCircle,
   IconChecks,
+  IconX,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { LabDetail, LabTask, LabTaskCreate, LabTaskProgress } from '@/types/lab.types';
+import { LabDetail, LabTask, LabTaskCreate, LabTaskProgress, LabQueryHistoryResponse } from '@/types/lab.types';
+import { StudentQueryReviewPanel } from './StudentQueryReviewPanel';
 
 interface LabDescriptionPanelProps {
   lab: LabDetail | null;
@@ -37,6 +39,14 @@ interface LabDescriptionPanelProps {
   taskProgress: Record<number, LabTaskProgress>;
   onCreateTask: (taskData: LabTaskCreate) => Promise<void>;
   onDeleteTask: (taskId: number) => Promise<void>;
+  reviewMode?: boolean;
+  studentQueries?: LabQueryHistoryResponse[];
+  currentQueryIndex?: number;
+  executedIndices?: Set<number>;
+  onSelectQuery?: (index: number) => void;
+  onExecuteNext?: () => void;
+  isLoadingStudentHistory?: boolean;
+  studentEmail?: string;
 }
 
 export function LabDescriptionPanel({
@@ -48,8 +58,16 @@ export function LabDescriptionPanel({
   taskProgress,
   onCreateTask,
   onDeleteTask,
+  reviewMode = false,
+  studentQueries = [],
+  currentQueryIndex = 0,
+  executedIndices = new Set(),
+  onSelectQuery = () => {},
+  onExecuteNext = () => {},
+  isLoadingStudentHistory = false,
+  studentEmail = '',
 }: LabDescriptionPanelProps) {
-  const [activeTab, setActiveTab] = useState<string>('description');
+  const [activeTab, setActiveTab] = useState<string>(reviewMode ? 'review' : 'description');
 
   // Task creation form state
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -106,6 +124,16 @@ export function LabDescriptionPanel({
             </Badge>
           )}
         </Tabs.Tab>
+        {reviewMode && (
+          <Tabs.Tab value="review">
+            Student Queries
+            {studentQueries.length > 0 && (
+              <Badge size="xs" ml="xs" circle>
+                {studentQueries.length}
+              </Badge>
+            )}
+          </Tabs.Tab>
+        )}
       </Tabs.List>
 
       {/* Description Tab */}
@@ -172,8 +200,25 @@ export function LabDescriptionPanel({
                           {index + 1}. {task.title}
                         </Text>
 
-                        {/* Student progress badge */}
-                        {!isStaffMode && taskProgress[task.id] && (
+                        {/* Review mode: Show student's task progress */}
+                        {reviewMode && (
+                          taskProgress[task.id]?.is_completed ? (
+                            <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
+                              Correct
+                            </Badge>
+                          ) : taskProgress[task.id]?.attempt_count > 0 ? (
+                            <Badge color="red" size="xs" leftSection={<IconX size={12} />}>
+                              Incorrect ({taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''})
+                            </Badge>
+                          ) : (
+                            <Badge color="yellow" size="xs">
+                              Incomplete
+                            </Badge>
+                          )
+                        )}
+
+                        {/* Student mode: Show current student progress */}
+                        {!reviewMode && !isStaffMode && taskProgress[task.id] && (
                           taskProgress[task.id].is_completed ? (
                             <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
                               Completed
@@ -185,8 +230,8 @@ export function LabDescriptionPanel({
                           ) : null
                         )}
 
-                        {/* Staff has_answer badge */}
-                        {isStaffMode && (
+                        {/* Staff testing mode: Show has_answer status */}
+                        {!reviewMode && isStaffMode && (
                           task.has_answer ? (
                             <Badge color="green" size="xs" leftSection={<IconChecks size={12} />}>
                               Has Answer
@@ -216,8 +261,8 @@ export function LabDescriptionPanel({
                 </Card>
               ))}
 
-              {/* Task Creation Form (Staff Only) */}
-              {isStaffMode && (
+              {/* Task Creation Form (Staff Only - Not in Review Mode) */}
+              {isStaffMode && !reviewMode && (
                 <>
                   <Divider label="Create New Task" labelPosition="center" />
 
@@ -259,6 +304,21 @@ export function LabDescriptionPanel({
           )}
         </Stack>
       </Tabs.Panel>
+
+      {/* Review Tab - Staff Review Mode */}
+      {reviewMode && (
+        <Tabs.Panel value="review" style={{ flex: 1, overflow: 'hidden' }}>
+          <StudentQueryReviewPanel
+            queries={studentQueries}
+            currentIndex={currentQueryIndex}
+            executedIndices={executedIndices}
+            onSelectQuery={onSelectQuery}
+            onExecuteNext={onExecuteNext}
+            isLoading={isLoadingStudentHistory}
+            studentEmail={studentEmail}
+          />
+        </Tabs.Panel>
+      )}
     </Tabs>
   );
 }

@@ -618,19 +618,20 @@ def execute_query(
     # Execute query on student's database
     result = execute_lab_query(session.db_file_path, execute_request.query, timeout=15)
 
-    # Save attempt to history
-    attempt = LabAttempt(
-        session_id=session.id,
-        lab_id=session.lab_id,
-        user_id=current_user.id,
-        query=execute_request.query,
-        success=1 if result["success"] else 0,
-        execution_time_ms=result["execution_time_ms"],
-        row_count=result["row_count"],
-        error_message=result["error_message"]
-    )
-    db.add(attempt)
-    db.commit()
+    # Save attempt to history (skip in review mode)
+    if not execute_request.is_review_mode:
+        attempt = LabAttempt(
+            session_id=session.id,
+            lab_id=session.lab_id,
+            user_id=current_user.id,
+            query=execute_request.query,
+            success=1 if result["success"] else 0,
+            execution_time_ms=result["execution_time_ms"],
+            row_count=result["row_count"],
+            error_message=result["error_message"]
+        )
+        db.add(attempt)
+        db.commit()
 
     return LabExecuteResponse(
         success=result["success"],
@@ -1595,3 +1596,99 @@ def get_student_attempts(
         total_tasks=total_tasks,
         students=students
     )
+
+
+@router.get("/{lab_id}/students/{student_id}/history", response_model=List[LabQueryHistoryResponse])
+def get_student_query_history(
+    lab_id: int,
+    student_id: int,
+    skip: int = 0,
+    limit: int = 1000,  # Higher limit for comprehensive review
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Get comprehensive query history for a specific student in a lab (Staff only).
+    Returns all queries across all sessions in chronological order for review purposes.
+    Staff use this to understand student's problem-solving approach and progression.
+    """
+    # Verify lab exists
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    # Verify student exists and is a student role
+    student = db.query(User).filter(User.id == student_id).first()
+
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student not found"
+        )
+
+    if student.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not a student"
+        )
+
+    # Query attempts with joined session and lab info
+    from sqlalchemy import and_
+
+    attempts_query = (
+        db.query(
+            LabAttempt.id,
+            LabAttempt.lab_id,
+            Lab.title.label("lab_title"),
+            LabAttempt.session_id,
+            LabSession.started_at.label("session_started_at"),
+            LabSession.ended_at.label("session_ended_at"),
+            LabAttempt.query,
+            LabAttempt.success,
+            LabAttempt.execution_time_ms,
+            LabAttempt.row_count,
+            LabAttempt.error_message,
+            LabAttempt.submitted_at,
+            User.email.label("student_email")
+        )
+        .join(Lab, LabAttempt.lab_id == Lab.id)
+        .join(LabSession, LabAttempt.session_id == LabSession.id)
+        .join(User, LabAttempt.user_id == User.id)
+        .filter(
+            and_(
+                LabAttempt.lab_id == lab_id,
+                LabAttempt.user_id == student_id
+            )
+        )
+        .order_by(LabAttempt.submitted_at.asc())  # Chronological order for review
+        .offset(skip)
+        .limit(limit)
+    )
+
+    attempts = attempts_query.all()
+
+    return [
+        LabQueryHistoryResponse(
+            id=attempt.id,
+            lab_id=attempt.lab_id,
+            lab_title=attempt.lab_title,
+            session_id=attempt.session_id,
+            session_started_at=attempt.session_started_at,
+            session_ended_at=attempt.session_ended_at,
+            query=attempt.query,
+            success=bool(attempt.success),
+            execution_time_ms=attempt.execution_time_ms,
+            row_count=attempt.row_count,
+            error_message=attempt.error_message,
+            submitted_at=attempt.submitted_at,
+            student_email=attempt.student_email
+        )
+        for attempt in attempts
+    ]

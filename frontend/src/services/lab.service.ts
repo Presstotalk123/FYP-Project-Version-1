@@ -94,11 +94,12 @@ export const labService = {
 
   async executeQuery(
     sessionId: number,
-    query: string
+    query: string,
+    isReviewMode: boolean = false
   ): Promise<LabExecuteResponse> {
     const response = await api.post(
       API_ENDPOINTS.LABS.SESSION_EXECUTE(sessionId),
-      { query } as LabExecuteRequest
+      { query, is_review_mode: isReviewMode } as LabExecuteRequest
     );
     return response.data;
   },
@@ -205,6 +206,16 @@ export const labService = {
     labId: number
   ): Promise<LabStudentAttemptsResponse> {
     const response = await api.get(API_ENDPOINTS.LABS.STUDENT_ATTEMPTS(labId));
+    return response.data;
+  },
+
+  async getStudentQueryHistory(
+    labId: number,
+    studentId: number
+  ): Promise<LabQueryHistoryResponse[]> {
+    const response = await api.get(
+      API_ENDPOINTS.LABS.STUDENT_QUERY_HISTORY(labId, studentId)
+    );
     return response.data;
   },
 };

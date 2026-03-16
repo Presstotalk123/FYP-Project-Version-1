@@ -46,6 +46,7 @@ export interface SessionStartResponse {
 
 export interface LabExecuteRequest {
   query: string;
+  is_review_mode?: boolean;
 }
 
 export interface LabExecuteResponse {
@@ -103,6 +104,7 @@ export interface LabQueryHistoryResponse {
   row_count: number;
   error_message: string | null;
   submitted_at: string;
+  student_email?: string;
 }
 
 export interface TableSampleData {

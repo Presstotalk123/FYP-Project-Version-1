@@ -292,6 +292,76 @@ export function LabWorkspace({
     setQuery('');
   };
 
+  // Rerun query from history
+  const handleRerunQuery = async (queryText: string) => {
+    // Set the query in the editor
+    setQuery(queryText);
+
+    // Wait briefly for the state to update and editor to render
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Validate session
+    if (!sessionId) {
+      notifications.show({
+        title: 'No Active Session',
+        message: 'Cannot execute query without an active session',
+        color: 'red',
+      });
+      return;
+    }
+
+    // Execute the query
+    setIsExecuting(true);
+    try {
+      const response = await labService.executeQuery(sessionId, queryText, reviewMode);
+      setResult(response);
+
+      // Refresh query history
+      const attemptsData = await labService.getLabHistory(labId);
+      setAttempts(attemptsData);
+
+      // Refresh database state
+      setIsLoadingDatabase(true);
+      try {
+        const dbState = await labService.getDatabaseState(sessionId);
+        setDatabaseState(dbState);
+      } catch (err) {
+        console.error('Failed to refresh database state:', err);
+      } finally {
+        setIsLoadingDatabase(false);
+      }
+
+      // Show success/failure notification
+      if (response.success) {
+        notifications.show({
+          title: 'Query Re-executed',
+          message: `Query executed in ${response.execution_time_ms.toFixed(2)}ms`,
+          color: 'green',
+        });
+      } else {
+        notifications.show({
+          title: 'Query Failed',
+          message: response.error_message || 'Query execution failed',
+          color: 'red',
+        });
+      }
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Execution Error',
+        message: error.response?.data?.detail || 'Failed to execute query',
+        color: 'red',
+      });
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  // Copy query from history to editor (without executing)
+  const handleCopyQuery = (queryText: string) => {
+    setQuery(queryText);
+  };
+
   // Execute next query in review mode
   const handleExecuteNext = async () => {
     if (!reviewMode || currentQueryIndex >= studentQueries.length || !sessionId) return;
@@ -781,6 +851,9 @@ export function LabWorkspace({
               onAssignToTask={handleAssignTaskAnswer}
               onSubmitToTask={handleSubmitToTask}
               reviewMode={reviewMode}
+              onRerunQuery={handleRerunQuery}
+              isExecuting={isExecuting}
+              onCopyQuery={handleCopyQuery}
             />
           </Box>
         </Box>

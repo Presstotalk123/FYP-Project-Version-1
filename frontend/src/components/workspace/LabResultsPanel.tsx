@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Stack, Group, Text, Badge, Alert, Table, ScrollArea, Tabs, Card, ActionIcon, Divider, Code, Loader, Select, Button } from '@mantine/core';
-import { IconAlertCircle, IconChevronDown, IconChevronRight, IconCheck } from '@tabler/icons-react';
+import { IconAlertCircle, IconChevronDown, IconChevronRight, IconCheck, IconPlayerPlay, IconCopy } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { LabExecuteResponse, LabAttemptResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress } from '@/types/lab.types';
 
@@ -18,6 +18,9 @@ interface LabResultsPanelProps {
   onAssignToTask: (taskId: number, query: string) => Promise<void>;
   onSubmitToTask: (taskId: number) => Promise<void>;
   reviewMode?: boolean;
+  onRerunQuery?: (query: string) => Promise<void>;
+  isExecuting?: boolean;
+  onCopyQuery?: (query: string) => void;
 }
 
 export function LabResultsPanel({
@@ -31,7 +34,10 @@ export function LabResultsPanel({
   taskProgress,
   onAssignToTask,
   onSubmitToTask,
-  reviewMode = false
+  reviewMode = false,
+  onRerunQuery,
+  isExecuting = false,
+  onCopyQuery
 }: LabResultsPanelProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
@@ -278,10 +284,10 @@ export function LabResultsPanel({
               <Card key={attempt.id} withBorder padding="sm" radius="md">
                 <Stack gap="xs">
                   <Group justify="space-between" wrap="nowrap">
-                    <Badge color={attempt.success ? 'green' : 'red'} size="sm">
-                      {attempt.success ? 'Success' : 'Failed'}
-                    </Badge>
                     <Group gap="xs" wrap="nowrap">
+                      <Badge color={attempt.success ? 'green' : 'red'} size="sm">
+                        {attempt.success ? 'Success' : 'Failed'}
+                      </Badge>
                       {attempt.success && (
                         <Badge color="blue" size="xs">
                           {attempt.row_count} rows
@@ -290,6 +296,43 @@ export function LabResultsPanel({
                       <Badge color="gray" size="xs">
                         {attempt.execution_time_ms.toFixed(2)}ms
                       </Badge>
+                    </Group>
+
+                    <Group gap="xs" wrap="nowrap">
+                      {onCopyQuery && (
+                        <ActionIcon
+                          variant="light"
+                          color="gray"
+                          size="sm"
+                          onClick={() => {
+                            onCopyQuery(attempt.query);
+                            notifications.show({
+                              title: 'Query Copied',
+                              message: 'Query loaded into editor',
+                              color: 'blue',
+                            });
+                          }}
+                          title="Copy query to editor"
+                          aria-label="Copy query to editor"
+                        >
+                          <IconCopy size={16} />
+                        </ActionIcon>
+                      )}
+
+                      {onRerunQuery && (
+                        <ActionIcon
+                          variant="light"
+                          color="blue"
+                          size="sm"
+                          onClick={() => onRerunQuery(attempt.query)}
+                          disabled={isExecuting}
+                          loading={isExecuting}
+                          title="Rerun this query"
+                          aria-label="Rerun query"
+                        >
+                          <IconPlayerPlay size={16} />
+                        </ActionIcon>
+                      )}
                     </Group>
                   </Group>
 

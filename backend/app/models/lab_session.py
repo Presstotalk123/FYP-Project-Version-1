@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -25,4 +25,5 @@ class LabSession(Base):
     __table_args__ = (
         Index('idx_lab_user', 'lab_id', 'user_id'),
         Index('idx_active_sessions', 'lab_id', 'is_active'),
+        UniqueConstraint('lab_id', 'user_id', 'is_active', name='uq_active_session_per_user_lab'),
     )

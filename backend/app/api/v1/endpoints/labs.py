@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime
 import sqlite3
 import os
+import logging
 
 from app.database import get_db
 from app.models.user import User
@@ -33,6 +35,7 @@ from app.core.lab_query_executor import execute_lab_query
 from app.core.answer_validator import generate_hash
 
 router = APIRouter(prefix="/labs", tags=["labs"])
+logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -510,22 +513,48 @@ def start_session(
             detail=f"Failed to create session database: {str(e)}"
         )
 
-    # Create session record
-    session = LabSession(
-        lab_id=lab_id,
-        user_id=current_user.id,
-        db_file_path=session_db_path,
-        is_active=1
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    # Create session record - wrapped in try-except to handle race conditions
+    try:
+        session = LabSession(
+            lab_id=lab_id,
+            user_id=current_user.id,
+            db_file_path=session_db_path,
+            is_active=1
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
 
-    return SessionStart(
-        session_id=session.id,
-        lab_id=session.lab_id,
-        started_at=session.started_at
-    )
+        return SessionStart(
+            session_id=session.id,
+            lab_id=session.lab_id,
+            started_at=session.started_at
+        )
+    except IntegrityError:
+        # Race condition: another request created the session concurrently
+        db.rollback()
+        logger.info(f"Session already exists for lab {lab_id} user {current_user.id} (race condition caught)")
+
+        # Re-query for the existing session
+        existing_session = db.query(LabSession).filter(
+            LabSession.lab_id == lab_id,
+            LabSession.user_id == current_user.id,
+            LabSession.is_active == 1
+        ).first()
+
+        if existing_session:
+            return SessionStart(
+                session_id=existing_session.id,
+                lab_id=existing_session.lab_id,
+                started_at=existing_session.started_at
+            )
+        else:
+            # This should never happen, but handle it gracefully
+            logger.error(f"IntegrityError but no existing session found for lab {lab_id} user {current_user.id}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create or retrieve session"
+            )
 
 
 @router.get("/{lab_id}/session", response_model=SessionResponse)
@@ -917,8 +946,10 @@ def reset_session(
             detail="No active session found"
         )
 
-    # Delete current database file
-    delete_session_database(session.db_file_path)
+    # Delete current database file with retry logic
+    from app.utils.lab_cleanup import delete_session_file_with_retry
+    if not delete_session_file_with_retry(session.db_file_path):
+        logger.warning(f"Could not delete session file during reset, continuing anyway: {session.db_file_path}")
 
     # Copy template database to create fresh session
     try:

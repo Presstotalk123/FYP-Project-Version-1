@@ -138,12 +138,14 @@ def copy_template_to_session(lab_id: int, user_id: int) -> str:
     if not os.path.exists(template_path):
         raise LabDatabaseError(f"Template database not found for lab {lab_id}")
 
-    # Remove existing session database if it exists
+    # Remove existing session database if it exists - with retry logic for Windows file locking
     if os.path.exists(session_path):
-        try:
-            os.remove(session_path)
-        except Exception as e:
-            raise LabDatabaseError(f"Failed to remove existing session database: {str(e)}")
+        from app.utils.lab_cleanup import delete_session_file_with_retry
+        if not delete_session_file_with_retry(session_path, max_retries=10):
+            raise LabDatabaseError(
+                f"Failed to remove existing session database (file locked): {session_path}. "
+                "Please try again in a few seconds."
+            )
 
     # Copy template to session
     try:

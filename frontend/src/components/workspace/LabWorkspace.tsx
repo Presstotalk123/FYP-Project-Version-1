@@ -72,13 +72,16 @@ export function LabWorkspace({
 
   // Initialize lab and session on mount
   useEffect(() => {
+    const controller = new AbortController();
+
     const initializeLab = async () => {
       try {
         setLoading(true);
         setError(null);
 
         // Fetch lab details
-        const labData = await labService.getLabById(labId);
+        const labData = await labService.getLabById(labId, controller.signal);
+        if (controller.signal.aborted) return;
         setLab(labData);
 
         // Check if lab is running (students only - staff can access any lab for testing)
@@ -88,30 +91,38 @@ export function LabWorkspace({
         }
 
         // Start or get existing session
-        const sessionData = await labService.startSession(labId);
+        const sessionData = await labService.startSession(labId, controller.signal);
+        if (controller.signal.aborted) return;
         setSessionId(sessionData.session_id);
 
         // Fetch comprehensive query history (all sessions)
-        const attemptsData = await labService.getLabHistory(labId);
+        const attemptsData = await labService.getLabHistory(labId, controller.signal);
+        if (controller.signal.aborted) return;
         setAttempts(attemptsData);
 
         // Fetch database state
         setIsLoadingDatabase(true);
         try {
-          const dbState = await labService.getDatabaseState(sessionData.session_id);
+          const dbState = await labService.getDatabaseState(sessionData.session_id, controller.signal);
+          if (controller.signal.aborted) return;
           setDatabaseState(dbState);
         } catch (err) {
+          if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
           console.error('Failed to fetch database state:', err);
         } finally {
-          setIsLoadingDatabase(false);
+          if (!controller.signal.aborted) {
+            setIsLoadingDatabase(false);
+          }
         }
 
+        if (controller.signal.aborted) return;
         notifications.show({
           title: 'Session Started',
           message: 'Your lab session is ready!',
           color: 'green',
         });
       } catch (err) {
+        if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
         const error = err as { response?: { data?: { detail?: string } } };
         setError(error.response?.data?.detail || 'Failed to initialize lab');
         notifications.show({
@@ -120,59 +131,77 @@ export function LabWorkspace({
           color: 'red',
         });
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
     initializeLab();
+    return () => controller.abort();
   }, [labId]);
 
   // Fetch tasks on mount
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchTasks = async () => {
       if (!labId) return;
 
       setIsLoadingTasks(true);
       try {
-        const tasksData = await labService.getLabTasks(labId);
+        const tasksData = await labService.getLabTasks(labId, controller.signal);
+        if (controller.signal.aborted) return;
         setTasks(tasksData);
       } catch (err) {
+        if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
         console.error('Failed to fetch tasks:', err);
       } finally {
-        setIsLoadingTasks(false);
+        if (!controller.signal.aborted) {
+          setIsLoadingTasks(false);
+        }
       }
     };
 
     fetchTasks();
+    return () => controller.abort();
   }, [labId]);
 
   // Fetch task progress on mount
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchProgress = async () => {
       if (!labId) return;
 
       try {
-        const progressData = await labService.getLabTaskProgress(labId);
+        const progressData = await labService.getLabTaskProgress(labId, controller.signal);
+        if (controller.signal.aborted) return;
         const progressMap = Object.fromEntries(
           progressData.tasks.map(p => [p.task_id, p])
         );
         setTaskProgress(progressMap);
       } catch (err) {
+        if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
         console.error('Failed to fetch task progress:', err);
       }
     };
 
     fetchProgress();
+    return () => controller.abort();
   }, [labId]);
 
   // Fetch student query history in review mode
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchStudentHistory = async () => {
       if (!reviewMode || !reviewStudentId) return;
 
       setIsLoadingStudentHistory(true);
       try {
-        const history = await labService.getStudentQueryHistory(labId, reviewStudentId);
+        const history = await labService.getStudentQueryHistory(labId, reviewStudentId, controller.signal);
+        if (controller.signal.aborted) return;
         setStudentQueries(history);
 
         // Extract student email from first query if available
@@ -184,6 +213,7 @@ export function LabWorkspace({
           setStudentEmail(`Student ID: ${reviewStudentId} (No queries)`);
         }
       } catch (err) {
+        if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
         console.error('Failed to fetch student query history:', err);
         notifications.show({
           title: 'Error',
@@ -191,11 +221,14 @@ export function LabWorkspace({
           color: 'red',
         });
       } finally {
-        setIsLoadingStudentHistory(false);
+        if (!controller.signal.aborted) {
+          setIsLoadingStudentHistory(false);
+        }
       }
     };
 
     fetchStudentHistory();
+    return () => controller.abort();
   }, [reviewMode, reviewStudentId, labId]);
 
   // Execute query
@@ -320,6 +353,17 @@ export function LabWorkspace({
               setDatabaseState(dbState);
             } catch (err) {
               console.error('Failed to refresh database state after reset:', err);
+            }
+
+            // Refresh task progress after reset to clear completion status
+            try {
+              const progressData = await labService.getLabTaskProgress(labId);
+              const progressMap = Object.fromEntries(
+                progressData.tasks.map(p => [p.task_id, p])
+              );
+              setTaskProgress(progressMap);
+            } catch (err) {
+              console.error('Failed to refresh task progress after reset:', err);
             }
           }
 

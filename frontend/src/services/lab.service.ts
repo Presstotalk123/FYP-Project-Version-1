@@ -40,8 +40,8 @@ export const labService = {
     return response.data;
   },
 
-  async getLabById(id: number): Promise<LabDetail> {
-    const response = await api.get(API_ENDPOINTS.LABS.DETAIL(id));
+  async getLabById(id: number, signal?: AbortSignal): Promise<LabDetail> {
+    const response = await api.get(API_ENDPOINTS.LABS.DETAIL(id), { signal });
     return response.data;
   },
 
@@ -82,8 +82,8 @@ export const labService = {
   // Student - Session Management
   // ============================================================================
 
-  async startSession(labId: number): Promise<SessionStartResponse> {
-    const response = await api.post(API_ENDPOINTS.LABS.SESSION_START(labId));
+  async startSession(labId: number, signal?: AbortSignal): Promise<SessionStartResponse> {
+    const response = await api.post(API_ENDPOINTS.LABS.SESSION_START(labId), {}, { signal });
     return response.data;
   },
 
@@ -113,8 +113,8 @@ export const labService = {
     return response.data;
   },
 
-  async getLabHistory(labId: number): Promise<LabQueryHistoryResponse[]> {
-    const response = await api.get(API_ENDPOINTS.LABS.LAB_HISTORY(labId));
+  async getLabHistory(labId: number, signal?: AbortSignal): Promise<LabQueryHistoryResponse[]> {
+    const response = await api.get(API_ENDPOINTS.LABS.LAB_HISTORY(labId), { signal });
     return response.data;
   },
 
@@ -127,8 +127,8 @@ export const labService = {
     await api.post(API_ENDPOINTS.LABS.SESSION_RESET(labId));
   },
 
-  async getDatabaseState(sessionId: number): Promise<any> {
-    const response = await api.get(API_ENDPOINTS.LABS.SESSION_DATABASE(sessionId));
+  async getDatabaseState(sessionId: number, signal?: AbortSignal): Promise<any> {
+    const response = await api.get(API_ENDPOINTS.LABS.SESSION_DATABASE(sessionId), { signal });
     return response.data;
   },
 
@@ -145,8 +145,8 @@ export const labService = {
   // Task Management
   // ============================================================================
 
-  async getLabTasks(labId: number): Promise<LabTask[]> {
-    const response = await api.get(API_ENDPOINTS.LABS.TASKS(labId));
+  async getLabTasks(labId: number, signal?: AbortSignal): Promise<LabTask[]> {
+    const response = await api.get(API_ENDPOINTS.LABS.TASKS(labId), { signal });
     return response.data;
   },
 
@@ -197,8 +197,8 @@ export const labService = {
     return response.data;
   },
 
-  async getLabTaskProgress(labId: number): Promise<LabTaskProgressResponse> {
-    const response = await api.get(API_ENDPOINTS.LABS.TASK_PROGRESS(labId));
+  async getLabTaskProgress(labId: number, signal?: AbortSignal): Promise<LabTaskProgressResponse> {
+    const response = await api.get(API_ENDPOINTS.LABS.TASK_PROGRESS(labId), { signal });
     return response.data;
   },
 
@@ -211,10 +211,12 @@ export const labService = {
 
   async getStudentQueryHistory(
     labId: number,
-    studentId: number
+    studentId: number,
+    signal?: AbortSignal
   ): Promise<LabQueryHistoryResponse[]> {
     const response = await api.get(
-      API_ENDPOINTS.LABS.STUDENT_QUERY_HISTORY(labId, studentId)
+      API_ENDPOINTS.LABS.STUDENT_QUERY_HISTORY(labId, studentId),
+      { signal }
     );
     return response.data;
   },

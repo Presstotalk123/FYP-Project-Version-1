@@ -433,7 +433,7 @@ export function LabResultsPanel({
                             Data Preview ({table.sample_data.rows.length} of {table.row_count} rows):
                           </Text>
                           <ScrollArea>
-                            <Table striped highlightOnHover withTableBorder withColumnBorders size="xs">
+                            <Table striped highlightOnHover withTableBorder withColumnBorders>
                               <Table.Thead>
                                 <Table.Tr>
                                   {table.sample_data.columns.map((col) => (

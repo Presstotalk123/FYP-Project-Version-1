@@ -12,9 +12,12 @@ from app.models.progress import UserProgress
 from app.models.lab import Lab
 from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
+from app.models.lab_task import LabTask
+from app.models.lab_task_submission import LabTaskSubmission
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Database tables will be created manually via create_tables.py script
+# Do not auto-create on startup to avoid conflicts
+print(f"Connected to database: {settings.DATABASE_URL[:30]}...")
 
 # Create FastAPI application
 app = FastAPI(

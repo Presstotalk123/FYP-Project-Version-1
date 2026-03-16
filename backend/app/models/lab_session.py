@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, text
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -22,8 +22,14 @@ class LabSession(Base):
     ended_at = Column(DateTime(timezone=True), nullable=True)
 
     # Composite indexes for faster lookups
+    # Partial unique index: only ONE active session per user per lab, but multiple inactive allowed
     __table_args__ = (
         Index('idx_lab_user', 'lab_id', 'user_id'),
         Index('idx_active_sessions', 'lab_id', 'is_active'),
-        UniqueConstraint('lab_id', 'user_id', 'is_active', name='uq_active_session_per_user_lab'),
+        Index(
+            'uq_active_session_per_user_lab',
+            'lab_id', 'user_id',
+            unique=True,
+            postgresql_where=text('is_active = 1')
+        ),
     )

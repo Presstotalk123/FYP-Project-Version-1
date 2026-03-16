@@ -28,6 +28,6 @@ class LabTaskSubmission(Base):
     # Composite indexes for faster lookups
     __table_args__ = (
         Index('idx_task_user', 'task_id', 'user_id'),
-        Index('idx_user_lab', 'user_id', 'lab_id'),
+        Index('idx_user_lab_submissions', 'user_id', 'lab_id'),  # Renamed to avoid conflict
         Index('idx_task_submitted', 'task_id', 'submitted_at'),
     )

@@ -25,5 +25,5 @@ class LabAttempt(Base):
     # Composite index for faster lookups
     __table_args__ = (
         Index('idx_session_submitted', 'session_id', 'submitted_at'),
-        Index('idx_user_lab', 'user_id', 'lab_id'),
+        Index('idx_user_lab_attempts', 'user_id', 'lab_id'),  # Renamed to avoid conflict
     )

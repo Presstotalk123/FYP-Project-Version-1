@@ -23,7 +23,11 @@ class Settings(BaseSettings):
     DIFY_API_KEY: str
 
     # CORS
-    CORS_ORIGINS: list[str] = ["*"]  # Temporary: Allow all origins for testing
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://proud-stone-0ec93a000.2.azurestaticapps.net"
+    ]
 
     # Dify ER rubric endpoint
     DIFY_ER_RUBRIC_URL: Optional[str] = None

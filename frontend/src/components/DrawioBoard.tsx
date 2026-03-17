@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import { Box, Button, Group } from "@mantine/core";
 
 type DrawioBoardProps = {
-  onExport?: (xml: string) => void | Promise<void>;
+  onExport?: (imageFile: File) => void | Promise<void>;
+  onExportError?: (message: string) => void;
   submitting?: boolean;
 };
 
@@ -22,7 +23,95 @@ const isDrawioMessage = (value: unknown): value is DrawioMessage => {
   return event === "init" || event === "export";
 };
 
-export function DrawioBoard({ onExport, submitting = false }: DrawioBoardProps) {
+const toPngBlob = (rawExportData: string): Blob => {
+  const payload = rawExportData.trim();
+  if (!payload) {
+    throw new Error("Draw.io did not return any PNG data.");
+  }
+
+  let base64Payload = payload;
+  if (payload.startsWith("data:")) {
+    const commaIndex = payload.indexOf(",");
+    if (commaIndex < 0) {
+      throw new Error("Draw.io returned malformed PNG export data.");
+    }
+
+    const metadata = payload.slice(0, commaIndex).toLowerCase();
+    if (!metadata.includes("image/png") || !metadata.includes(";base64")) {
+      throw new Error("Draw.io export is not a PNG image.");
+    }
+
+    base64Payload = payload.slice(commaIndex + 1);
+  }
+
+  const normalizedBase64 = base64Payload.replace(/\s+/g, "");
+  if (!normalizedBase64) {
+    throw new Error("Draw.io returned empty PNG data.");
+  }
+
+  let binary = "";
+  try {
+    binary = window.atob(normalizedBase64);
+  } catch {
+    throw new Error("Draw.io returned invalid PNG data.");
+  }
+
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new Blob([bytes], { type: "image/png" });
+};
+
+const toWhiteBackgroundPngFile = (blob: Blob): Promise<File> =>
+  new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(blob);
+    const image = new Image();
+
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth || image.width;
+        canvas.height = image.naturalHeight || image.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx || !canvas.width || !canvas.height) {
+          reject(new Error("Failed to prepare PNG canvas."));
+          return;
+        }
+
+        // Force white background before drawing exported PNG.
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, 0, 0);
+
+        canvas.toBlob((whiteBlob) => {
+          if (!whiteBlob) {
+            reject(new Error("Failed to create PNG preview file."));
+            return;
+          }
+
+          resolve(new File([whiteBlob], "drawio-submission.png", { type: "image/png" }));
+        }, "image/png");
+      } finally {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Failed to decode exported PNG image."));
+    };
+
+    image.src = imageUrl;
+  });
+
+const toPngFile = async (rawExportData: string): Promise<File> => {
+  const pngBlob = toPngBlob(rawExportData);
+  return toWhiteBackgroundPngFile(pngBlob);
+};
+
+export function DrawioBoard({ onExport, onExportError, submitting = false }: DrawioBoardProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
@@ -54,9 +143,7 @@ export function DrawioBoard({ onExport, submitting = false }: DrawioBoardProps) 
   };
 
   useEffect(() => {
-    console.log("hello");
     const handleMessage = (event: MessageEvent) => {
-      console.log("msg:", event.origin, event.data);
       if (event.origin !== DRAWIO_ORIGIN) return;
       const iframeWindow = iframeRef.current?.contentWindow;
       if (iframeWindow && event.source !== iframeWindow) return;
@@ -82,8 +169,15 @@ export function DrawioBoard({ onExport, submitting = false }: DrawioBoardProps) 
       }
 
       if (data.event === "export") {
-        const diagramXml = data.data ?? "";
-        onExport?.(diagramXml);
+        void (async () => {
+          try {
+            const imageFile = await toPngFile(data.data ?? "");
+            await onExport?.(imageFile);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to export PNG from draw.io.";
+            onExportError?.(message);
+          }
+        })();
       }
     };
 
@@ -92,11 +186,16 @@ export function DrawioBoard({ onExport, submitting = false }: DrawioBoardProps) 
       window.removeEventListener("message", handleMessage);
       stopRetry();
     };
-  }, [onExport]);
+  }, [onExport, onExportError]);
 
   const handleExport = () => {
     iframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ action: "export", format: "xmlsvg" }),
+      JSON.stringify({
+        action: "export",
+        format: "png",
+        bg: "#ffffff",
+        transparent: false,
+      }),
       "*"
     );
   };
@@ -116,7 +215,6 @@ export function DrawioBoard({ onExport, submitting = false }: DrawioBoardProps) 
           title="Draw.io"
           src="http://localhost:8080/?embed=1&spin=1&ui=min&libs=er&proto=json"
           onLoad={() => {
-            console.log("iframe loaded");
             sendLoad();
             startRetry();
           }}

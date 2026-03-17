@@ -164,18 +164,19 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
         ? Number(resolvedPayload.score.normalized_10)
         : null;
 
-  const handleSubmitXml = async (xml: string) => {
+  const handleSubmitDrawioImage = async (imageFile: File) => {
     if (chatSending) return;
-    const payloadXml = xml.trim();
-    if (!payloadXml) {
-      setSubmitError("Draw.io XML is empty. Please export from draw.io and try again.");
+    if (!imageFile || imageFile.size === 0) {
+      setSubmitError("Draw.io PNG export is empty. Please export again and retry.");
       return;
     }
+
+    setSubmitError(null);
 
     await runSubmitStream({
         question_id: question.id,
         mode: "Submit",
-        submission_xml_text: payloadXml,
+        erd_img: imageFile,
       });
   };
 
@@ -265,7 +266,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
                       <Stack gap={4}>
                         <Text fw={600}>Submit via draw.io</Text>
                         <Text size="sm" c="dimmed">
-                          Open the draw.io editor and submit using the exported XML.
+                          Open the draw.io editor and submit the exported PNG image.
                         </Text>
                       </Stack>
                     </Paper>
@@ -288,7 +289,8 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
 
                 {submissionMode === "drawio" ? (
                   <DrawioBoard
-                    onExport={handleSubmitXml}
+                    onExport={handleSubmitDrawioImage}
+                    onExportError={(message) => setSubmitError(message)}
                     submitting={submitLoading || chatSending}
                   />
                 ) : null}

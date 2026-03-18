@@ -1,7 +1,6 @@
 import sqlite3
-import signal
+import threading
 import time
-from contextlib import contextmanager
 from typing import Tuple, List, Dict, Any
 
 
@@ -36,28 +35,6 @@ class QueryExecutor:
         self.db_path = db_path
         self.timeout_seconds = timeout_seconds
 
-    @contextmanager
-    def _timeout_handler(self):
-        """
-        Context manager for query timeout using signal.alarm.
-        Note: signal.alarm only works on Unix systems. On Windows, we'll use a different approach.
-        """
-        def timeout_handler_func(signum, frame):
-            raise QueryTimeoutError(f"Query execution exceeded {self.timeout_seconds} seconds")
-
-        # Try to use signal.alarm (Unix only)
-        try:
-            old_handler = signal.signal(signal.SIGALRM, timeout_handler_func)
-            signal.alarm(self.timeout_seconds)
-            try:
-                yield
-            finally:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-        except AttributeError:
-            # Windows doesn't support SIGALRM, so we just yield without timeout
-            # In production, consider using threading.Timer or multiprocessing
-            yield
 
     def _is_safe_query(self, query: str) -> bool:
         """
@@ -97,6 +74,9 @@ class QueryExecutor:
         """
         Execute a SQL query with safety checks and timeout.
 
+        Uses threading-based timeout for compatibility with FastAPI async workers
+        and Azure App Service deployment.
+
         Args:
             query: SQL query to execute
 
@@ -115,34 +95,69 @@ class QueryExecutor:
                 "Queries must not contain DROP, DELETE, INSERT, UPDATE, ALTER, CREATE, etc."
             )
 
-        try:
-            # Connect to database in read-only mode
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-            cursor = conn.cursor()
+        result_container = {'columns': [], 'results': [], 'error': None, 'done': False}
 
-            # Execute query with timeout
-            start_time = time.time()
+        def execute_in_thread():
+            """Execute query in a separate thread"""
+            conn = None
+            cursor = None
+            try:
+                # Connect to database in read-only mode
+                conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+                cursor = conn.cursor()
 
-            with self._timeout_handler():
+                # Execute query
                 cursor.execute(query)
                 results = cursor.fetchall()
 
-            execution_time_ms = (time.time() - start_time) * 1000
+                # Get column names
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
 
-            # Get column names
-            column_names = [description[0] for description in cursor.description] if cursor.description else []
+                result_container['columns'] = columns
+                result_container['results'] = results
+                result_container['done'] = True
 
-            cursor.close()
-            conn.close()
+            except Exception as e:
+                result_container['error'] = e
+                result_container['done'] = True
+            finally:
+                # Always close cursor and connection
+                if cursor:
+                    try:
+                        cursor.close()
+                    except:
+                        pass
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass
 
-            return column_names, results, execution_time_ms
+        # Execute in thread with timeout
+        start_time = time.time()
+        thread = threading.Thread(target=execute_in_thread)
+        thread.daemon = True
+        thread.start()
+        thread.join(timeout=self.timeout_seconds)
 
-        except QueryTimeoutError:
-            raise
-        except sqlite3.Error as e:
-            raise QueryExecutionError(f"SQL execution error: {str(e)}")
-        except Exception as e:
-            raise QueryExecutionError(f"Unexpected error during query execution: {str(e)}")
+        execution_time_ms = (time.time() - start_time) * 1000
+
+        # Check timeout
+        if thread.is_alive():
+            # Query still running - timeout
+            raise QueryTimeoutError(
+                f"Query execution exceeded {self.timeout_seconds} seconds"
+            )
+
+        # Check for errors
+        if result_container['error']:
+            raise QueryExecutionError(f"SQL execution error: {str(result_container['error'])}")
+
+        return (
+            result_container['columns'],
+            result_container['results'],
+            execution_time_ms
+        )
 
 
 def execute_student_query(db_path: str, query: str, timeout: int = 5) -> Dict[str, Any]:

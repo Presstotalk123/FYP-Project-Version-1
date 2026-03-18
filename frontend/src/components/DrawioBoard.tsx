@@ -9,7 +9,16 @@ type DrawioBoardProps = {
   submitting?: boolean;
 };
 
-const DRAWIO_ORIGIN = "http://localhost:8080";
+const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "";
+
+const DRAWIO_ORIGIN = (() => {
+  if (!DRAWIO_URL) return "";
+  try {
+    return new URL(DRAWIO_URL).origin;
+  } catch {
+    return DRAWIO_URL;
+  }
+})();
 
 type DrawioMessage = {
   event?: "init" | "export";
@@ -213,7 +222,7 @@ export function DrawioBoard({ onExport, onExportError, submitting = false }: Dra
         <iframe
           ref={iframeRef}
           title="Draw.io"
-          src="http://localhost:8080/?embed=1&spin=1&ui=min&libs=er&proto=json"
+          src={DRAWIO_URL}
           onLoad={() => {
             sendLoad();
             startRetry();

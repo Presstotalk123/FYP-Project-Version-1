@@ -33,3 +33,66 @@
   overflow-x: hidden;
   word-break: break-word;
 }
+
+.outputTabs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.outputTabsList {
+  margin-bottom: 8px;
+}
+
+.outputTabPanel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.jsonPanelStack {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.jsonEditorWrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: 8px;
+  background: var(--mantine-color-gray-0);
+  overflow: hidden;
+}
+
+.jsonEditorRoot {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.jsonEditorInputWrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.jsonEditorInput {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  resize: none;
+}

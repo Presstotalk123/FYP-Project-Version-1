@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import {
   ActionIcon,
   Alert,
+  Badge,
   Box,
   Button,
   Container,
@@ -23,6 +24,7 @@ import { erDiagramService } from "@/services/er-diagram.service";
 import type {
   ERSubmissionRequest,
   ERSubmissionResponse,
+  ERSubmissionStructuredOutput,
   ERSubmissionStreamEvent,
 } from "@/types/er-diagram.types";
 
@@ -30,32 +32,55 @@ type WorkspaceProps = {
   question: QuestionCardData;
 };
 
-type SubmissionScore = {
-  normalized_10?: number | string;
-};
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
-type SubmissionPayload = {
-  score?: SubmissionScore;
-  student_message?: string;
-  [key: string]: unknown;
+const isObjectArray = (value: unknown): value is Record<string, unknown>[] =>
+  Array.isArray(value) && value.every((item) => isObject(item));
+
+const isSubmissionPayload = (value: unknown): value is ERSubmissionStructuredOutput => {
+  if (!isObject(value)) return false;
+  return (
+    isObject(value.score) &&
+    isObjectArray(value.checks) &&
+    typeof value.student_message === "string" &&
+    value.student_message.trim().length > 0
+  );
 };
 
 const parseSubmissionPayload = (
-  structuredOutput: Record<string, unknown> | null | undefined,
+  structuredOutput: unknown,
   text: string | null | undefined,
-): SubmissionPayload | null => {
-  if (structuredOutput && Object.keys(structuredOutput).length > 0) {
-    return structuredOutput as SubmissionPayload;
+): ERSubmissionStructuredOutput | null => {
+  if (structuredOutput && isSubmissionPayload(structuredOutput)) {
+    return structuredOutput;
   }
   const raw = text?.trim();
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as SubmissionPayload;
+    if (isSubmissionPayload(parsed)) {
+      return parsed;
     }
   } catch {
     // Non-JSON submission text is expected in some workflows.
+  }
+  return null;
+};
+
+const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | null): number | null => {
+  if (!structuredOutput || !isObject(structuredOutput.score)) {
+    return null;
+  }
+  const rawPercent = structuredOutput.score.percent;
+  if (typeof rawPercent === "number" && Number.isFinite(rawPercent)) {
+    return rawPercent;
+  }
+  if (typeof rawPercent === "string") {
+    const parsed = Number(rawPercent);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
   }
   return null;
 };
@@ -66,10 +91,8 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const [chatSending, setChatSending] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitResult, setSubmitResult] = useState<ERSubmissionResponse | null>(null);
-  const [submitLiveText, setSubmitLiveText] = useState("");
-  const [submitStructuredPreview, setSubmitStructuredPreview] = useState<Record<string, unknown> | null>(null);
   const [latestStudentMessage, setLatestStudentMessage] = useState<string | null>(null);
+  const [latestScorePercent, setLatestScorePercent] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftPercent, setLeftPercent] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
@@ -102,39 +125,38 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const runSubmitStream = async (payload: ERSubmissionRequest): Promise<void> => {
     setSubmitLoading(true);
     setSubmitError(null);
-    setSubmitResult(null);
-    setSubmitLiveText("");
-    setSubmitStructuredPreview(null);
+    setLatestScorePercent(null);
 
     try {
       let finalResult: ERSubmissionResponse | null = null;
       for await (const event of erDiagramService.submitStream(payload)) {
         const typedEvent = event as ERSubmissionStreamEvent;
         if (typedEvent.event === "token") {
-          setSubmitLiveText(typedEvent.data.text || "");
           continue;
         }
         if (typedEvent.event === "structured_output") {
-          setSubmitStructuredPreview(typedEvent.data.structured_output || null);
           continue;
         }
         if (typedEvent.event === "done") {
-          const payload = parseSubmissionPayload(typedEvent.data.structured_output, typedEvent.data.text);
-          const studentMessage =
-            typeof payload?.student_message === "string" ? payload.student_message.trim() : "";
+          const parsedStructuredOutput = parseSubmissionPayload(typedEvent.data.structured_output, typedEvent.data.text);
 
           const normalizedResult: ERSubmissionResponse = {
             ...typedEvent.data,
-            text: studentMessage || typedEvent.data.text || "",
-            structured_output: (payload as Record<string, unknown> | null) || typedEvent.data.structured_output || null,
+            text: typedEvent.data.text || "",
+            structured_output: parsedStructuredOutput || typedEvent.data.structured_output || null,
           };
 
           finalResult = normalizedResult;
-          setSubmitLiveText(normalizedResult.text || "");
-          setSubmitStructuredPreview(normalizedResult.structured_output || null);
-          setSubmitResult(normalizedResult);
+          const parsedPercent = getSubmissionPercent(parsedStructuredOutput);
+          if (parsedPercent !== null) {
+            setLatestScorePercent(parsedPercent);
+          }
+
+          const studentMessage = parsedStructuredOutput?.student_message?.trim();
           if (studentMessage) {
             setLatestStudentMessage(studentMessage);
+          } else if (normalizedResult.text.trim()) {
+            setLatestStudentMessage(normalizedResult.text.trim());
           }
           continue;
         }
@@ -152,17 +174,6 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
       setSubmitLoading(false);
     }
   };
-
-  const resolvedPayload = parseSubmissionPayload(
-    submitResult?.structured_output || submitStructuredPreview,
-    submitResult?.text || submitLiveText,
-  );
-  const normalizedScore =
-    typeof resolvedPayload?.score?.normalized_10 === "number"
-      ? resolvedPayload.score.normalized_10
-      : typeof resolvedPayload?.score?.normalized_10 === "string"
-        ? Number(resolvedPayload.score.normalized_10)
-        : null;
 
   const handleSubmitDrawioImage = async (imageFile: File) => {
     if (chatSending) return;
@@ -234,12 +245,12 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
             }}
           >
             <Stack gap="sm">
-              <Group justify="space-between" align="center">
+              <Group align="center" justify="space-between">
                 <Title order={4}>Problem</Title>
-                {normalizedScore !== null && Number.isFinite(normalizedScore) ? (
-                  <Text fw={700} c="blue">
-                    Score: {normalizedScore.toFixed(1)}/10
-                  </Text>
+                {latestScorePercent !== null ? (
+                  <Badge color="green" variant="light" size="lg">
+                    Score: {latestScorePercent}%
+                  </Badge>
                 ) : null}
               </Group>
               <Text>{question.description}</Text>

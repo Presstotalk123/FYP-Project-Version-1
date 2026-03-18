@@ -11,6 +11,7 @@ import {
   Group,
   SimpleGrid,
   Stack,
+  Tabs,
   Text,
   Textarea,
   Title,
@@ -26,6 +27,8 @@ export default function AddERDiagramQuestionPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [outputText, setOutputText] = useState("");
   const [rubricJson, setRubricJson] = useState<Record<string, unknown>>({});
+  const [rubricJsonDraft, setRubricJsonDraft] = useState("{}");
+  const [rubricJsonError, setRubricJsonError] = useState<string | null>(null);
   const [diffSummary, setDiffSummary] = useState<unknown[]>([]);
   const [difficulty, setDifficulty] = useState<GenerateRubricDifficulty | null>(null);
   const [problemTitle, setProblemTitle] = useState("");
@@ -77,6 +80,28 @@ export default function AddERDiagramQuestionPage() {
     return axiosErr.message || "Unexpected request error";
   };
 
+  const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
+  const formatRubricJson = (value: Record<string, unknown>): string => JSON.stringify(value, null, 2);
+
+  const handleRubricJsonChange = (value: string) => {
+    setRubricJsonDraft(value);
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!isJsonObject(parsed)) {
+        setRubricJsonError("rubric_json must be a JSON object");
+        return;
+      }
+
+      setRubricJson(parsed);
+      setRubricJsonError(null);
+    } catch {
+      setRubricJsonError("Invalid JSON. Please fix syntax errors.");
+    }
+  };
+
   const currentSignature = useMemo(() => {
     const modelAnswerFile = modelAnswerFiles[0];
     return JSON.stringify({
@@ -114,6 +139,10 @@ export default function AddERDiagramQuestionPage() {
       setError("Refinement instructions are required for regenerate");
       return;
     }
+    if (mode === "patch" && rubricJsonError) {
+      setError("Please fix rubric_json before regenerating");
+      return;
+    }
 
     setIsGenerating(true);
     setError(null);
@@ -142,8 +171,12 @@ export default function AddERDiagramQuestionPage() {
         throw new Error("Backend returned an empty rubric response");
       }
 
+      const nextRubricJson = response.rubric_json || {};
+
       setOutputText(rubricText);
-      setRubricJson(response.rubric_json || {});
+      setRubricJson(nextRubricJson);
+      setRubricJsonDraft(formatRubricJson(nextRubricJson));
+      setRubricJsonError(null);
       setDiffSummary(response.diff_summary || []);
       setDifficulty(response.difficulty);
       setInstructionHistory(nextHistory);
@@ -183,6 +216,10 @@ export default function AddERDiagramQuestionPage() {
     }
     if (!difficulty) {
       setError("Difficulty metadata is missing from generated rubric");
+      return;
+    }
+    if (rubricJsonError) {
+      setError("Please fix rubric_json before saving");
       return;
     }
     if (savedSignature === currentSignature) {
@@ -226,7 +263,9 @@ export default function AddERDiagramQuestionPage() {
     }
   };
 
-  const saveDisabled = !outputText.trim() || !difficulty || isSaving || savedSignature === currentSignature;
+  const hasRubricJsonError = Boolean(rubricJsonError);
+  const hasOutput = Boolean(outputText.trim());
+  const saveDisabled = !hasOutput || !difficulty || isSaving || hasRubricJsonError || savedSignature === currentSignature;
 
   return (
     <Container size="lg" py="xl">
@@ -338,6 +377,7 @@ export default function AddERDiagramQuestionPage() {
                   <Button
                     variant="light"
                     loading={isGenerating}
+                    disabled={hasRubricJsonError}
                     onClick={() => handleGenerateRubric("patch")}
                   >
                     Regenerate Rubrics
@@ -359,17 +399,52 @@ export default function AddERDiagramQuestionPage() {
               <Text fw={500} size="sm">
                 Rubrics Output
               </Text>
+              <Text size="xs" c="dimmed">
+                To edit rubrics directly, use the Rubric JSON tab.
+              </Text>
               {difficulty ? (
                 <Alert color="blue" title={`Difficulty: ${difficulty.label}`}>
                   {difficulty.rationale}
                 </Alert>
               ) : null}
-              <Box className={styles.outputBox}>
-                <Text c={outputText ? undefined : "dimmed"}>
-                  {outputText || "Output will appear here."}
-                </Text>
-              </Box>
-              {outputText ? (
+              <Tabs defaultValue="rubric-markdown" className={styles.outputTabs}>
+                <Tabs.List className={styles.outputTabsList}>
+                  <Tabs.Tab value="rubric-markdown">Rubric Markdown</Tabs.Tab>
+                  <Tabs.Tab value="rubric-json">Rubric JSON</Tabs.Tab>
+                </Tabs.List>
+
+                <Tabs.Panel value="rubric-markdown" className={styles.outputTabPanel}>
+                  <Box className={styles.outputBox}>
+                    <Text c={hasOutput ? undefined : "dimmed"}>
+                      {outputText || "Output will appear here."}
+                    </Text>
+                  </Box>
+                </Tabs.Panel>
+
+                <Tabs.Panel value="rubric-json" className={styles.outputTabPanel}>
+                  <Stack gap="xs" className={styles.jsonPanelStack}>
+                    {rubricJsonError ? (
+                      <Alert color="red" title="Invalid rubric_json">
+                        {rubricJsonError}
+                      </Alert>
+                    ) : null}
+                    <Box className={styles.jsonEditorWrapper}>
+                      <Textarea
+                        value={rubricJsonDraft}
+                        onChange={(event) => handleRubricJsonChange(event.currentTarget.value)}
+                        placeholder={hasOutput ? "Edit rubric_json directly." : "Generate rubrics to edit rubric_json."}
+                        disabled={!hasOutput}
+                        classNames={{
+                          root: styles.jsonEditorRoot,
+                          wrapper: styles.jsonEditorInputWrapper,
+                          input: styles.jsonEditorInput,
+                        }}
+                      />
+                    </Box>
+                  </Stack>
+                </Tabs.Panel>
+              </Tabs>
+              {hasOutput ? (
                 <Group justify="space-between" mt="auto">
                   <Text size="xs" c={isSaved ? "green" : "dimmed"}>
                     {isSaved && savedQuestionId

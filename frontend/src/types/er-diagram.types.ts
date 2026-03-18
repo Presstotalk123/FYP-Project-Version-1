@@ -65,6 +65,21 @@ export interface ERDiagramQuestionListItem {
   created_at: string;
 }
 
+export interface ERSubmissionScore {
+  [key: string]: unknown;
+}
+
+export interface ERSubmissionCheck {
+  [key: string]: unknown;
+}
+
+export interface ERSubmissionStructuredOutput {
+  score: ERSubmissionScore;
+  checks: ERSubmissionCheck[];
+  student_message: string;
+  [key: string]: unknown;
+}
+
 export interface ERSubmissionRequest {
   question_id: number;
   mode: ERSubmissionMode;
@@ -76,7 +91,7 @@ export interface ERSubmissionRequest {
 export interface ERSubmissionResponse {
   mode: ERSubmissionMode;
   text: string;
-  structured_output: Record<string, unknown> | null;
+  structured_output: ERSubmissionStructuredOutput | null;
 }
 
 export interface ERSubmissionStreamStartEvent {
@@ -98,7 +113,7 @@ export interface ERSubmissionStreamTokenEvent {
 export interface ERSubmissionStreamStructuredOutputEvent {
   event: "structured_output";
   data: {
-    structured_output: Record<string, unknown> | null;
+    structured_output: ERSubmissionStructuredOutput | null;
   };
 }
 

@@ -11,6 +11,7 @@ import {
   Group,
   SimpleGrid,
   Stack,
+  Switch,
   Tabs,
   Text,
   Textarea,
@@ -36,6 +37,7 @@ export default function AddERDiagramQuestionPage() {
   const [refinementInstruction, setRefinementInstruction] = useState("");
   const [instructionHistory, setInstructionHistory] = useState<string[]>([]);
   const [modelAnswerFiles, setModelAnswerFiles] = useState<File[]>([]);
+  const [showRubricOnAttempt, setShowRubricOnAttempt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
@@ -111,6 +113,7 @@ export default function AddERDiagramQuestionPage() {
       rubric_json: rubricJson,
       difficulty,
       instruction_history: instructionHistory,
+      show_rubric_on_attempt: showRubricOnAttempt,
       model_answer_file: modelAnswerFile
         ? {
             name: modelAnswerFile.name,
@@ -121,7 +124,7 @@ export default function AddERDiagramQuestionPage() {
         : null,
       diff_summary: diffSummary,
     });
-  }, [problemTitle, problemStatement, outputText, rubricJson, difficulty, instructionHistory, modelAnswerFiles, diffSummary]);
+  }, [problemTitle, problemStatement, outputText, rubricJson, difficulty, instructionHistory, showRubricOnAttempt, modelAnswerFiles, diffSummary]);
 
   const handleGenerateRubric = async (mode: GenerateRubricMode) => {
     if (!problemTitle.trim()) {
@@ -239,6 +242,7 @@ export default function AddERDiagramQuestionPage() {
         rubric_md: outputText.trim(),
         rubric_json: rubricJson,
         instruction_history: instructionHistory,
+        show_rubric_on_attempt: showRubricOnAttempt,
         model_answer: modelAnswerFiles[0] ?? null,
       });
 
@@ -372,6 +376,12 @@ export default function AddERDiagramQuestionPage() {
                   onChange={(event) => setRefinementInstruction(event.currentTarget.value)}
                 />
               </Stack>
+              <Switch
+                label="Show rubric to students after submission"
+                description="When enabled, students can view the rubric in a separate tab after they submit their ERD."
+                checked={showRubricOnAttempt}
+                onChange={(event) => setShowRubricOnAttempt(event.currentTarget.checked)}
+              />
               <Group justify="flex-end">
                 {isSubmitted ? (
                   <Button

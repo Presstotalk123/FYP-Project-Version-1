@@ -37,6 +37,7 @@ export interface SaveERQuestionRequest {
   rubric_md: string;
   rubric_json: Record<string, unknown>;
   instruction_history: string[];
+  show_rubric_on_attempt: boolean;
   model_answer?: File | null;
 }
 
@@ -47,9 +48,10 @@ export interface ERDiagramQuestion {
   notation: "Chen";
   difficulty_label: ERDifficultyLabel;
   difficulty_rationale: string;
-  rubric_md: string;
-  rubric_json: Record<string, unknown>;
+  rubric_md?: string;
+  rubric_json?: Record<string, unknown>;
   instruction_history: string[];
+  show_rubric_on_attempt: boolean;
   model_answer_storage_key: string | null;
   model_answer_url: string | null;
   created_by: number;
@@ -62,6 +64,8 @@ export interface ERDiagramQuestionListItem {
   title: string;
   problem_statement: string;
   difficulty_label: ERDifficultyLabel;
+  created_by: number;
+  created_by_role: "student" | "staff";
   created_at: string;
 }
 

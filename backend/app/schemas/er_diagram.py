@@ -59,6 +59,7 @@ class ERDiagramQuestionBase(BaseModel):
     rubric_md: str = Field(..., min_length=1)
     rubric_json: dict[str, Any] = Field(default_factory=dict)
     instruction_history: list[str] = Field(default_factory=list)
+    show_rubric_on_attempt: bool = False
 
 
 class ERDiagramQuestionCreate(ERDiagramQuestionBase):
@@ -67,6 +68,8 @@ class ERDiagramQuestionCreate(ERDiagramQuestionBase):
 
 
 class ERDiagramQuestionResponse(ERDiagramQuestionBase):
+    rubric_md: str | None = None
+    rubric_json: dict[str, Any] | None = None
     id: int
     model_answer_storage_key: str | None = None
     model_answer_url: str | None = None
@@ -83,6 +86,8 @@ class ERDiagramQuestionListItem(BaseModel):
     title: str
     problem_statement: str = Field(..., max_length=200)
     difficulty_label: DifficultyLabel
+    created_by: int
+    created_by_role: Literal["student", "staff"]
     created_at: datetime
 
     class Config:

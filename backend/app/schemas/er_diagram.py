@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 GenerateRubricMode = Literal["create", "patch"]
@@ -28,10 +28,26 @@ class GenerateRubricResponse(BaseModel):
     diff_summary: list[RubricDiffItem | str | dict[str, Any]] = Field(default_factory=list)
 
 
+class ERSubmissionScore(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class ERSubmissionCheck(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class ERSubmissionStructuredOutput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    score: ERSubmissionScore
+    checks: list[ERSubmissionCheck] = Field(default_factory=list)
+    student_message: str = Field(..., min_length=1)
+
+
 class ERSubmissionResponse(BaseModel):
     mode: ERSubmissionMode
     text: str
-    structured_output: dict[str, Any] | None = None
+    structured_output: ERSubmissionStructuredOutput | None = None
 
 
 class ERDiagramQuestionBase(BaseModel):

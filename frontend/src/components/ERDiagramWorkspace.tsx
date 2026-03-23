@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActionIcon,
   Alert,
@@ -10,7 +10,9 @@ import {
   Container,
   Group,
   Paper,
+  ScrollArea,
   Stack,
+  Tabs,
   Text,
   Title,
 } from "@mantine/core";
@@ -19,7 +21,6 @@ import Link from "next/link";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DrawioBoard } from "@/components/DrawioBoard";
-import type { QuestionCardData } from "@/components/QuestionCard";
 import { erDiagramService } from "@/services/er-diagram.service";
 import type {
   ERSubmissionRequest,
@@ -28,8 +29,17 @@ import type {
   ERSubmissionStreamEvent,
 } from "@/types/er-diagram.types";
 
+export type ERDiagramWorkspaceQuestion = {
+  id: number;
+  title: string;
+  description: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  rubric_md: string;
+  show_rubric_on_attempt: boolean;
+};
+
 type WorkspaceProps = {
-  question: QuestionCardData;
+  question: ERDiagramWorkspaceQuestion;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -93,9 +103,18 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [latestStudentMessage, setLatestStudentMessage] = useState<string | null>(null);
   const [latestScorePercent, setLatestScorePercent] = useState<number | null>(null);
+  const [hasSubmittedAttempt, setHasSubmittedAttempt] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<"ai-chat" | "rubric">("ai-chat");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftPercent, setLeftPercent] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
+  const showRubricTab = question.show_rubric_on_attempt && hasSubmittedAttempt;
+
+  useEffect(() => {
+    if (!showRubricTab && rightPanelTab === "rubric") {
+      setRightPanelTab("ai-chat");
+    }
+  }, [showRubricTab, rightPanelTab]);
 
   const updateWidthFromPointer = (clientX: number) => {
     const container = containerRef.current;
@@ -168,6 +187,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
       if (!finalResult) {
         throw new Error("Submission stream interrupted before completion.");
       }
+      setHasSubmittedAttempt(true);
     } catch (err) {
       setSubmitError(getErrorMessage(err));
     } finally {
@@ -411,12 +431,71 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
               flexDirection: "column",
             }}
           >
-            <ChatPanel
-              onSendMessage={handleQuery}
-              injectedAssistantMessage={latestStudentMessage}
-              disabled={submitLoading}
-              onSendingChange={setChatSending}
-            />
+            <Tabs
+              value={rightPanelTab}
+              onChange={(value) => setRightPanelTab((value as "ai-chat" | "rubric") || "ai-chat")}
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <Tabs.List>
+                <Tabs.Tab value="ai-chat">AI Chat</Tabs.Tab>
+                {showRubricTab ? <Tabs.Tab value="rubric">Rubric</Tabs.Tab> : null}
+              </Tabs.List>
+
+              <Tabs.Panel
+                value="ai-chat"
+                pt="sm"
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <ChatPanel
+                  onSendMessage={handleQuery}
+                  injectedAssistantMessage={latestStudentMessage}
+                  disabled={submitLoading}
+                  onSendingChange={setChatSending}
+                />
+              </Tabs.Panel>
+
+              {showRubricTab ? (
+                <Tabs.Panel
+                  value="rubric"
+                  pt="sm"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+                    <Title order={4}>Rubric</Title>
+                    <ScrollArea
+                      type="always"
+                      offsetScrollbars
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        border: "1px solid var(--mantine-color-gray-3)",
+                        borderRadius: 12,
+                      }}
+                      p="md"
+                    >
+                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                        {question.rubric_md}
+                      </Text>
+                    </ScrollArea>
+                  </Stack>
+                </Tabs.Panel>
+              ) : null}
+            </Tabs>
           </Box>
         </Box>
       </Stack>

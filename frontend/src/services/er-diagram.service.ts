@@ -127,6 +127,7 @@ export const erDiagramService = {
     formData.append("rubric_md", payload.rubric_md);
     formData.append("rubric_json", JSON.stringify(payload.rubric_json));
     formData.append("instruction_history", JSON.stringify(payload.instruction_history));
+    formData.append("show_rubric_on_attempt", String(payload.show_rubric_on_attempt));
 
     if (payload.model_answer) {
       formData.append("model_answer", payload.model_answer);

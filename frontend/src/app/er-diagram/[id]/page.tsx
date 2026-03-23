@@ -5,12 +5,12 @@ import { useParams } from "next/navigation";
 import { Alert, Container, Group, Loader } from "@mantine/core";
 import { IconAlertCircle } from "@tabler/icons-react";
 import { ERDiagramWorkspace } from "@/components/ERDiagramWorkspace";
-import { QuestionCardData } from "@/components/QuestionCard";
 import { erDiagramService } from "@/services/er-diagram.service";
+import type { ERDiagramWorkspaceQuestion } from "@/components/ERDiagramWorkspace";
 
 export default function ERDiagramQuestionPage() {
   const params = useParams<{ id: string }>();
-  const [question, setQuestion] = useState<QuestionCardData | null>(null);
+  const [question, setQuestion] = useState<ERDiagramWorkspaceQuestion | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,9 +27,10 @@ export default function ERDiagramQuestionPage() {
         setQuestion({
           id: data.id,
           title: data.title,
-          summary: data.problem_statement,
           description: data.problem_statement,
           difficulty: data.difficulty_label,
+          rubric_md: data.rubric_md || "",
+          show_rubric_on_attempt: data.show_rubric_on_attempt,
         });
       } catch (err) {
         const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };

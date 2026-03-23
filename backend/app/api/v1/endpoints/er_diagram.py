@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -23,6 +24,7 @@ from app.schemas.er_diagram import (
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
+    ERSubmissionStructuredOutput,
 )
 from app.utils.er_storage import get_er_storage_provider
 
@@ -536,6 +538,88 @@ def _extract_structured_output(value: Any) -> Optional[dict[str, Any]]:
     return None
 
 
+def _decode_first_json_object(raw: str) -> Optional[dict[str, Any]]:
+    text = raw.strip()
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    try:
+        parsed, _ = decoder.raw_decode(text)
+    except Exception:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _looks_like_submission_grading_payload(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return any(key in value for key in ("score", "checks", "student_message"))
+
+
+def _extract_submission_structured_candidate(value: Any) -> Optional[dict[str, Any]]:
+    queue: deque[Any] = deque([value])
+    scanned = 0
+    fallback_candidate_global: Optional[dict[str, Any]] = None
+    while queue and scanned < 500:
+        current = queue.popleft()
+        scanned += 1
+        if isinstance(current, dict):
+            fallback_candidate: Optional[dict[str, Any]] = None
+            candidate = current.get("structured_output")
+            if isinstance(candidate, dict):
+                if _looks_like_submission_grading_payload(candidate):
+                    return candidate
+                fallback_candidate = candidate
+            if isinstance(candidate, str):
+                parsed = _decode_first_json_object(candidate)
+                if isinstance(parsed, dict):
+                    if _looks_like_submission_grading_payload(parsed):
+                        return parsed
+                    fallback_candidate = fallback_candidate or parsed
+
+            for key in ("answer", "text", "student_message"):
+                text_candidate = current.get(key)
+                if isinstance(text_candidate, str):
+                    parsed = _decode_first_json_object(text_candidate)
+                    if isinstance(parsed, dict):
+                        if _looks_like_submission_grading_payload(parsed):
+                            return parsed
+                        fallback_candidate = fallback_candidate or parsed
+            if isinstance(fallback_candidate, dict) and fallback_candidate_global is None:
+                fallback_candidate_global = fallback_candidate
+            queue.extend(current.values())
+        elif isinstance(current, list):
+            queue.extend(current)
+    return fallback_candidate_global
+
+
+def _normalize_submission_structured_output(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Dify submission structured_output must be a JSON object",
+        )
+
+    normalized = dict(value)
+    normalized.setdefault("checks", [])
+    return normalized
+
+
+def _validate_submission_structured_output(value: Any) -> dict[str, Any]:
+    normalized = _normalize_submission_structured_output(value)
+    try:
+        parsed = ERSubmissionStructuredOutput.model_validate(normalized)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Dify submission structured_output schema invalid: {exc.errors()}",
+        )
+
+    return parsed.model_dump()
+
+
 def _call_dify_er_submission(
     question: ERDiagramQuestion,
     mode: ERSubmissionMode,
@@ -610,6 +694,26 @@ def _call_dify_er_submission(
         structured_output: Optional[dict[str, Any]] = None
         parse_failures = 0
         fallback_text: Optional[str] = None
+        last_structured_output_error: Optional[str] = None
+
+        def _build_done_payload() -> dict[str, Any]:
+            structured_student_message: Optional[str] = None
+            if isinstance(structured_output, dict):
+                candidate_message = structured_output.get("student_message")
+                if isinstance(candidate_message, str) and candidate_message.strip():
+                    structured_student_message = candidate_message.strip()
+
+            final_text = (
+                accumulated_text
+                or structured_student_message
+                or fallback_text
+                or "No response text returned from submission workflow."
+            )
+            return {
+                "mode": mode,
+                "text": final_text,
+                "structured_output": structured_output,
+            }
 
         try:
             with httpx.Client(timeout=float(settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS)) as client:
@@ -683,25 +787,44 @@ def _call_dify_er_submission(
                                 },
                             )
 
-                        maybe_structured = _extract_structured_output(payload)
+                        maybe_structured = _extract_submission_structured_candidate(payload)
                         if maybe_structured is not None:
-                            structured_output = maybe_structured
-                            yield _sse_event(
-                                "structured_output",
-                                {
-                                    "structured_output": structured_output,
-                                },
-                            )
+                            try:
+                                structured_output = _validate_submission_structured_output(maybe_structured)
+                            except HTTPException as exc:
+                                last_structured_output_error = str(exc.detail)
+                                logger.warning(
+                                    "submission_stream_invalid_structured_output question_id=%s mode=%s",
+                                    question.id,
+                                    mode,
+                                )
+                            else:
+                                last_structured_output_error = None
+                                yield _sse_event(
+                                    "structured_output",
+                                    {
+                                        "structured_output": structured_output,
+                                    },
+                                )
 
                         if event_name in {"message_end", "workflow_finished", "agent_message_end", "done"}:
                             break
 
-            final_text = accumulated_text or fallback_text or "No response text returned from submission workflow."
-            done_payload = {
-                "mode": mode,
-                "text": final_text,
-                "structured_output": structured_output,
-            }
+            if mode == "Submit" and structured_output is None:
+                if last_structured_output_error:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=(
+                            "Dify submission stream completed without valid structured_output for Submit mode. "
+                            f"Last validation error: {last_structured_output_error}"
+                        ),
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Dify submission stream completed without valid structured_output for Submit mode",
+                )
+
+            done_payload = _build_done_payload()
             yield _sse_event("done", done_payload)
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             logger.info(
@@ -709,7 +832,7 @@ def _call_dify_er_submission(
                 question.id,
                 mode,
                 duration_ms,
-                len(final_text),
+                len(done_payload["text"]),
             )
         except HTTPException as exc:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -723,6 +846,31 @@ def _call_dify_er_submission(
             yield _sse_event("error", {"detail": str(exc.detail)})
         except httpx.RequestError as exc:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
+            # If the upstream stream disconnects after we already captured enough data,
+            # finalize the response instead of surfacing a hard transport error.
+            if mode == "Submit" and structured_output is not None:
+                done_payload = _build_done_payload()
+                logger.warning(
+                    "submission_stream_request_error_recovered question_id=%s mode=%s duration_ms=%s detail=%s",
+                    question.id,
+                    mode,
+                    duration_ms,
+                    str(exc),
+                )
+                yield _sse_event("done", done_payload)
+                return
+            if mode == "Query" and (accumulated_text or fallback_text):
+                done_payload = _build_done_payload()
+                logger.warning(
+                    "submission_stream_request_error_recovered question_id=%s mode=%s duration_ms=%s detail=%s",
+                    question.id,
+                    mode,
+                    duration_ms,
+                    str(exc),
+                )
+                yield _sse_event("done", done_payload)
+                return
+
             message = f"Unable to reach Dify submission endpoint: {str(exc)}"
             logger.warning(
                 "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s",

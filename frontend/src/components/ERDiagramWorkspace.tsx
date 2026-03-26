@@ -45,37 +45,51 @@ type WorkspaceProps = {
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isObjectArray = (value: unknown): value is Record<string, unknown>[] =>
-  Array.isArray(value) && value.every((item) => isObject(item));
+const normalizeSubmissionPayload = (value: unknown): ERSubmissionStructuredOutput | null => {
+  if (!isObject(value)) return null;
+  if (!isObject(value.score)) return null;
+  if (typeof value.student_message !== "string" || value.student_message.trim().length === 0) return null;
 
-const isSubmissionPayload = (value: unknown): value is ERSubmissionStructuredOutput => {
-  if (!isObject(value)) return false;
-  return (
-    isObject(value.score) &&
-    isObjectArray(value.checks) &&
-    typeof value.student_message === "string" &&
-    value.student_message.trim().length > 0
-  );
+  return value as ERSubmissionStructuredOutput;
+};
+
+const parseJsonObject = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const extractSubmissionPayload = (value: unknown): ERSubmissionStructuredOutput | null => {
+  const directPayload = normalizeSubmissionPayload(value);
+  if (directPayload) return directPayload;
+  if (!isObject(value)) return null;
+
+  const structuredPayload = extractSubmissionPayload(value.structured_output);
+  if (structuredPayload) return structuredPayload;
+
+  const answerPayload = extractSubmissionPayload(parseJsonObject(value.answer));
+  if (answerPayload) return answerPayload;
+
+  const textPayload = extractSubmissionPayload(parseJsonObject(value.text));
+  if (textPayload) return textPayload;
+
+  const messagePayload = extractSubmissionPayload(parseJsonObject(value.message));
+  if (messagePayload) return messagePayload;
+
+  return null;
 };
 
 const parseSubmissionPayload = (
   structuredOutput: unknown,
   text: string | null | undefined,
 ): ERSubmissionStructuredOutput | null => {
-  if (structuredOutput && isSubmissionPayload(structuredOutput)) {
-    return structuredOutput;
-  }
-  const raw = text?.trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (isSubmissionPayload(parsed)) {
-      return parsed;
-    }
-  } catch {
-    // Non-JSON submission text is expected in some workflows.
-  }
-  return null;
+  return extractSubmissionPayload(structuredOutput) || extractSubmissionPayload(parseJsonObject(text));
 };
 
 const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | null): number | null => {
@@ -133,6 +147,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   };
 
   const handleQuery = async (message: string): Promise<string> => {
+    setLatestScorePercent(null);
     const response = await erDiagramService.submit({
       question_id: question.id,
       mode: "Query",
@@ -157,7 +172,10 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
           continue;
         }
         if (typedEvent.event === "done") {
-          const parsedStructuredOutput = parseSubmissionPayload(typedEvent.data.structured_output, typedEvent.data.text);
+          const parsedStructuredOutput = parseSubmissionPayload(
+            typedEvent.data.structured_output,
+            typedEvent.data.text,
+          );
 
           const normalizedResult: ERSubmissionResponse = {
             ...typedEvent.data,
@@ -174,8 +192,8 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
           const studentMessage = parsedStructuredOutput?.student_message?.trim();
           if (studentMessage) {
             setLatestStudentMessage(studentMessage);
-          } else if (normalizedResult.text.trim()) {
-            setLatestStudentMessage(normalizedResult.text.trim());
+          } else if (typedEvent.data.text?.trim()) {
+            setLatestStudentMessage(typedEvent.data.text.trim());
           }
           continue;
         }

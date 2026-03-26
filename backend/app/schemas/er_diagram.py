@@ -32,15 +32,10 @@ class ERSubmissionScore(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class ERSubmissionCheck(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
 class ERSubmissionStructuredOutput(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     score: ERSubmissionScore
-    checks: list[ERSubmissionCheck] = Field(default_factory=list)
     student_message: str = Field(..., min_length=1)
 
 

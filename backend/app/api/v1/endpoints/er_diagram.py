@@ -573,61 +573,145 @@ def _extract_structured_output(value: Any) -> Optional[dict[str, Any]]:
     return None
 
 
-def _decode_first_json_object(raw: str) -> Optional[dict[str, Any]]:
-    text = raw.strip()
+def _decode_first_json_object_with_remainder(raw: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    text = raw.lstrip()
     if not text:
-        return None
+        return None, None
     decoder = json.JSONDecoder()
     try:
-        parsed, _ = decoder.raw_decode(text)
+        parsed, end = decoder.raw_decode(text)
     except Exception:
-        return None
+        stripped = raw.strip()
+        return None, (stripped or None)
+    remainder = text[end:].strip() or None
     if isinstance(parsed, dict):
-        return parsed
-    return None
+        return parsed, remainder
+    return None, remainder
+
+
+def _decode_first_json_object(raw: str) -> Optional[dict[str, Any]]:
+    parsed, _ = _decode_first_json_object_with_remainder(raw)
+    return parsed
+
+
+def _looks_like_submission_score_payload(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    percent = value.get("percent")
+    if isinstance(percent, (int, float)) and not isinstance(percent, bool):
+        return True
+    if isinstance(percent, str):
+        try:
+            float(percent.strip())
+            return True
+        except Exception:
+            return False
+    return False
 
 
 def _looks_like_submission_grading_payload(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
-    return any(key in value for key in ("score", "checks", "student_message"))
+    score = value.get("score")
+    student_message = value.get("student_message")
+    return isinstance(score, dict) and isinstance(student_message, str) and bool(student_message.strip())
 
 
 def _extract_submission_structured_candidate(value: Any) -> Optional[dict[str, Any]]:
-    queue: deque[Any] = deque([value])
-    scanned = 0
-    fallback_candidate_global: Optional[dict[str, Any]] = None
-    while queue and scanned < 500:
-        current = queue.popleft()
-        scanned += 1
-        if isinstance(current, dict):
-            fallback_candidate: Optional[dict[str, Any]] = None
-            candidate = current.get("structured_output")
-            if isinstance(candidate, dict):
-                if _looks_like_submission_grading_payload(candidate):
-                    return candidate
-                fallback_candidate = candidate
-            if isinstance(candidate, str):
-                parsed = _decode_first_json_object(candidate)
-                if isinstance(parsed, dict):
-                    if _looks_like_submission_grading_payload(parsed):
-                        return parsed
-                    fallback_candidate = fallback_candidate or parsed
+    if not isinstance(value, dict):
+        return None
 
-            for key in ("answer", "text", "student_message"):
-                text_candidate = current.get(key)
-                if isinstance(text_candidate, str):
-                    parsed = _decode_first_json_object(text_candidate)
-                    if isinstance(parsed, dict):
-                        if _looks_like_submission_grading_payload(parsed):
-                            return parsed
-                        fallback_candidate = fallback_candidate or parsed
-            if isinstance(fallback_candidate, dict) and fallback_candidate_global is None:
-                fallback_candidate_global = fallback_candidate
-            queue.extend(current.values())
-        elif isinstance(current, list):
-            queue.extend(current)
-    return fallback_candidate_global
+    structured_candidate = value.get("structured_output")
+    if isinstance(structured_candidate, dict) and _looks_like_submission_grading_payload(structured_candidate):
+        return structured_candidate
+    if isinstance(structured_candidate, str):
+        parsed_structured = _decode_first_json_object(structured_candidate)
+        if isinstance(parsed_structured, dict):
+            if _looks_like_submission_grading_payload(parsed_structured):
+                return parsed_structured
+            nested_structured = _extract_submission_structured_candidate(parsed_structured)
+            if nested_structured is not None:
+                return nested_structured
+
+    answer_candidate = value.get("answer")
+    if isinstance(answer_candidate, str):
+        parsed_answer = _decode_first_json_object(answer_candidate)
+        if isinstance(parsed_answer, dict):
+            if _looks_like_submission_grading_payload(parsed_answer):
+                return parsed_answer
+            nested_answer = _extract_submission_structured_candidate(parsed_answer)
+            if nested_answer is not None:
+                return nested_answer
+
+    for key in ("text", "message"):
+        text_candidate = value.get(key)
+        if not isinstance(text_candidate, str):
+            continue
+        parsed_text = _decode_first_json_object(text_candidate)
+        if isinstance(parsed_text, dict):
+            if _looks_like_submission_grading_payload(parsed_text):
+                return parsed_text
+            nested_text = _extract_submission_structured_candidate(parsed_text)
+            if nested_text is not None:
+                return nested_text
+
+    return None
+
+
+def _extract_submission_score_candidate(value: Any) -> Optional[dict[str, Any]]:
+    if not isinstance(value, dict):
+        return None
+
+    if _looks_like_submission_score_payload(value):
+        return value
+
+    score_candidate = value.get("score")
+    if isinstance(score_candidate, dict) and _looks_like_submission_score_payload(score_candidate):
+        return score_candidate
+
+    for key in ("structured_output", "answer", "text", "message"):
+        nested_candidate = value.get(key)
+        if isinstance(nested_candidate, dict):
+            nested_score = _extract_submission_score_candidate(nested_candidate)
+            if nested_score is not None:
+                return nested_score
+        elif isinstance(nested_candidate, str):
+            parsed_nested, _ = _decode_first_json_object_with_remainder(nested_candidate)
+            if isinstance(parsed_nested, dict):
+                nested_score = _extract_submission_score_candidate(parsed_nested)
+                if nested_score is not None:
+                    return nested_score
+
+    return None
+
+
+def _extract_submission_student_message_candidate(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        parsed_value, remainder = _decode_first_json_object_with_remainder(value)
+        if isinstance(parsed_value, dict):
+            nested_student_message = _extract_submission_student_message_candidate(parsed_value)
+            if nested_student_message:
+                return nested_student_message
+            if _extract_submission_score_candidate(parsed_value) is not None and remainder:
+                return remainder
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    if not isinstance(value, dict):
+        return None
+
+    direct_student_message = value.get("student_message")
+    if isinstance(direct_student_message, str) and direct_student_message.strip():
+        return direct_student_message.strip()
+
+    for key in ("answer", "text", "message"):
+        nested_candidate = value.get(key)
+        nested_student_message = _extract_submission_student_message_candidate(nested_candidate)
+        if nested_student_message:
+            return nested_student_message
+
+    return None
 
 
 def _normalize_submission_structured_output(value: Any) -> dict[str, Any]:
@@ -636,10 +720,10 @@ def _normalize_submission_structured_output(value: Any) -> dict[str, Any]:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Dify submission structured_output must be a JSON object",
         )
-
-    normalized = dict(value)
-    normalized.setdefault("checks", [])
-    return normalized
+    return {
+        "score": value.get("score"),
+        "student_message": value.get("student_message"),
+    }
 
 
 def _validate_submission_structured_output(value: Any) -> dict[str, Any]:
@@ -730,6 +814,8 @@ def _call_dify_er_submission(
             structured_output: Optional[dict[str, Any]] = None
             parse_failures = 0
             fallback_text: Optional[str] = None
+            submission_score: Optional[dict[str, Any]] = None
+            submission_message_text = ""
 
             try:
                 with httpx.Client(timeout=float(settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS)) as client:
@@ -791,32 +877,157 @@ def _call_dify_er_submission(
                                     detail=f"Dify submission stream failed: {message}",
                                 )
 
-                            fallback_text = _extract_first_text(payload) or fallback_text
-                            next_text, chunk = _append_stream_text(accumulated_text, _extract_stream_text_chunk(payload))
-                            if chunk:
-                                accumulated_text = next_text
-                                yield _sse_event(
-                                    "token",
-                                    {
-                                        "chunk": chunk,
-                                        "text": accumulated_text,
-                                    },
-                                )
+                            if mode == "Submit":
+                                maybe_structured = _extract_submission_structured_candidate(payload)
+                                if maybe_structured is not None:
+                                    try:
+                                        validated_structured = _validate_submission_structured_output(maybe_structured)
+                                    except HTTPException as exc:
+                                        logger.warning(
+                                            "submission_stream_ignored_invalid_structured_output question_id=%s mode=%s attempt=%s detail=%s",
+                                            question.id,
+                                            mode,
+                                            attempt,
+                                            exc.detail,
+                                        )
+                                    else:
+                                        structured_output = validated_structured
+                                        maybe_score = validated_structured.get("score")
+                                        if isinstance(maybe_score, dict):
+                                            submission_score = maybe_score
+                                        maybe_student_message = str(validated_structured.get("student_message") or "").strip()
+                                        if maybe_student_message:
+                                            submission_message_text, _ = _append_stream_text(
+                                                submission_message_text,
+                                                maybe_student_message,
+                                            )
+                                        yield _sse_event(
+                                            "structured_output",
+                                            {
+                                                "structured_output": validated_structured,
+                                            },
+                                        )
 
-                            maybe_structured = _extract_structured_output(payload)
-                            if maybe_structured is not None:
-                                structured_output = maybe_structured
-                                yield _sse_event(
-                                    "structured_output",
-                                    {
-                                        "structured_output": structured_output,
-                                    },
+                                maybe_score_candidate = _extract_submission_score_candidate(payload)
+                                if maybe_score_candidate is not None:
+                                    submission_score = maybe_score_candidate
+
+                                payload_student_message = payload.get("student_message")
+                                if isinstance(payload_student_message, str) and payload_student_message.strip():
+                                    submission_message_text, _ = _append_stream_text(
+                                        submission_message_text,
+                                        payload_student_message.strip(),
+                                    )
+
+                            stream_text_chunk = _extract_stream_text_chunk(payload)
+                            skip_text_accumulation = False
+                            if mode == "Submit" and isinstance(stream_text_chunk, str):
+                                parsed_stream_chunk, stream_chunk_remainder = _decode_first_json_object_with_remainder(
+                                    stream_text_chunk
                                 )
+                                if isinstance(parsed_stream_chunk, dict):
+                                    skip_text_accumulation = True
+
+                                    parsed_structured = _extract_submission_structured_candidate(parsed_stream_chunk)
+                                    if parsed_structured is not None:
+                                        try:
+                                            validated_structured = _validate_submission_structured_output(parsed_structured)
+                                        except HTTPException as exc:
+                                            logger.warning(
+                                                "submission_stream_ignored_invalid_structured_output question_id=%s mode=%s attempt=%s detail=%s",
+                                                question.id,
+                                                mode,
+                                                attempt,
+                                                exc.detail,
+                                            )
+                                        else:
+                                            structured_output = validated_structured
+                                            maybe_score = validated_structured.get("score")
+                                            if isinstance(maybe_score, dict):
+                                                submission_score = maybe_score
+                                            maybe_student_message = str(
+                                                validated_structured.get("student_message") or ""
+                                            ).strip()
+                                            if maybe_student_message:
+                                                submission_message_text, _ = _append_stream_text(
+                                                    submission_message_text,
+                                                    maybe_student_message,
+                                                )
+                                            yield _sse_event(
+                                                "structured_output",
+                                                {
+                                                    "structured_output": validated_structured,
+                                                },
+                                            )
+
+                                    parsed_score = _extract_submission_score_candidate(parsed_stream_chunk)
+                                    if parsed_score is not None:
+                                        submission_score = parsed_score
+
+                                    nested_student_message = (
+                                        stream_chunk_remainder
+                                        or _extract_submission_student_message_candidate(parsed_stream_chunk)
+                                    )
+                                    if nested_student_message:
+                                        submission_message_text, _ = _append_stream_text(
+                                            submission_message_text,
+                                            nested_student_message,
+                                        )
+                                elif stream_text_chunk.strip():
+                                    submission_message_text, _ = _append_stream_text(
+                                        submission_message_text,
+                                        stream_text_chunk.strip(),
+                                    )
+
+                            if not skip_text_accumulation:
+                                next_text, chunk = _append_stream_text(accumulated_text, stream_text_chunk)
+                                if chunk:
+                                    accumulated_text = next_text
+                                    yield _sse_event(
+                                        "token",
+                                        {
+                                            "chunk": chunk,
+                                            "text": accumulated_text,
+                                        },
+                                    )
+
+                            if mode != "Submit":
+                                first_text_candidate = _extract_first_text(payload)
+                                if first_text_candidate:
+                                    fallback_text = first_text_candidate
 
                             if event_name in {"message_end", "workflow_finished", "agent_message_end", "done"}:
                                 break
 
-                final_text = accumulated_text or fallback_text or "No response text returned from submission workflow."
+                if mode == "Submit":
+                    if structured_output is None:
+                        final_student_message = submission_message_text.strip()
+                        if submission_score is None or not final_student_message:
+                            raise HTTPException(
+                                status_code=status.HTTP_502_BAD_GATEWAY,
+                                detail="Dify submission response missing final grading payload",
+                            )
+                        structured_output = _validate_submission_structured_output(
+                            {
+                                "score": submission_score,
+                                "student_message": final_student_message,
+                            }
+                        )
+                        yield _sse_event(
+                            "structured_output",
+                            {
+                                "structured_output": structured_output,
+                            },
+                        )
+                    student_message = str(structured_output.get("student_message") or "").strip()
+                    if not student_message:
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Dify submission structured_output missing student_message",
+                        )
+                    final_text = student_message
+                else:
+                    final_text = accumulated_text or fallback_text or "No response text returned from submission workflow."
                 done_payload = {
                     "mode": mode,
                     "text": final_text,

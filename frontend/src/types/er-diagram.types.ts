@@ -70,16 +70,15 @@ export interface ERDiagramQuestionListItem {
 }
 
 export interface ERSubmissionScore {
-  [key: string]: unknown;
-}
-
-export interface ERSubmissionCheck {
+  label?: string;
+  earned_points?: number;
+  total_points?: number;
+  percent?: number | string;
   [key: string]: unknown;
 }
 
 export interface ERSubmissionStructuredOutput {
   score: ERSubmissionScore;
-  checks: ERSubmissionCheck[];
   student_message: string;
   [key: string]: unknown;
 }

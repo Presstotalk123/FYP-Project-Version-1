@@ -1,6 +1,13 @@
 export type GenerateRubricMode = "create" | "patch";
 export type ERSubmissionMode = "Query" | "Submit";
 export type ERDifficultyLabel = "Easy" | "Medium" | "Hard";
+export type RubricJsonPrimitive = string | number | boolean | null;
+export type RubricJsonValue = RubricJsonPrimitive | RubricJsonObject | RubricJsonArray;
+export interface RubricJsonObject {
+  [key: string]: RubricJsonValue | undefined;
+}
+export type RubricJsonArray = RubricJsonValue[];
+export type RubricFormSectionKey = "meta" | "policy" | "canonical_targets" | "checks";
 
 export interface GenerateRubricDifficulty {
   label: ERDifficultyLabel;
@@ -17,13 +24,13 @@ export interface GenerateRubricClientInput {
 export interface GenerateRubricRequest extends GenerateRubricClientInput {
   mode: GenerateRubricMode;
   notation: "Chen";
-  rubric_previous?: Record<string, unknown>;
+  rubric_previous?: ERRubricJson;
   instruction_history?: string[];
 }
 
 export interface GenerateRubricResponse {
   difficulty: GenerateRubricDifficulty;
-  rubric_json: Record<string, unknown>;
+  rubric_json: ERRubricJson;
   rubric_md: string;
   diff_summary: unknown[];
 }
@@ -35,11 +42,30 @@ export interface SaveERQuestionRequest {
   difficulty_label: ERDifficultyLabel;
   difficulty_rationale: string;
   rubric_md: string;
-  rubric_json: Record<string, unknown>;
+  rubric_json: ERRubricJson;
   instruction_history: string[];
   show_rubric_on_attempt: boolean;
   model_answer?: File | null;
 }
+
+export type ERRubricCheckRequirementLevel =
+  | "must"
+  | "should"
+  | "optional"
+  | "not_applicable"
+  | (string & {});
+
+export interface ERRubricCheck extends RubricJsonObject {
+  id: string;
+  dimension: string;
+  requirement_level: ERRubricCheckRequirementLevel;
+  pass_criteria?: string;
+  points?: number | null;
+}
+
+export type ERRubricJson = RubricJsonObject & {
+  checks?: ERRubricCheck[];
+};
 
 export interface ERDiagramQuestion {
   id: number;
@@ -49,7 +75,7 @@ export interface ERDiagramQuestion {
   difficulty_label: ERDifficultyLabel;
   difficulty_rationale: string;
   rubric_md?: string;
-  rubric_json?: Record<string, unknown>;
+  rubric_json?: ERRubricJson;
   instruction_history: string[];
   show_rubric_on_attempt: boolean;
   model_answer_storage_key: string | null;
@@ -70,17 +96,29 @@ export interface ERDiagramQuestionListItem {
 }
 
 export interface ERSubmissionScore {
-  label?: string;
-  earned_points?: number;
-  total_points?: number;
-  percent?: number | string;
+  label: string;
+  earned_points: number;
+  total_points: number;
+  percent: number | string;
   [key: string]: unknown;
+}
+
+export type ERSubmissionCheckRequirementLevel = "must" | "should" | "optional" | "not_applicable";
+export type ERSubmissionCheckStatus = "pass" | "fail" | "partial" | "not_applicable";
+
+export interface ERSubmissionCheck {
+  id: string;
+  dimension: string;
+  requirement_level: ERSubmissionCheckRequirementLevel;
+  points: number;
+  status: ERSubmissionCheckStatus;
+  brief_reason: string;
 }
 
 export interface ERSubmissionStructuredOutput {
   score: ERSubmissionScore;
   student_message: string;
-  [key: string]: unknown;
+  checks: ERSubmissionCheck[];
 }
 
 export interface ERSubmissionRequest {

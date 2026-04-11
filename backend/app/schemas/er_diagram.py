@@ -31,12 +31,27 @@ class GenerateRubricResponse(BaseModel):
 class ERSubmissionScore(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    label: str = Field(..., min_length=1)
+    earned_points: float
+    total_points: float
+    percent: float | str
+
+
+class ERSubmissionCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    dimension: str = Field(..., min_length=1)
+    requirement_level: Literal["must", "should", "optional", "not_applicable"]
+    points: float
+    status: Literal["pass", "fail", "partial", "not_applicable"]
+    brief_reason: str = Field(..., min_length=1)
+
 
 class ERSubmissionStructuredOutput(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
     score: ERSubmissionScore
     student_message: str = Field(..., min_length=1)
+    checks: list[ERSubmissionCheck]
 
 
 class ERSubmissionResponse(BaseModel):

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionIcon,
   Alert,
@@ -21,8 +21,15 @@ import Link from "next/link";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DrawioBoard } from "@/components/DrawioBoard";
+import {
+  buildRubricDisplayGroups,
+  formatScoreValue,
+  getRubricStatusMeta,
+  summarizeRubricStatuses,
+} from "@/utils/er-rubric-results";
 import { erDiagramService } from "@/services/er-diagram.service";
 import type {
+  ERRubricJson,
   ERSubmissionRequest,
   ERSubmissionResponse,
   ERSubmissionStructuredOutput,
@@ -35,6 +42,7 @@ export type ERDiagramWorkspaceQuestion = {
   description: string;
   difficulty: "Easy" | "Medium" | "Hard";
   rubric_md: string;
+  rubric_json: ERRubricJson | null;
   show_rubric_on_attempt: boolean;
 };
 
@@ -47,10 +55,18 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 const normalizeSubmissionPayload = (value: unknown): ERSubmissionStructuredOutput | null => {
   if (!isObject(value)) return null;
-  if (!isObject(value.score)) return null;
-  if (typeof value.student_message !== "string" || value.student_message.trim().length === 0) return null;
+  const score = value.score;
+  const studentMessage = value.student_message;
+  const checks = value.checks;
+  if (!isObject(score)) return null;
+  if (typeof studentMessage !== "string" || studentMessage.trim().length === 0) return null;
+  if (!Array.isArray(checks)) return null;
 
-  return value as ERSubmissionStructuredOutput;
+  return {
+    score: score as ERSubmissionStructuredOutput["score"],
+    student_message: studentMessage,
+    checks: checks as ERSubmissionStructuredOutput["checks"],
+  };
 };
 
 const parseJsonObject = (value: unknown): Record<string, unknown> | null => {
@@ -116,13 +132,25 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [latestStudentMessage, setLatestStudentMessage] = useState<string | null>(null);
-  const [latestScorePercent, setLatestScorePercent] = useState<number | null>(null);
+  const [latestStructuredOutput, setLatestStructuredOutput] = useState<ERSubmissionStructuredOutput | null>(null);
   const [hasSubmittedAttempt, setHasSubmittedAttempt] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<"ai-chat" | "rubric">("ai-chat");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftPercent, setLeftPercent] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
   const showRubricTab = question.show_rubric_on_attempt && hasSubmittedAttempt;
+  const latestScorePercent = useMemo(
+    () => getSubmissionPercent(latestStructuredOutput),
+    [latestStructuredOutput],
+  );
+  const rubricGroups = useMemo(
+    () => buildRubricDisplayGroups(question.rubric_json, latestStructuredOutput),
+    [question.rubric_json, latestStructuredOutput],
+  );
+  const rubricStatusCounts = useMemo(
+    () => (rubricGroups ? summarizeRubricStatuses(rubricGroups).filter((item) => item.count > 0) : []),
+    [rubricGroups],
+  );
 
   useEffect(() => {
     if (!showRubricTab && rightPanelTab === "rubric") {
@@ -147,7 +175,6 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   };
 
   const handleQuery = async (message: string): Promise<string> => {
-    setLatestScorePercent(null);
     const response = await erDiagramService.submit({
       question_id: question.id,
       mode: "Query",
@@ -159,7 +186,6 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const runSubmitStream = async (payload: ERSubmissionRequest): Promise<void> => {
     setSubmitLoading(true);
     setSubmitError(null);
-    setLatestScorePercent(null);
 
     try {
       let finalResult: ERSubmissionResponse | null = null;
@@ -184,10 +210,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
           };
 
           finalResult = normalizedResult;
-          const parsedPercent = getSubmissionPercent(parsedStructuredOutput);
-          if (parsedPercent !== null) {
-            setLatestScorePercent(parsedPercent);
-          }
+          setLatestStructuredOutput(normalizedResult.structured_output);
 
           const studentMessage = parsedStructuredOutput?.student_message?.trim();
           if (studentMessage) {
@@ -494,7 +517,14 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
                   }}
                 >
                   <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
-                    <Title order={4}>Rubric</Title>
+                    <Group justify="space-between" align="flex-start" gap="sm">
+                      <div>
+                        <Title order={4}>Rubric</Title>
+                        <Text size="sm" c="dimmed" mt={4}>
+                          Review each rubric item against your latest submission.
+                        </Text>
+                      </div>
+                    </Group>
                     <ScrollArea
                       type="always"
                       offsetScrollbars
@@ -506,9 +536,92 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
                       }}
                       p="md"
                     >
-                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                        {question.rubric_md}
-                      </Text>
+                      {rubricGroups ? (
+                        <Stack gap="lg">
+                          {latestStructuredOutput ? (
+                            <Paper withBorder radius="md" p="md">
+                              <Stack gap="xs">
+                                <div>
+                                  <Text fw={600}>Latest submission summary</Text>
+                                  <Text size="sm" c="dimmed">
+                                    {formatScoreValue(latestStructuredOutput.score.earned_points)} /{" "}
+                                    {formatScoreValue(latestStructuredOutput.score.total_points)} points
+                                  </Text>
+                                </div>
+                                <Group gap="xs" wrap="wrap">
+                                  {rubricStatusCounts.map((item) => (
+                                    <Badge
+                                      key={item.status}
+                                      color={item.color}
+                                      radius="xl"
+                                      variant={item.status === "not_evaluated" ? "outline" : "light"}
+                                    >
+                                      {item.label}: {item.count}
+                                    </Badge>
+                                  ))}
+                                </Group>
+                              </Stack>
+                            </Paper>
+                          ) : null}
+
+                          {rubricGroups.map((group) => (
+                            <Stack gap="sm" key={group.key}>
+                              <Group justify="space-between" align="center" gap="sm">
+                                <Title order={5}>{group.label}</Title>
+                                <Badge variant="outline" color="gray" radius="xl">
+                                  {group.items.length} item{group.items.length === 1 ? "" : "s"}
+                                </Badge>
+                              </Group>
+
+                              {group.items.map((item) => {
+                                const statusMeta = getRubricStatusMeta(item.status);
+                                return (
+                                  <Paper withBorder radius="md" p="md" key={item.id}>
+                                    <Stack gap="xs">
+                                      <Group justify="space-between" align="flex-start" gap="sm" wrap="nowrap">
+                                        <Text fw={600} size="sm" style={{ flex: 1 }}>
+                                          {item.requirementText}
+                                        </Text>
+                                        <Badge
+                                          color={statusMeta.color}
+                                          radius="xl"
+                                          variant={item.status === "not_evaluated" ? "outline" : "light"}
+                                        >
+                                          {statusMeta.label}
+                                        </Badge>
+                                      </Group>
+                                      <Text size="sm" c="dimmed" style={{ whiteSpace: "pre-wrap" }}>
+                                        {item.feedbackText}
+                                      </Text>
+                                      <Group gap="xs" wrap="wrap">
+                                        <Badge variant="outline" color="gray" radius="xl">
+                                          ID {item.id}
+                                        </Badge>
+                                        <Badge variant="outline" color="blue" radius="xl">
+                                          {item.requirementLevelLabel}
+                                        </Badge>
+                                        <Badge variant="outline" color="gray" radius="xl">
+                                          {item.pointsLabel}
+                                        </Badge>
+                                      </Group>
+                                    </Stack>
+                                  </Paper>
+                                );
+                              })}
+                            </Stack>
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Stack gap="sm">
+                          <Alert color="gray" title="Structured rubric unavailable">
+                            This question does not have a structured rubric view yet. Showing the saved rubric text
+                            instead.
+                          </Alert>
+                          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                            {question.rubric_md}
+                          </Text>
+                        </Stack>
+                      )}
                     </ScrollArea>
                   </Stack>
                 </Tabs.Panel>

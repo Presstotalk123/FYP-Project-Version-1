@@ -45,11 +45,43 @@
   margin-bottom: 8px;
 }
 
+.errorTab {
+  color: var(--mantine-color-red-7);
+}
+
+.errorTab:hover {
+  color: var(--mantine-color-red-8);
+}
+
+.errorTab[data-active] {
+  color: var(--mantine-color-red-8);
+  background: var(--mantine-color-red-0);
+  border-color: var(--mantine-color-red-3);
+}
+
 .outputTabPanel {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.formPanelStack {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.formPanel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: 8px;
+  background: var(--mantine-color-gray-0);
+  overflow: auto;
+  padding: 12px;
 }
 
 .jsonPanelStack {

@@ -30,6 +30,7 @@ export default function ERDiagramQuestionPage() {
           description: data.problem_statement,
           difficulty: data.difficulty_label,
           rubric_md: data.rubric_md || "",
+          rubric_json: data.rubric_json || null,
           show_rubric_on_attempt: data.show_rubric_on_attempt,
         });
       } catch (err) {

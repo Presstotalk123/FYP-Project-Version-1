@@ -440,15 +440,16 @@ def _call_dify_generate_rubric(
             parsed_instruction_history = None
 
     files: list[dict[str, str]] = []
+    model_answer_input: Any = ""
     if model_answer:
         upload_file_id = _upload_model_answer_to_dify(model_answer)
-        files.append(
-            {
-                "type": "image",
-                "transfer_method": "local_file",
-                "upload_file_id": upload_file_id,
-            }
-        )
+        file_ref = {
+            "type": "image",
+            "transfer_method": "local_file",
+            "upload_file_id": upload_file_id,
+        }
+        model_answer_input = file_ref
+        files.append(file_ref)
 
     effective_rubric_previous = parsed_rubric_previous or {}
     effective_instruction_history = parsed_instruction_history or []
@@ -465,6 +466,7 @@ def _call_dify_generate_rubric(
             "Refinement_Instruction": effective_refinement,
             "Rubric_Previous": effective_rubric_previous,
             "Instruction_History": effective_instruction_history_dict,
+            "Model_Answer": model_answer_input,
         },
         "response_mode": "streaming",
         "user": "databaseassist-er-rubric",

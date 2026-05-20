@@ -5,11 +5,9 @@ import {
   Box,
   Button,
   Group,
-  ScrollArea,
   Stack,
   Text,
   Textarea,
-  Title,
 } from "@mantine/core";
 
 type ChatMessage = {
@@ -165,42 +163,42 @@ export function ChatPanel({
 
   return (
     <Stack gap="sm" h="100%" style={{ minHeight: 0 }}>
-      <Title order={4}>AI Chat</Title>
       <Box
+        ref={viewportRef}
         style={{
           flex: 1,
           minHeight: 0,
-          maxHeight: "100vh",
+          overflowY: "auto",
+          padding: 16,
           border: "1px solid var(--mantine-color-gray-3)",
           borderRadius: 12,
-          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        <ScrollArea h="100%" p="md" type="always" offsetScrollbars viewportRef={viewportRef}>
-          <Stack gap="sm">
-            {messages.map((message) => (
-              <Box
-                key={message.id}
-                style={{
-                  alignSelf: message.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "85%",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  background:
-                    message.role === "user"
-                      ? "var(--mantine-color-blue-filled)"
-                      : "var(--mantine-color-gray-1)",
-                  color:
-                    message.role === "user"
-                      ? "var(--mantine-color-white)"
-                      : "var(--mantine-color-black)",
-                }}
-              >
-                <TypewriterMessage message={message} onTextUpdate={scrollToLatest} />
-              </Box>
-            ))}
-          </Stack>
-        </ScrollArea>
+        <Stack gap="sm" style={{ marginTop: "auto" }}>
+          {messages.map((message) => (
+            <Box
+              key={message.id}
+              style={{
+                alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+                maxWidth: "85%",
+                padding: "10px 12px",
+                borderRadius: 12,
+                background:
+                  message.role === "user"
+                    ? "var(--mantine-color-blue-filled)"
+                    : "var(--mantine-color-gray-1)",
+                color:
+                  message.role === "user"
+                    ? "var(--mantine-color-white)"
+                    : "var(--mantine-color-black)",
+              }}
+            >
+              <TypewriterMessage message={message} onTextUpdate={scrollToLatest} />
+            </Box>
+          ))}
+        </Stack>
       </Box>
       <Group align="stretch" gap="xs">
         <Textarea
@@ -210,6 +208,19 @@ export function ChatPanel({
           maxRows={6}
           value={input}
           onChange={(event) => setInput(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              void handleSend();
+            }
+          }}
           style={{ flex: 1 }}
           disabled={isSending || disabled}
         />

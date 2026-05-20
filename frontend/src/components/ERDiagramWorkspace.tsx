@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActionIcon,
   Alert,
@@ -17,10 +17,12 @@ import {
   Title,
 } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
+import { notifications } from "@mantine/notifications";
 import Link from "next/link";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel } from "@/components/ChatPanel";
-import { DrawioBoard } from "@/components/DrawioBoard";
+import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
+import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import {
   buildRubricDisplayGroups,
   formatScoreValue,
@@ -125,6 +127,17 @@ const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | n
   return null;
 };
 
+const draftStorageKey = (questionId: number): string => `er-draft-${questionId}`;
+
+const readDraftFromSessionStorage = (questionId: number): string => {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.sessionStorage.getItem(draftStorageKey(questionId)) ?? "";
+  } catch {
+    return "";
+  }
+};
+
 export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
@@ -138,6 +151,11 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftPercent, setLeftPercent] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
+  const drawioRef = useRef<DrawioBoardHandle | null>(null);
+  const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [initialDrawioXml] = useState(() => readDraftFromSessionStorage(question.id));
+  const focusMode = submissionMode === "drawio";
   const showRubricTab = question.show_rubric_on_attempt && hasSubmittedAttempt;
   const latestScorePercent = useMemo(
     () => getSubmissionPercent(latestStructuredOutput),
@@ -229,12 +247,148 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
         throw new Error("Submission stream interrupted before completion.");
       }
       setHasSubmittedAttempt(true);
+      try {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(draftStorageKey(question.id));
+        }
+      } catch {
+        // ignore sessionStorage write failures
+      }
+      setIsDirty(false);
     } catch (err) {
       setSubmitError(getErrorMessage(err));
     } finally {
       setSubmitLoading(false);
     }
   };
+
+  const handleAutosave = (xml: string) => {
+    try {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(draftStorageKey(question.id), xml);
+      }
+    } catch {
+      // sessionStorage may throw QuotaExceededError; swallow silently
+    }
+    setIsDirty(true);
+  };
+
+  const persistDraft = (xml: string) => {
+    try {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(draftStorageKey(question.id), xml);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const downloadDrawioFile = (xml: string) => {
+    if (typeof window === "undefined") return;
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const filename = `er-diagram-q${question.id}-${stamp}.drawio`;
+    const blob = new Blob([xml], { type: "application/xml" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const saveXmlToFile = (xml: string) => {
+    if (!xml) {
+      notifications.show({
+        color: "yellow",
+        title: "Nothing to save",
+        message: "Draw.io did not return any diagram XML.",
+      });
+      return;
+    }
+    try {
+      downloadDrawioFile(xml);
+      persistDraft(xml);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save diagram to file.";
+      notifications.show({ color: "red", title: "Save failed", message });
+    }
+  };
+
+  const handleSaveToFile = async () => {
+    if (!drawioRef.current) return;
+    try {
+      const xml = await drawioRef.current.exportXml();
+      saveXmlToFile(xml);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save diagram to file.";
+      notifications.show({ color: "red", title: "Save failed", message });
+    }
+  };
+
+  const handleLoadFromFile = (file: File) => {
+    if (!drawioRef.current) return;
+    const reader = new FileReader();
+    reader.onerror = () => {
+      notifications.show({
+        color: "red",
+        title: "Load failed",
+        message: "Could not read the selected file.",
+      });
+    };
+    reader.onload = () => {
+      const xml = typeof reader.result === "string" ? reader.result : "";
+      if (!xml.trim()) {
+        notifications.show({
+          color: "yellow",
+          title: "Empty file",
+          message: "The selected file does not contain any diagram XML.",
+        });
+        return;
+      }
+      if (isDirty) {
+        const confirmed = window.confirm(
+          "Replace current diagram with the file's contents? Unsaved canvas changes will be lost.",
+        );
+        if (!confirmed) return;
+      }
+      drawioRef.current?.loadXml(xml);
+      persistDraft(xml);
+      setIsDirty(true);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExitFocusMode = () => {
+    setSubmissionMode(null);
+  };
+
+  const handleFocusSubmit = () => {
+    if (chatSending || submitLoading) return;
+    if (!drawioRef.current) {
+      notifications.show({
+        color: "red",
+        title: "Diagram not ready",
+        message: "Draw.io is still loading. Please try again in a moment.",
+      });
+      return;
+    }
+    setSubmitError(null);
+    drawioRef.current.submit();
+  };
+
+  useEffect(() => {
+    if (!focusMode || !submitError) return;
+    notifications.show({
+      color: "red",
+      title: "Submission error",
+      message: submitError,
+    });
+    setSubmitError(null);
+  }, [focusMode, submitError]);
 
   const handleSubmitDrawioImage = async (imageFile: File) => {
     if (chatSending) return;
@@ -267,6 +421,178 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
       });
   };
 
+  const chatPanelNode: ReactNode = (
+    <ChatPanel
+      onSendMessage={handleQuery}
+      injectedAssistantMessage={latestStudentMessage}
+      disabled={submitLoading}
+      onSendingChange={setChatSending}
+    />
+  );
+
+  const rubricSectionNode: ReactNode = (
+    <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+      <Group justify="space-between" align="flex-start" gap="sm">
+        <div>
+          <Title order={4}>Rubric</Title>
+          <Text size="sm" c="dimmed" mt={4}>
+            Review each rubric item against your latest submission.
+          </Text>
+        </div>
+      </Group>
+      <ScrollArea
+        type="always"
+        offsetScrollbars
+        style={{
+          flex: 1,
+          minHeight: 0,
+          border: "1px solid var(--mantine-color-gray-3)",
+          borderRadius: 12,
+        }}
+        p="md"
+      >
+        {rubricGroups ? (
+          <Stack gap="lg">
+            {latestStructuredOutput ? (
+              <Paper withBorder radius="md" p="md">
+                <Stack gap="xs">
+                  <div>
+                    <Text fw={600}>Latest submission summary</Text>
+                    <Text size="sm" c="dimmed">
+                      {formatScoreValue(latestStructuredOutput.score.earned_points)} /{" "}
+                      {formatScoreValue(latestStructuredOutput.score.total_points)} points
+                    </Text>
+                  </div>
+                  <Group gap="xs" wrap="wrap">
+                    {rubricStatusCounts.map((item) => (
+                      <Badge
+                        key={item.status}
+                        color={item.color}
+                        radius="xl"
+                        variant={item.status === "not_evaluated" ? "outline" : "light"}
+                      >
+                        {item.label}: {item.count}
+                      </Badge>
+                    ))}
+                  </Group>
+                </Stack>
+              </Paper>
+            ) : null}
+
+            {rubricGroups.map((group) => (
+              <Stack gap="sm" key={group.key}>
+                <Group justify="space-between" align="center" gap="sm">
+                  <Title order={5}>{group.label}</Title>
+                  <Badge variant="outline" color="gray" radius="xl">
+                    {group.items.length} item{group.items.length === 1 ? "" : "s"}
+                  </Badge>
+                </Group>
+
+                {group.items.map((item) => {
+                  const statusMeta = getRubricStatusMeta(item.status);
+                  return (
+                    <Paper withBorder radius="md" p="md" key={item.id}>
+                      <Stack gap="xs">
+                        <Group justify="space-between" align="flex-start" gap="sm" wrap="nowrap">
+                          <Text fw={600} size="sm" style={{ flex: 1 }}>
+                            {item.requirementText}
+                          </Text>
+                          <Badge
+                            color={statusMeta.color}
+                            radius="xl"
+                            variant={item.status === "not_evaluated" ? "outline" : "light"}
+                          >
+                            {statusMeta.label}
+                          </Badge>
+                        </Group>
+                        <Text size="sm" c="dimmed" style={{ whiteSpace: "pre-wrap" }}>
+                          {item.feedbackText}
+                        </Text>
+                        <Group gap="xs" wrap="wrap">
+                          <Badge variant="outline" color="gray" radius="xl">
+                            ID {item.id}
+                          </Badge>
+                          <Badge variant="outline" color="blue" radius="xl">
+                            {item.requirementLevelLabel}
+                          </Badge>
+                          <Badge variant="outline" color="gray" radius="xl">
+                            {item.pointsLabel}
+                          </Badge>
+                        </Group>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+            ))}
+          </Stack>
+        ) : (
+          <Stack gap="sm">
+            <Alert color="gray" title="Structured rubric unavailable">
+              This question does not have a structured rubric view yet. Showing the saved rubric text
+              instead.
+            </Alert>
+            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+              {question.rubric_md}
+            </Text>
+          </Stack>
+        )}
+      </ScrollArea>
+    </Stack>
+  );
+
+  const problemDrawerContent: ReactNode = (
+    <Stack gap="md">
+      <Text style={{ whiteSpace: "pre-wrap" }}>{question.description}</Text>
+      {latestStudentMessage ? (
+        <Paper withBorder radius="md" p="md">
+          <Stack gap={4}>
+            <Text fw={600} size="sm">
+              Latest submission feedback
+            </Text>
+            <Text size="sm" c="dimmed" style={{ whiteSpace: "pre-wrap" }}>
+              {latestStudentMessage}
+            </Text>
+          </Stack>
+        </Paper>
+      ) : null}
+    </Stack>
+  );
+
+  if (focusMode) {
+    return (
+      <DrawioFocusLayout
+        ref={focusLayoutRef}
+        question={question}
+        canvas={
+          <DrawioBoard
+            ref={drawioRef}
+            onExport={handleSubmitDrawioImage}
+            onExportError={(message) => setSubmitError(message)}
+            submitting={submitLoading || chatSending}
+            hideInternalSubmit
+            initialXml={initialDrawioXml}
+            onAutosave={handleAutosave}
+            onSaveRequest={saveXmlToFile}
+            onExitRequest={() => focusLayoutRef.current?.requestExit()}
+          />
+        }
+        problemContent={problemDrawerContent}
+        aiChatContent={chatPanelNode}
+        rubricContent={rubricSectionNode}
+        onSubmit={handleFocusSubmit}
+        onSaveToFile={handleSaveToFile}
+        onLoadFromFile={handleLoadFromFile}
+        onExit={handleExitFocusMode}
+        submitting={submitLoading || chatSending}
+        scorePercent={latestScorePercent}
+        hasSubmittedAttempt={hasSubmittedAttempt}
+        showRubricToggle={showRubricTab}
+        isDirty={isDirty}
+      />
+    );
+  }
+
   return (
     <Container fluid px="sm" py="md">
       <Stack gap="md">
@@ -295,6 +621,8 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
             borderRadius: 12,
             overflow: "hidden",
             width: "100%",
+            // sticky HeaderNav + Container py md + page-level Title group + Stack gap
+            height: "calc(100vh - 160px)",
           }}
         >
           <Box
@@ -303,6 +631,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
               minWidth: 320,
               background: "var(--mantine-color-body)",
               padding: 16,
+              overflowY: "auto",
             }}
           >
             <Stack gap="sm">
@@ -357,14 +686,6 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
                       </Stack>
                     </Paper>
                   </Stack>
-                ) : null}
-
-                {submissionMode === "drawio" ? (
-                  <DrawioBoard
-                    onExport={handleSubmitDrawioImage}
-                    onExportError={(message) => setSubmitError(message)}
-                    submitting={submitLoading || chatSending}
-                  />
                 ) : null}
 
                 {submissionMode === "image" ? (
@@ -497,12 +818,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
                   flexDirection: "column",
                 }}
               >
-                <ChatPanel
-                  onSendMessage={handleQuery}
-                  injectedAssistantMessage={latestStudentMessage}
-                  disabled={submitLoading}
-                  onSendingChange={setChatSending}
-                />
+                {chatPanelNode}
               </Tabs.Panel>
 
               {showRubricTab ? (
@@ -516,114 +832,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
                     flexDirection: "column",
                   }}
                 >
-                  <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
-                    <Group justify="space-between" align="flex-start" gap="sm">
-                      <div>
-                        <Title order={4}>Rubric</Title>
-                        <Text size="sm" c="dimmed" mt={4}>
-                          Review each rubric item against your latest submission.
-                        </Text>
-                      </div>
-                    </Group>
-                    <ScrollArea
-                      type="always"
-                      offsetScrollbars
-                      style={{
-                        flex: 1,
-                        minHeight: 0,
-                        border: "1px solid var(--mantine-color-gray-3)",
-                        borderRadius: 12,
-                      }}
-                      p="md"
-                    >
-                      {rubricGroups ? (
-                        <Stack gap="lg">
-                          {latestStructuredOutput ? (
-                            <Paper withBorder radius="md" p="md">
-                              <Stack gap="xs">
-                                <div>
-                                  <Text fw={600}>Latest submission summary</Text>
-                                  <Text size="sm" c="dimmed">
-                                    {formatScoreValue(latestStructuredOutput.score.earned_points)} /{" "}
-                                    {formatScoreValue(latestStructuredOutput.score.total_points)} points
-                                  </Text>
-                                </div>
-                                <Group gap="xs" wrap="wrap">
-                                  {rubricStatusCounts.map((item) => (
-                                    <Badge
-                                      key={item.status}
-                                      color={item.color}
-                                      radius="xl"
-                                      variant={item.status === "not_evaluated" ? "outline" : "light"}
-                                    >
-                                      {item.label}: {item.count}
-                                    </Badge>
-                                  ))}
-                                </Group>
-                              </Stack>
-                            </Paper>
-                          ) : null}
-
-                          {rubricGroups.map((group) => (
-                            <Stack gap="sm" key={group.key}>
-                              <Group justify="space-between" align="center" gap="sm">
-                                <Title order={5}>{group.label}</Title>
-                                <Badge variant="outline" color="gray" radius="xl">
-                                  {group.items.length} item{group.items.length === 1 ? "" : "s"}
-                                </Badge>
-                              </Group>
-
-                              {group.items.map((item) => {
-                                const statusMeta = getRubricStatusMeta(item.status);
-                                return (
-                                  <Paper withBorder radius="md" p="md" key={item.id}>
-                                    <Stack gap="xs">
-                                      <Group justify="space-between" align="flex-start" gap="sm" wrap="nowrap">
-                                        <Text fw={600} size="sm" style={{ flex: 1 }}>
-                                          {item.requirementText}
-                                        </Text>
-                                        <Badge
-                                          color={statusMeta.color}
-                                          radius="xl"
-                                          variant={item.status === "not_evaluated" ? "outline" : "light"}
-                                        >
-                                          {statusMeta.label}
-                                        </Badge>
-                                      </Group>
-                                      <Text size="sm" c="dimmed" style={{ whiteSpace: "pre-wrap" }}>
-                                        {item.feedbackText}
-                                      </Text>
-                                      <Group gap="xs" wrap="wrap">
-                                        <Badge variant="outline" color="gray" radius="xl">
-                                          ID {item.id}
-                                        </Badge>
-                                        <Badge variant="outline" color="blue" radius="xl">
-                                          {item.requirementLevelLabel}
-                                        </Badge>
-                                        <Badge variant="outline" color="gray" radius="xl">
-                                          {item.pointsLabel}
-                                        </Badge>
-                                      </Group>
-                                    </Stack>
-                                  </Paper>
-                                );
-                              })}
-                            </Stack>
-                          ))}
-                        </Stack>
-                      ) : (
-                        <Stack gap="sm">
-                          <Alert color="gray" title="Structured rubric unavailable">
-                            This question does not have a structured rubric view yet. Showing the saved rubric text
-                            instead.
-                          </Alert>
-                          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                            {question.rubric_md}
-                          </Text>
-                        </Stack>
-                      )}
-                    </ScrollArea>
-                  </Stack>
+                  {rubricSectionNode}
                 </Tabs.Panel>
               ) : null}
             </Tabs>

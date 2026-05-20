@@ -313,6 +313,81 @@ def _post_dify_workflow_stream_outputs(
     return latest_outputs
 
 
+def _post_dify_workflow_blocking(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+    api_key: Optional[str],
+    stage: str,
+) -> dict[str, Any]:
+    """Call a Dify workflow in blocking mode; return data.outputs as a dict.
+
+    Raises HTTPException(502) on transport errors, non-2xx responses, non-JSON
+    bodies, workflow status == failed/error/stopped, or missing data.outputs.
+    """
+    headers = _build_dify_headers("application/json", api_key)
+
+    try:
+        with httpx.Client(timeout=float(timeout_seconds)) as client:
+            response = client.post(url, json=payload, headers=headers)
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unable to reach Dify endpoint: {str(exc)}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected Dify integration error: {str(exc)}",
+        )
+
+    if response.is_error:
+        raise _format_dify_http_error(stage, response.status_code, response.text)
+
+    try:
+        body = response.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"Dify {stage} returned non-JSON response: {response.text[:500]}"
+            ),
+        )
+
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Dify {stage} response is not a JSON object",
+        )
+
+    # Workflow blocking response shape: {data: {status, outputs, error}}
+    data_section = body.get("data")
+    if isinstance(data_section, dict):
+        status_value = str(data_section.get("status") or "").lower()
+        error_value = data_section.get("error")
+        if status_value in {"failed", "error", "stopped"}:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    f"Dify workflow failed with status '{status_value}': {error_value}"
+                ),
+            )
+        outputs = data_section.get("outputs")
+        if isinstance(outputs, dict):
+            return outputs
+
+    # Chat / Agent blocking response shape: {answer: "...", files: [...], ...}
+    answer_value = body.get("answer")
+    if isinstance(answer_value, str) and answer_value.strip():
+        return {"answer": answer_value}
+
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Dify {stage} response missing usable output (no data.outputs or answer)",
+    )
+
+
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -683,7 +758,7 @@ def _call_dify_er_submission(
             workflow_run_url=settings.DIFY_ER_SUBMISSION_URL,
             timeout_seconds=settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS,
             api_key=settings.DIFY_ER_SUBMISSION_API_KEY,
-            user_ref="databaseassist-er-submission",
+            user_ref=f"databaseassist-er-submission-{question.id}",
         )
         file_ref = {
             "type": "image",
@@ -732,12 +807,113 @@ def _call_dify_er_submission(
             },
         )
 
+        if mode == "Submit":
+            submit_payload = {**workflow_payload, "response_mode": "blocking"}
+
+            for attempt in range(1, DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS + 1):
+                try:
+                    outputs = _post_dify_workflow_blocking(
+                        url=settings.DIFY_ER_SUBMISSION_URL,
+                        payload=submit_payload,
+                        timeout_seconds=settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS,
+                        api_key=settings.DIFY_ER_SUBMISSION_API_KEY,
+                        stage="submission request",
+                    )
+
+                    answer_text = _extract_first_text(outputs) or ""
+                    if not answer_text.strip():
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Dify submission response missing final grading payload",
+                        )
+
+                    structured_output = _parse_submission_answer_text(answer_text)
+                    yield _sse_event(
+                        "structured_output",
+                        {"structured_output": structured_output},
+                    )
+
+                    student_message = str(structured_output.get("student_message") or "").strip()
+                    if not student_message:
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Dify submission structured_output missing student_message",
+                        )
+
+                    done_payload = {
+                        "mode": mode,
+                        "text": student_message,
+                        "structured_output": structured_output,
+                    }
+                    yield _sse_event("done", done_payload)
+                    duration_ms = int((time.perf_counter() - start_time) * 1000)
+                    logger.info(
+                        "submission_stream_completed question_id=%s mode=%s duration_ms=%s text_len=%s attempt=%s",
+                        question.id,
+                        mode,
+                        duration_ms,
+                        len(student_message),
+                        attempt,
+                    )
+                    return
+                except HTTPException as exc:
+                    duration_ms = int((time.perf_counter() - start_time) * 1000)
+                    logger.warning(
+                        "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s attempt=%s",
+                        question.id,
+                        mode,
+                        duration_ms,
+                        exc.detail,
+                        attempt,
+                    )
+                    yield _sse_event("error", {"detail": str(exc.detail)})
+                    return
+                except httpx.RequestError as exc:
+                    if attempt < DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS:
+                        logger.warning(
+                            "submission_stream_retry question_id=%s mode=%s attempt=%s/%s detail=%s",
+                            question.id,
+                            mode,
+                            attempt,
+                            DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS,
+                            str(exc),
+                        )
+                        time.sleep(DIFY_SUBMISSION_RETRY_BACKOFF_SECONDS * attempt)
+                        continue
+
+                    duration_ms = int((time.perf_counter() - start_time) * 1000)
+                    message = (
+                        "Unable to reach Dify submission endpoint after retries: "
+                        f"{str(exc)}"
+                    )
+                    logger.warning(
+                        "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s attempt=%s",
+                        question.id,
+                        mode,
+                        duration_ms,
+                        message,
+                        attempt,
+                    )
+                    yield _sse_event("error", {"detail": message})
+                    return
+                except Exception as exc:
+                    duration_ms = int((time.perf_counter() - start_time) * 1000)
+                    message = f"Unexpected Dify submission integration error: {str(exc)}"
+                    logger.exception(
+                        "submission_stream_failed question_id=%s mode=%s duration_ms=%s attempt=%s",
+                        question.id,
+                        mode,
+                        duration_ms,
+                        attempt,
+                    )
+                    yield _sse_event("error", {"detail": message})
+                    return
+            return
+
         for attempt in range(1, DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS + 1):
             accumulated_text = ""
-            structured_output: Optional[dict[str, Any]] = None
             parse_failures = 0
             fallback_text: Optional[str] = None
-            submission_payload_text = ""
 
             try:
                 with httpx.Client(timeout=float(settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS)) as client:
@@ -800,57 +976,29 @@ def _call_dify_er_submission(
                                 )
 
                             stream_text_chunk = _extract_stream_text_chunk(payload)
-                            if mode == "Submit":
-                                submission_payload_text, _ = _append_stream_text(
-                                    submission_payload_text,
-                                    stream_text_chunk,
+                            next_text, chunk = _append_stream_text(accumulated_text, stream_text_chunk)
+                            if chunk:
+                                accumulated_text = next_text
+                                yield _sse_event(
+                                    "token",
+                                    {
+                                        "chunk": chunk,
+                                        "text": accumulated_text,
+                                    },
                                 )
-                            else:
-                                next_text, chunk = _append_stream_text(accumulated_text, stream_text_chunk)
-                                if chunk:
-                                    accumulated_text = next_text
-                                    yield _sse_event(
-                                        "token",
-                                        {
-                                            "chunk": chunk,
-                                            "text": accumulated_text,
-                                        },
-                                    )
 
-                                first_text_candidate = _extract_first_text(payload)
-                                if first_text_candidate:
-                                    fallback_text = first_text_candidate
+                            first_text_candidate = _extract_first_text(payload)
+                            if first_text_candidate:
+                                fallback_text = first_text_candidate
 
                             if event_name in {"message_end", "workflow_finished", "agent_message_end", "done"}:
                                 break
 
-                if mode == "Submit":
-                    if not submission_payload_text.strip():
-                        raise HTTPException(
-                            status_code=status.HTTP_502_BAD_GATEWAY,
-                            detail="Dify submission response missing final grading payload",
-                        )
-                    structured_output = _parse_submission_answer_text(submission_payload_text)
-
-                    yield _sse_event(
-                        "structured_output",
-                        {
-                            "structured_output": structured_output,
-                        },
-                    )
-                    student_message = str(structured_output.get("student_message") or "").strip()
-                    if not student_message:
-                        raise HTTPException(
-                            status_code=status.HTTP_502_BAD_GATEWAY,
-                            detail="Dify submission structured_output missing student_message",
-                        )
-                    final_text = student_message
-                else:
-                    final_text = accumulated_text or fallback_text or "No response text returned from submission workflow."
+                final_text = accumulated_text or fallback_text or "No response text returned from submission workflow."
                 done_payload = {
                     "mode": mode,
                     "text": final_text,
-                    "structured_output": structured_output,
+                    "structured_output": None,
                 }
                 yield _sse_event("done", done_payload)
                 duration_ms = int((time.perf_counter() - start_time) * 1000)

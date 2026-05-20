@@ -1,12 +1,28 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
 import { Box, Button, Group } from "@mantine/core";
+
+export type DrawioBoardHandle = {
+  submit: () => void;
+  exportXml: () => Promise<string>;
+  loadXml: (xml: string) => void;
+};
 
 type DrawioBoardProps = {
   onExport?: (imageFile: File) => void | Promise<void>;
   onExportError?: (message: string) => void;
   submitting?: boolean;
+  hideInternalSubmit?: boolean;
+  onAutosave?: (xml: string) => void;
+  onSaveRequest?: (xml: string) => void;
+  onExitRequest?: () => void;
+  initialXml?: string;
 };
 
 const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "https://fyp-database-drawio-ehb7h3afbzebe3fq.eastus-01.azurewebsites.net/?embed=1&spin=1&ui=min&libs=er;general&proto=json";
@@ -21,15 +37,23 @@ const DRAWIO_ORIGIN = (() => {
 })();
 
 type DrawioMessage = {
-  event?: "init" | "export";
+  event?: "init" | "export" | "autosave" | "save" | "exit";
   data?: string;
+  xml?: string;
+  format?: "png" | "xml" | "svg";
 };
 
 const isDrawioMessage = (value: unknown): value is DrawioMessage => {
   if (typeof value !== "object" || value === null) return false;
   if (!("event" in value)) return false;
   const event = (value as { event?: string }).event;
-  return event === "init" || event === "export";
+  return (
+    event === "init" ||
+    event === "export" ||
+    event === "autosave" ||
+    event === "save" ||
+    event === "exit"
+  );
 };
 
 const toPngBlob = (rawExportData: string): Blob => {
@@ -120,16 +144,61 @@ const toPngFile = async (rawExportData: string): Promise<File> => {
   return toWhiteBackgroundPngFile(pngBlob);
 };
 
-export function DrawioBoard({ onExport, onExportError, submitting = false }: DrawioBoardProps) {
+export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(function DrawioBoard(
+  {
+    onExport,
+    onExportError,
+    submitting = false,
+    hideInternalSubmit = false,
+    onAutosave,
+    onSaveRequest,
+    onExitRequest,
+    initialXml,
+  },
+  ref,
+) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
+  const initialXmlRef = useRef<string>(initialXml ?? "");
+  const xmlExportResolverRef = useRef<((xml: string) => void) | null>(null);
+  const xmlExportRejecterRef = useRef<((err: Error) => void) | null>(null);
+  const onAutosaveRef = useRef(onAutosave);
+  const onSaveRequestRef = useRef(onSaveRequest);
+  const onExitRequestRef = useRef(onExitRequest);
+  const onExportRef = useRef(onExport);
+  const onExportErrorRef = useRef(onExportError);
+
+  useEffect(() => {
+    initialXmlRef.current = initialXml ?? initialXmlRef.current;
+  }, [initialXml]);
+
+  useEffect(() => {
+    onAutosaveRef.current = onAutosave;
+  }, [onAutosave]);
+
+  useEffect(() => {
+    onSaveRequestRef.current = onSaveRequest;
+  }, [onSaveRequest]);
+
+  useEffect(() => {
+    onExitRequestRef.current = onExitRequest;
+  }, [onExitRequest]);
+
+  useEffect(() => {
+    onExportRef.current = onExport;
+  }, [onExport]);
+
+  useEffect(() => {
+    onExportErrorRef.current = onExportError;
+  }, [onExportError]);
+
+  const postToIframe = (message: Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify(message), "*");
+  };
 
   const sendLoad = () => {
-    iframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ action: "load", xml: "" }),
-      "*"
-    );
+    postToIframe({ action: "load", xml: initialXmlRef.current });
   };
 
   const stopRetry = () => {
@@ -150,6 +219,34 @@ export function DrawioBoard({ onExport, onExportError, submitting = false }: Dra
       }
     }, 250);
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      submit: () => {
+        postToIframe({
+          action: "export",
+          format: "png",
+          bg: "#ffffff",
+          transparent: false,
+        });
+      },
+      exportXml: () =>
+        new Promise<string>((resolve, reject) => {
+          if (xmlExportResolverRef.current) {
+            xmlExportRejecterRef.current?.(new Error("Previous XML export superseded."));
+          }
+          xmlExportResolverRef.current = resolve;
+          xmlExportRejecterRef.current = reject;
+          postToIframe({ action: "export", format: "xml" });
+        }),
+      loadXml: (xml: string) => {
+        initialXmlRef.current = xml;
+        postToIframe({ action: "load", xml });
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -175,16 +272,48 @@ export function DrawioBoard({ onExport, onExportError, submitting = false }: Dra
       if (data.event === "init") {
         stopRetry();
         sendLoad();
+        return;
+      }
+
+      if (data.event === "autosave") {
+        const xml = data.xml ?? data.data ?? "";
+        if (xml) {
+          onAutosaveRef.current?.(xml);
+        }
+        return;
+      }
+
+      if (data.event === "save") {
+        const xml = data.xml ?? data.data ?? "";
+        if (xml) {
+          onSaveRequestRef.current?.(xml);
+        }
+        postToIframe({ action: "status", modified: false });
+        return;
+      }
+
+      if (data.event === "exit") {
+        onExitRequestRef.current?.();
+        return;
       }
 
       if (data.event === "export") {
+        if (data.format === "xml") {
+          const xml = data.data ?? data.xml ?? "";
+          const resolver = xmlExportResolverRef.current;
+          xmlExportResolverRef.current = null;
+          xmlExportRejecterRef.current = null;
+          resolver?.(xml);
+          return;
+        }
+
         void (async () => {
           try {
             const imageFile = await toPngFile(data.data ?? "");
-            await onExport?.(imageFile);
+            await onExportRef.current?.(imageFile);
           } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to export PNG from draw.io.";
-            onExportError?.(message);
+            onExportErrorRef.current?.(message);
           }
         })();
       }
@@ -195,25 +324,29 @@ export function DrawioBoard({ onExport, onExportError, submitting = false }: Dra
       window.removeEventListener("message", handleMessage);
       stopRetry();
     };
-  }, [onExport, onExportError]);
+  }, []);
 
   const handleExport = () => {
-    iframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({
-        action: "export",
-        format: "png",
-        bg: "#ffffff",
-        transparent: false,
-      }),
-      "*"
-    );
+    postToIframe({
+      action: "export",
+      format: "png",
+      bg: "#ffffff",
+      transparent: false,
+    });
   };
 
   return (
-    <Box>
+    <Box
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <Box
         style={{
-          height: "60vh",
+          flex: 1,
+          minHeight: 0,
           border: "1px solid var(--mantine-color-gray-3)",
           borderRadius: 12,
           overflow: "hidden",
@@ -230,11 +363,13 @@ export function DrawioBoard({ onExport, onExportError, submitting = false }: Dra
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </Box>
-      <Group justify="flex-end">
-        <Button size="xs" mt="xs" onClick={handleExport} loading={submitting}>
-          Submit Diagram
-        </Button>
-      </Group>
+      {hideInternalSubmit ? null : (
+        <Group justify="flex-end">
+          <Button size="xs" mt="xs" onClick={handleExport} loading={submitting}>
+            Submit Diagram
+          </Button>
+        </Group>
+      )}
     </Box>
   );
-}
+});

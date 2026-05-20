@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   ActionIcon,
   Alert,
@@ -8,11 +8,10 @@ import {
   Button,
   Card,
   Container,
+  Grid,
   Group,
-  SimpleGrid,
   Stack,
   Switch,
-  Tabs,
   Text,
   Textarea,
   Title,
@@ -20,8 +19,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
-import RubricFormEditor from "@/components/RubricFormEditor";
-import type { RubricFormEditorHandle } from "@/components/RubricFormEditor";
+import Editor from "@monaco-editor/react";
 import { erDiagramService } from "@/services/er-diagram.service";
 import type { ERRubricJson, GenerateRubricDifficulty, GenerateRubricMode } from "@/types/er-diagram.types";
 import { formatRubricJson, isRubricJsonObject } from "@/utils/er-rubric-authoring";
@@ -30,13 +28,10 @@ import { parseJsonObjectWithLocation } from "@/utils/json-parse-error";
 import styles from "./page.module.css";
 
 export default function AddERDiagramQuestionPage() {
-  const rubricFormEditorRef = useRef<RubricFormEditorHandle | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [rubricJson, setRubricJson] = useState<ERRubricJson>({});
   const [rubricJsonDraft, setRubricJsonDraft] = useState("{}");
   const [rubricJsonError, setRubricJsonError] = useState<string | null>(null);
-  const [hasRubricFormError, setHasRubricFormError] = useState(false);
-  const [activeTab, setActiveTab] = useState<"rubric-form" | "rubric-json">("rubric-form");
   const [difficulty, setDifficulty] = useState<GenerateRubricDifficulty | null>(null);
   const [problemTitle, setProblemTitle] = useState("");
   const [problemStatement, setProblemStatement] = useState("");
@@ -98,7 +93,6 @@ export default function AddERDiagramQuestionPage() {
     }
 
     setRubricJson(parsed.value);
-    rubricFormEditorRef.current?.resetDraft(parsed.value);
     setRubricJsonError(null);
     setHasUnsavedChanges(true);
     return parsed.value;
@@ -110,44 +104,10 @@ export default function AddERDiagramQuestionPage() {
     setRubricJsonError(parsed.ok ? null : parsed.message);
   };
 
-  const commitFormDraft = (): ERRubricJson => {
-    const committed = rubricFormEditorRef.current?.commitDraft() ?? rubricJson;
-    setRubricJson(committed);
-    setRubricJsonError(null);
-    return committed;
-  };
-
-  const handleRubricFormDirtyChange = (dirty: boolean) => {
-    if (dirty) {
-      setHasUnsavedChanges(true);
-      setIsSaved(false);
-    }
-  };
-
-  const handleTabChange = (nextTab: string | null) => {
-    if (nextTab !== "rubric-form" && nextTab !== "rubric-json") {
-      return;
-    }
-    if (nextTab === activeTab) {
-      return;
-    }
-
-    if (nextTab === "rubric-json") {
-      const committed = commitFormDraft();
-      setRubricJsonDraft(formatRubricJson(committed));
-      setRubricJsonError(null);
-      setActiveTab("rubric-json");
-      return;
-    }
-
-    const committed = commitJsonDraft();
-    if (!committed) {
-      setActiveTab("rubric-json");
-      return;
-    }
-
-    setRubricJsonDraft(formatRubricJson(committed));
-    setActiveTab("rubric-form");
+  const handleFormatJson = () => {
+    const parsed = parseJsonObjectWithLocation(rubricJsonDraft, isRubricJsonObject, "rubric_json");
+    if (!parsed.ok) return;
+    setRubricJsonDraft(formatRubricJson(parsed.value));
   };
 
   const handleGenerateRubric = async (mode: GenerateRubricMode) => {
@@ -167,14 +127,10 @@ export default function AddERDiagramQuestionPage() {
       return;
     }
     let committedRubricJson = rubricJson;
-    if (mode === "patch" && activeTab === "rubric-form") {
-      committedRubricJson = commitFormDraft();
-    }
-    if (mode === "patch" && activeTab === "rubric-json") {
+    if (mode === "patch") {
       const parsed = commitJsonDraft();
       if (!parsed) {
         setError("Please fix rubric_json before regenerating");
-        setActiveTab("rubric-json");
         return;
       }
       committedRubricJson = parsed;
@@ -212,10 +168,8 @@ export default function AddERDiagramQuestionPage() {
       }
 
       setRubricJson(nextRubricJson);
-      rubricFormEditorRef.current?.resetDraft(nextRubricJson);
       setRubricJsonDraft(formatRubricJson(nextRubricJson));
       setRubricJsonError(null);
-      setActiveTab("rubric-form");
       setDifficulty(response.difficulty);
       setInstructionHistory(nextHistory);
       setIsSubmitted(true);
@@ -257,19 +211,12 @@ export default function AddERDiagramQuestionPage() {
       setError("Difficulty metadata is missing from generated rubric");
       return;
     }
-    let committedRubricJson = rubricJson;
-    if (activeTab === "rubric-form") {
-      committedRubricJson = commitFormDraft();
+    const parsed = commitJsonDraft();
+    if (!parsed) {
+      setError("Please fix rubric_json before saving");
+      return;
     }
-    if (activeTab === "rubric-json") {
-      const parsed = commitJsonDraft();
-      if (!parsed) {
-        setError("Please fix rubric_json before saving");
-        setActiveTab("rubric-json");
-        return;
-      }
-      committedRubricJson = parsed;
-    }
+    const committedRubricJson = parsed;
     if (rubricJsonError) {
       setError("Please fix rubric_json before saving");
       return;
@@ -322,7 +269,7 @@ export default function AddERDiagramQuestionPage() {
   const saveDisabled = !hasOutput || !difficulty || isSaving || hasRubricJsonError || !hasUnsavedChanges;
 
   return (
-    <Container size="lg" py="xl">
+    <Container size="xl" py="xl">
       <Stack gap="lg">
         <Group align="baseline" gap="sm">
           <ActionIcon
@@ -342,8 +289,9 @@ export default function AddERDiagramQuestionPage() {
           </div>
         </Group>
 
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-          <Card withBorder padding="lg" radius="md">
+        <Grid gutter="lg">
+          <Grid.Col span={{ base: 12, md: 6 }}>
+          <Card withBorder padding="lg" radius="md" style={{ height: 720 }}>
             <Stack gap="md">
               {error ? (
                 <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
@@ -453,79 +401,66 @@ export default function AddERDiagramQuestionPage() {
               </Group>
             </Stack>
           </Card>
+          </Grid.Col>
 
-          <Card withBorder padding="lg" radius="md">
+          <Grid.Col span={{ base: 12, md: 6 }}>
+          <Card
+            withBorder
+            padding="lg"
+            radius="md"
+            style={{ display: "flex", flexDirection: "column", height: 720 }}
+          >
             <Stack gap="md" className={styles.outputStack}>
               <Text fw={500} size="sm">
-                Rubric Authoring
+                Rubric Form
               </Text>
               <Text size="xs" c="dimmed">
-                Edit the generated rubric through the structured form or the synchronized Advanced JSON tab.
+                Edit the generated rubric JSON directly.
               </Text>
               {difficulty ? (
                 <Alert color="blue" title={`Difficulty: ${difficulty.label}`}>
                   {difficulty.rationale}
                 </Alert>
               ) : null}
-              <Tabs value={activeTab} onChange={handleTabChange} className={styles.outputTabs}>
-                <Tabs.List className={styles.outputTabsList}>
-                  <Tabs.Tab
-                    value="rubric-form"
-                    className={hasRubricFormError ? styles.errorTab : undefined}
+              <Stack gap="xs" className={styles.jsonPanelStack}>
+                {rubricJsonError ? (
+                  <Alert color="red" title="Invalid rubric_json">
+                    {rubricJsonError}
+                  </Alert>
+                ) : null}
+                <Group justify="flex-end" gap="xs">
+                  <Button
+                    variant="subtle"
+                    size="xs"
+                    onClick={handleFormatJson}
+                    disabled={!hasOutput || hasRubricJsonError || isGenerating || isSaving}
                   >
-                    Rubric Form
-                  </Tabs.Tab>
-                  <Tabs.Tab
-                    value="rubric-json"
-                    className={hasRubricJsonError ? styles.errorTab : undefined}
-                  >
-                    Advanced JSON
-                  </Tabs.Tab>
-                </Tabs.List>
-
-                <Tabs.Panel value="rubric-form" className={styles.outputTabPanel}>
-                  <Stack gap="xs" className={styles.formPanelStack}>
-                    <Box className={styles.formPanel}>
-                      {hasOutput ? (
-                        <RubricFormEditor
-                          ref={rubricFormEditorRef}
-                          value={rubricJson}
-                          onDirtyChange={handleRubricFormDirtyChange}
-                          onErrorStateChange={setHasRubricFormError}
-                          disabled={isGenerating || isSaving}
-                        />
-                      ) : (
-                        <Text c="dimmed">Generate rubrics to start editing them through the form.</Text>
-                      )}
-                    </Box>
-                  </Stack>
-                </Tabs.Panel>
-
-                <Tabs.Panel value="rubric-json" className={styles.outputTabPanel}>
-                  <Stack gap="xs" className={styles.jsonPanelStack}>
-                    {rubricJsonError ? (
-                      <Alert color="red" title="Invalid rubric_json">
-                        {rubricJsonError}
-                      </Alert>
-                    ) : null}
-                    <Box className={styles.jsonEditorWrapper}>
-                      <Textarea
-                        value={rubricJsonDraft}
-                        onChange={(event) => handleRubricJsonChange(event.currentTarget.value)}
-                        placeholder={hasOutput ? "Edit the same rubric_json directly." : "Generate rubrics to edit rubric_json."}
-                        disabled={!hasOutput || isGenerating || isSaving}
-                        classNames={{
-                          root: styles.jsonEditorRoot,
-                          wrapper: styles.jsonEditorInputWrapper,
-                          input: styles.jsonEditorInput,
-                        }}
-                      />
-                    </Box>
-                  </Stack>
-                </Tabs.Panel>
-              </Tabs>
+                    Format
+                  </Button>
+                </Group>
+                <Box className={styles.jsonEditorWrapper}>
+                  <Editor
+                    height="100%"
+                    language="json"
+                    theme="light"
+                    value={rubricJsonDraft}
+                    onChange={(next) => handleRubricJsonChange(next ?? "")}
+                    options={{
+                      minimap: { enabled: false },
+                      lineNumbers: "on",
+                      fontSize: 13,
+                      tabSize: 2,
+                      wordWrap: "on",
+                      formatOnPaste: true,
+                      scrollBeyondLastLine: false,
+                      automaticLayout: true,
+                      readOnly: !hasOutput || isGenerating || isSaving,
+                    }}
+                  />
+                </Box>
+              </Stack>
               {hasOutput ? (
-                <Group justify="space-between" mt="auto">
+                <Group justify="space-between" style={{ marginTop: "auto" }}>
                   <Text size="xs" c={isSaved ? "green" : "dimmed"}>
                     {isSaved && savedQuestionId
                       ? `Saved as question #${savedQuestionId}`
@@ -538,7 +473,8 @@ export default function AddERDiagramQuestionPage() {
               ) : null}
             </Stack>
           </Card>
-        </SimpleGrid>
+          </Grid.Col>
+        </Grid>
       </Stack>
     </Container>
   );

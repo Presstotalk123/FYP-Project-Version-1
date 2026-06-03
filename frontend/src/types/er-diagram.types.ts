@@ -122,11 +122,13 @@ export interface ERSubmissionStructuredOutput {
 }
 
 export interface ERSubmissionRequest {
-  question_id: number;
+  question_id?: number;
   mode: ERSubmissionMode;
-  student_query?: string;
-  submission_xml_text?: string;
+  student_query?: string | null;
+  submission_xml_text?: string | null;
   erd_img?: File | null;
+  er_lab_id?: number;
+  er_lab_question_id?: number;
 }
 
 export interface ERSubmissionResponse {

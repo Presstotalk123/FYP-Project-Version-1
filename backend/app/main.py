@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs, er_labs
 # Import models to register them with SQLAlchemy
 from app.models.user import User
 from app.models.question import Question
@@ -14,6 +14,10 @@ from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
+from app.models.er_lab import ErLab
+from app.models.er_lab_question import ErLabQuestion
+from app.models.er_lab_session import ErLabSession
+from app.models.er_lab_submission import ErLabSubmission
 
 # Database tables will be created manually via create_tables.py script
 # Do not auto-create on startup to avoid conflicts
@@ -45,6 +49,8 @@ app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(chatbot.router, prefix="/api/v1")
 app.include_router(er_diagram.router, prefix="/api/v1")
 app.include_router(labs.router, prefix="/api/v1")
+app.include_router(er_labs.router, prefix="/api/v1")
+app.include_router(er_labs.override_router, prefix="/api/v1")
 
 
 @app.get("/")

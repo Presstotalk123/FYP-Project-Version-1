@@ -153,7 +153,15 @@ export const erDiagramService = {
 
   async *submitStream(payload: ERSubmissionRequest): AsyncGenerator<ERSubmissionStreamEvent> {
     const formData = new FormData();
-    formData.append("question_id", String(payload.question_id));
+    if (payload.question_id !== undefined) {
+      formData.append("question_id", String(payload.question_id));
+    }
+    if (payload.er_lab_id !== undefined) {
+      formData.append("er_lab_id", String(payload.er_lab_id));
+    }
+    if (payload.er_lab_question_id !== undefined) {
+      formData.append("er_lab_question_id", String(payload.er_lab_question_id));
+    }
     formData.append("mode", payload.mode);
     if (payload.student_query?.trim()) {
       formData.append("student_query", payload.student_query.trim());

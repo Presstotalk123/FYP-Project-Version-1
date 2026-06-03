@@ -18,7 +18,7 @@ import {
 } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { notifications } from "@mantine/notifications";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
@@ -48,8 +48,11 @@ export type ERDiagramWorkspaceQuestion = {
   show_rubric_on_attempt: boolean;
 };
 
+export type LabContext = { er_lab_id: number; er_lab_question_id: number };
+
 type WorkspaceProps = {
   question: ERDiagramWorkspaceQuestion;
+  labContext?: LabContext;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -127,18 +130,20 @@ const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | n
   return null;
 };
 
-const draftStorageKey = (questionId: number): string => `er-draft-${questionId}`;
+const draftStorageKey = (questionId: number, labContext?: LabContext): string =>
+  labContext ? `er-draft-lab-${labContext.er_lab_question_id}` : `er-draft-bank-${questionId}`;
 
-const readDraftFromSessionStorage = (questionId: number): string => {
+const readDraftFromSessionStorage = (questionId: number, labContext?: LabContext): string => {
   if (typeof window === "undefined") return "";
   try {
-    return window.sessionStorage.getItem(draftStorageKey(questionId)) ?? "";
+    return window.sessionStorage.getItem(draftStorageKey(questionId, labContext)) ?? "";
   } catch {
     return "";
   }
 };
 
-export function ERDiagramWorkspace({ question }: WorkspaceProps) {
+export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
+  const router = useRouter();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
   const [chatSending, setChatSending] = useState(false);
@@ -154,7 +159,12 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const drawioRef = useRef<DrawioBoardHandle | null>(null);
   const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
   const [isDirty, setIsDirty] = useState(false);
-  const [initialDrawioXml] = useState(() => readDraftFromSessionStorage(question.id));
+  const [initialDrawioXml] = useState(() => readDraftFromSessionStorage(question.id, labContext));
+  const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id" | "er_lab_id" | "er_lab_question_id"> =>
+    labContext
+      ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
+      : { question_id: question.id };
+
   const focusMode = submissionMode === "drawio";
   const showRubricTab = question.show_rubric_on_attempt && hasSubmittedAttempt;
   const latestScorePercent = useMemo(
@@ -194,7 +204,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
 
   const handleQuery = async (message: string): Promise<string> => {
     const response = await erDiagramService.submit({
-      question_id: question.id,
+      ...buildSubmissionRef(),
       mode: "Query",
       student_query: message,
     });
@@ -249,7 +259,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
       setHasSubmittedAttempt(true);
       try {
         if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem(draftStorageKey(question.id));
+          window.sessionStorage.removeItem(draftStorageKey(question.id, labContext));
         }
       } catch {
         // ignore sessionStorage write failures
@@ -265,7 +275,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const handleAutosave = (xml: string) => {
     try {
       if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(draftStorageKey(question.id), xml);
+        window.sessionStorage.setItem(draftStorageKey(question.id, labContext), xml);
       }
     } catch {
       // sessionStorage may throw QuotaExceededError; swallow silently
@@ -276,7 +286,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
   const persistDraft = (xml: string) => {
     try {
       if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(draftStorageKey(question.id), xml);
+        window.sessionStorage.setItem(draftStorageKey(question.id, labContext), xml);
       }
     } catch {
       // ignore
@@ -400,7 +410,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
     setSubmitError(null);
 
     await runSubmitStream({
-        question_id: question.id,
+        ...buildSubmissionRef(),
         mode: "Submit",
         erd_img: imageFile,
       });
@@ -415,7 +425,7 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
     }
 
     await runSubmitStream({
-        question_id: question.id,
+        ...buildSubmissionRef(),
         mode: "Submit",
         erd_img: image,
       });
@@ -598,11 +608,10 @@ export function ERDiagramWorkspace({ question }: WorkspaceProps) {
       <Stack gap="md">
         <Group align="baseline" gap="sm">
           <ActionIcon
-            component={Link}
-            href="/er-diagram"
+            onClick={() => router.back()}
             variant="subtle"
             size="sm"
-            aria-label="Back to ER diagram list"
+            aria-label="Back to previous page"
           >
             <IconArrowLeft size={18} />
           </ActionIcon>

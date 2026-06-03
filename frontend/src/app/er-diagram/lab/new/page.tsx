@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Stack, TextInput, Textarea, Title, PasswordInput, Group, Code } from '@mantine/core';
+import { ActionIcon, Button, Stack, TextInput, Textarea, Title, PasswordInput, Group, Code } from '@mantine/core';
+import { IconArrowLeft } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { erLabsService } from '@/services/erLabs.service';
 
@@ -38,7 +39,18 @@ export default function NewErLabPage() {
 
   return (
     <Stack p="md" maw={720}>
-      <Title order={2}>New ER Lab</Title>
+      <Group align="center" gap="sm">
+        <ActionIcon
+          component="a"
+          href="/er-diagram"
+          variant="subtle"
+          size="sm"
+          aria-label="Back to ER diagram"
+        >
+          <IconArrowLeft size={18} />
+        </ActionIcon>
+        <Title order={2}>New ER Lab</Title>
+      </Group>
       <TextInput label="Title" value={title} onChange={e => setTitle(e.target.value)} required />
       <Textarea label="Description" value={description} onChange={e => setDescription(e.target.value)}
                 required minRows={4} />

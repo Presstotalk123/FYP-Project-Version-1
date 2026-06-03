@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Stack, Title, Card, Group, Text, Badge, Button, Modal, NumberInput, Textarea } from '@mantine/core';
+import { ActionIcon, Stack, Title, Card, Group, Text, Badge, Button, Modal, NumberInput, Textarea } from '@mantine/core';
+import { IconArrowLeft } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { erLabsService } from '@/services/erLabs.service';
 import type { ErLabSubmissionResponse, ErLabQuestionResponse } from '@/types/er-lab.types';
@@ -60,7 +61,18 @@ export default function ErLabStudentDrillPage() {
 
   return (
     <Stack p="md">
-      <Title order={2}>Student submissions (chronological)</Title>
+      <Group align="center" gap="sm">
+        <ActionIcon
+          component="a"
+          href={`/er-diagram/lab/${labId}/students`}
+          variant="subtle"
+          size="sm"
+          aria-label="Back to students summary"
+        >
+          <IconArrowLeft size={18} />
+        </ActionIcon>
+        <Title order={2}>Student submissions (chronological)</Title>
+      </Group>
       {submissions.map(s => {
         const q = qById.get(s.er_lab_question_id);
         const effective = s.override_score_percent ?? s.auto_score_percent;

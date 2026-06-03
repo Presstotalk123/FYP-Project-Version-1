@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Stack, Title, Card, Group, Text, Badge } from '@mantine/core';
+import { ActionIcon, Stack, Title, Card, Group, Text, Badge } from '@mantine/core';
+import { IconArrowLeft } from '@tabler/icons-react';
 import { erLabsService } from '@/services/erLabs.service';
 import type { ErLabSubmissionResponse, ErLabQuestionResponse } from '@/types/er-lab.types';
 
@@ -20,7 +21,18 @@ export default function StudentErLabHistoryPage() {
 
   return (
     <Stack p="md">
-      <Title order={2}>My submission history</Title>
+      <Group align="center" gap="sm">
+        <ActionIcon
+          component="a"
+          href="/er-diagram"
+          variant="subtle"
+          size="sm"
+          aria-label="Back to ER diagram"
+        >
+          <IconArrowLeft size={18} />
+        </ActionIcon>
+        <Title order={2}>My submission history</Title>
+      </Group>
       {subs.length === 0 && <Text c="dimmed">No submissions yet.</Text>}
       {subs.map(s => {
         const q = qMap.get(s.er_lab_question_id);

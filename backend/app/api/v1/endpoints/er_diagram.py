@@ -2,14 +2,11 @@ import json
 import logging
 import re
 import time
-from collections import deque
 from typing import Any, Optional
-from urllib.parse import urlparse, urlunparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -24,19 +21,27 @@ from app.schemas.er_diagram import (
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
-    ERSubmissionStructuredOutput,
+)
+from app.services.er_grading import (
+    DIFY_SUBMISSION_RETRY_BACKOFF_SECONDS,
+    DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS,
+    RUBRIC_INTERNAL_META_KEY,
+    _build_dify_headers,
+    _extract_first_text,
+    _format_dify_http_error,
+    _parse_json_field,
+    _sse_event,
+    _strip_rubric_internal_meta,
+    _upload_file_to_dify,
+    stream_er_submission_grading,
 )
 from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
-MAX_ER_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_ER_XML_CHARS = 500_000
 RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
-RUBRIC_INTERNAL_META_KEY = "__dbassist_meta"
 SHOW_RUBRIC_ON_ATTEMPT_KEY = "show_rubric_on_attempt"
-DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS = 2
-DIFY_SUBMISSION_RETRY_BACKOFF_SECONDS = 0.4
 
 
 def _looks_like_template_placeholder(value: str) -> bool:
@@ -68,69 +73,6 @@ def _with_rubric_visibility_meta(rubric_json: dict[str, Any], show_rubric_on_att
     internal_meta[SHOW_RUBRIC_ON_ATTEMPT_KEY] = bool(show_rubric_on_attempt)
     merged[RUBRIC_INTERNAL_META_KEY] = internal_meta
     return merged
-
-
-def _strip_rubric_internal_meta(rubric_json: dict[str, Any]) -> dict[str, Any]:
-    cleaned = dict(rubric_json)
-    cleaned.pop(RUBRIC_INTERNAL_META_KEY, None)
-    return cleaned
-
-
-def _build_dify_headers(content_type: Optional[str] = None, api_key: Optional[str] = None) -> dict[str, str]:
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "DatabaseAssist/1.0",
-    }
-    if content_type:
-        headers["Content-Type"] = content_type
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    return headers
-
-
-def _format_dify_http_error(stage: str, status_code: int, raw: str) -> HTTPException:
-    try:
-        payload = json.loads(raw)
-        if isinstance(payload, dict):
-            message = payload.get("message") or payload.get("detail") or payload
-            return HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Dify {stage} failed ({status_code}): {message}",
-            )
-    except Exception:
-        pass
-
-    # Cloudflare often returns HTML. Convert it to a concise actionable message.
-    if "cloudflare" in raw.lower():
-        cf_code_match = re.search(r"Error\s+(\d{3,4})", raw, re.IGNORECASE)
-        ray_match = re.search(r"Ray ID:\s*([A-Za-z0-9]+)", raw, re.IGNORECASE)
-        cf_code = cf_code_match.group(1) if cf_code_match else str(status_code)
-        ray_id = ray_match.group(1) if ray_match else "unknown"
-        return HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"Dify {stage} blocked by Cloudflare (error {cf_code}, Ray ID {ray_id}). "
-                "This is typically an IP/WAF restriction at api.dify.ai; use an allowed egress IP, "
-                "a proxy, or a self-hosted Dify endpoint."
-            ),
-        )
-
-    return HTTPException(
-        status_code=status.HTTP_502_BAD_GATEWAY,
-        detail=f"Dify {stage} failed ({status_code})",
-    )
-
-
-def _derive_files_upload_url(workflow_run_url: str) -> str:
-    parsed = urlparse(workflow_run_url)
-    path = parsed.path.rstrip("/")
-    if path.endswith("/workflows/run"):
-        path = path[: -len("/workflows/run")] + "/files/upload"
-    elif path.endswith("/chat-messages"):
-        path = path[: -len("/chat-messages")] + "/files/upload"
-    else:
-        path = f"{path}/files/upload"
-    return urlunparse((parsed.scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment))
 
 
 def _post_dify_json(
@@ -313,85 +255,6 @@ def _post_dify_workflow_stream_outputs(
     return latest_outputs
 
 
-def _post_dify_workflow_blocking(
-    *,
-    url: str,
-    payload: dict[str, Any],
-    timeout_seconds: int,
-    api_key: Optional[str],
-    stage: str,
-) -> dict[str, Any]:
-    """Call a Dify workflow in blocking mode; return data.outputs as a dict.
-
-    Raises HTTPException(502) on transport errors, non-2xx responses, non-JSON
-    bodies, workflow status == failed/error/stopped, or missing data.outputs.
-    """
-    headers = _build_dify_headers("application/json", api_key)
-
-    try:
-        with httpx.Client(timeout=float(timeout_seconds)) as client:
-            response = client.post(url, json=payload, headers=headers)
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to reach Dify endpoint: {str(exc)}",
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unexpected Dify integration error: {str(exc)}",
-        )
-
-    if response.is_error:
-        raise _format_dify_http_error(stage, response.status_code, response.text)
-
-    try:
-        body = response.json()
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"Dify {stage} returned non-JSON response: {response.text[:500]}"
-            ),
-        )
-
-    if not isinstance(body, dict):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Dify {stage} response is not a JSON object",
-        )
-
-    # Workflow blocking response shape: {data: {status, outputs, error}}
-    data_section = body.get("data")
-    if isinstance(data_section, dict):
-        status_value = str(data_section.get("status") or "").lower()
-        error_value = data_section.get("error")
-        if status_value in {"failed", "error", "stopped"}:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    f"Dify workflow failed with status '{status_value}': {error_value}"
-                ),
-            )
-        outputs = data_section.get("outputs")
-        if isinstance(outputs, dict):
-            return outputs
-
-    # Chat / Agent blocking response shape: {answer: "...", files: [...], ...}
-    answer_value = body.get("answer")
-    if isinstance(answer_value, str) and answer_value.strip():
-        return {"answer": answer_value}
-
-    raise HTTPException(
-        status_code=status.HTTP_502_BAD_GATEWAY,
-        detail=f"Dify {stage} response missing usable output (no data.outputs or answer)",
-    )
-
-
-def _sse_event(event: str, payload: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-
 def _append_stream_text(existing: str, candidate: Optional[str]) -> tuple[str, Optional[str]]:
     if not candidate:
         return existing, None
@@ -412,64 +275,6 @@ def _extract_stream_text_chunk(payload: dict[str, Any]) -> Optional[str]:
         if isinstance(value, str) and value:
             return value
     return None
-
-
-def _upload_file_to_dify(
-    upload_file: UploadFile,
-    workflow_run_url: str,
-    timeout_seconds: int,
-    api_key: Optional[str],
-    user_ref: str,
-) -> str:
-    filename = upload_file.filename or "upload"
-    content_type = upload_file.content_type or "application/octet-stream"
-    file_bytes = upload_file.file.read()
-    upload_file.file.seek(0)
-    if len(file_bytes) > MAX_ER_IMAGE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"{filename} exceeds {MAX_ER_IMAGE_BYTES // (1024 * 1024)}MB upload limit",
-        )
-    headers = _build_dify_headers(api_key=api_key)
-    upload_url = _derive_files_upload_url(workflow_run_url)
-
-    try:
-        with httpx.Client(timeout=float(timeout_seconds)) as client:
-            response = client.post(
-                upload_url,
-                data={"user": user_ref},
-                files={"file": (filename, file_bytes, content_type)},
-                headers=headers,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Unable to reach Dify file upload endpoint: {str(exc)}",
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unexpected Dify file upload error: {str(exc)}",
-        )
-
-    if response.is_error:
-        raise _format_dify_http_error("file upload", response.status_code, response.text)
-
-    try:
-        payload = response.json()
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify file upload response is not valid JSON",
-        )
-
-    upload_id = payload.get("id")
-    if not isinstance(upload_id, str) or not upload_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify file upload response missing id",
-        )
-    return upload_id
 
 
 def _upload_model_answer_to_dify(model_answer: UploadFile) -> str:
@@ -615,128 +420,6 @@ def _call_dify_generate_rubric(
     }
 
 
-def _extract_first_text(value: Any) -> Optional[str]:
-    queue: deque[Any] = deque([value])
-    scanned = 0
-    while queue and scanned < 500:
-        current = queue.popleft()
-        scanned += 1
-        if isinstance(current, str) and current.strip():
-            return current.strip()
-        if isinstance(current, dict):
-            for key in ("text", "answer", "student_message", "response", "message"):
-                candidate = current.get(key)
-                if isinstance(candidate, str) and candidate.strip():
-                    return candidate.strip()
-            queue.extend(current.values())
-        elif isinstance(current, list):
-            queue.extend(current)
-    return None
-
-
-def _decode_first_json_value_with_span(raw: str) -> tuple[Optional[Any], Optional[int], Optional[int]]:
-    text = raw.lstrip()
-    leading_whitespace = len(raw) - len(text)
-    if not text:
-        return None, None, None
-
-    decoder = json.JSONDecoder()
-    try:
-        parsed, end = decoder.raw_decode(text)
-    except Exception:
-        return None, None, None
-
-    return parsed, leading_whitespace, leading_whitespace + end
-
-
-def _decode_trailing_json_array_with_span(raw: str, min_start: int = 0) -> tuple[Optional[list[Any]], Optional[int], Optional[int]]:
-    trimmed_end = len(raw.rstrip())
-    if trimmed_end <= min_start:
-        return None, None, None
-
-    decoder = json.JSONDecoder()
-    best_match: tuple[list[Any], int, int] | None = None
-
-    for start in range(min_start, trimmed_end):
-        if raw[start] != "[":
-            continue
-        try:
-            parsed, consumed = decoder.raw_decode(raw[start:trimmed_end])
-        except Exception:
-            continue
-        if start + consumed != trimmed_end or not isinstance(parsed, list):
-            continue
-        best_match = (parsed, start, trimmed_end)
-
-    if best_match is None:
-        return None, None, None
-
-    return best_match
-
-
-def _normalize_submission_structured_output(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify submission structured_output must be a JSON object",
-        )
-    return {
-        "score": value.get("score"),
-        "student_message": value.get("student_message"),
-        "checks": value.get("checks"),
-    }
-
-
-def _validate_submission_structured_output(value: Any) -> dict[str, Any]:
-    normalized = _normalize_submission_structured_output(value)
-    try:
-        parsed = ERSubmissionStructuredOutput.model_validate(normalized)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Dify submission structured_output schema invalid: {exc.errors()}",
-        )
-
-    return parsed.model_dump()
-
-
-def _parse_submission_answer_text(raw: str) -> dict[str, Any]:
-    score, score_start, score_end = _decode_first_json_value_with_span(raw)
-    if not isinstance(score, dict) or score_start is None or score_end is None:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify submission response missing or invalid leading score JSON object",
-        )
-
-    checks, checks_start, checks_end = _decode_trailing_json_array_with_span(raw, min_start=score_end)
-    if checks is None or checks_start is None or checks_end is None:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify submission response missing trailing checks JSON array",
-        )
-
-    if raw[:score_start].strip() or raw[checks_end:].strip():
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify submission response has unexpected content outside score/message/checks",
-        )
-
-    student_message = raw[score_end:checks_start].strip()
-    if not student_message:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Dify submission response missing feedback text between score and checks",
-        )
-
-    return _validate_submission_structured_output(
-        {
-            "score": score,
-            "student_message": student_message,
-            "checks": checks,
-        }
-    )
-
-
 def _call_dify_er_submission(
     question: ERDiagramQuestion,
     mode: ERSubmissionMode,
@@ -744,6 +427,19 @@ def _call_dify_er_submission(
     submission_xml_text: Optional[str],
     erd_img: Optional[UploadFile],
 ) -> Any:
+    if mode == "Submit":
+        # Submit-mode is shared with the upcoming ER lab submission endpoint —
+        # see app.services.er_grading for the canonical implementation.
+        return stream_er_submission_grading(
+            question_id=question.id,
+            problem_statement=question.problem_statement,
+            difficulty_label=question.difficulty_label,
+            rubric_json=question.rubric_json,
+            submission_xml_text=submission_xml_text,
+            student_query=student_query,
+            erd_img=erd_img,
+        )
+
     if not settings.DIFY_ER_SUBMISSION_URL:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -806,109 +502,6 @@ def _call_dify_er_submission(
                 "question_id": question.id,
             },
         )
-
-        if mode == "Submit":
-            submit_payload = {**workflow_payload, "response_mode": "blocking"}
-
-            for attempt in range(1, DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS + 1):
-                try:
-                    outputs = _post_dify_workflow_blocking(
-                        url=settings.DIFY_ER_SUBMISSION_URL,
-                        payload=submit_payload,
-                        timeout_seconds=settings.DIFY_ER_SUBMISSION_TIMEOUT_SECONDS,
-                        api_key=settings.DIFY_ER_SUBMISSION_API_KEY,
-                        stage="submission request",
-                    )
-
-                    answer_text = _extract_first_text(outputs) or ""
-                    if not answer_text.strip():
-                        raise HTTPException(
-                            status_code=status.HTTP_502_BAD_GATEWAY,
-                            detail="Dify submission response missing final grading payload",
-                        )
-
-                    structured_output = _parse_submission_answer_text(answer_text)
-                    yield _sse_event(
-                        "structured_output",
-                        {"structured_output": structured_output},
-                    )
-
-                    student_message = str(structured_output.get("student_message") or "").strip()
-                    if not student_message:
-                        raise HTTPException(
-                            status_code=status.HTTP_502_BAD_GATEWAY,
-                            detail="Dify submission structured_output missing student_message",
-                        )
-
-                    done_payload = {
-                        "mode": mode,
-                        "text": student_message,
-                        "structured_output": structured_output,
-                    }
-                    yield _sse_event("done", done_payload)
-                    duration_ms = int((time.perf_counter() - start_time) * 1000)
-                    logger.info(
-                        "submission_stream_completed question_id=%s mode=%s duration_ms=%s text_len=%s attempt=%s",
-                        question.id,
-                        mode,
-                        duration_ms,
-                        len(student_message),
-                        attempt,
-                    )
-                    return
-                except HTTPException as exc:
-                    duration_ms = int((time.perf_counter() - start_time) * 1000)
-                    logger.warning(
-                        "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s attempt=%s",
-                        question.id,
-                        mode,
-                        duration_ms,
-                        exc.detail,
-                        attempt,
-                    )
-                    yield _sse_event("error", {"detail": str(exc.detail)})
-                    return
-                except httpx.RequestError as exc:
-                    if attempt < DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS:
-                        logger.warning(
-                            "submission_stream_retry question_id=%s mode=%s attempt=%s/%s detail=%s",
-                            question.id,
-                            mode,
-                            attempt,
-                            DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS,
-                            str(exc),
-                        )
-                        time.sleep(DIFY_SUBMISSION_RETRY_BACKOFF_SECONDS * attempt)
-                        continue
-
-                    duration_ms = int((time.perf_counter() - start_time) * 1000)
-                    message = (
-                        "Unable to reach Dify submission endpoint after retries: "
-                        f"{str(exc)}"
-                    )
-                    logger.warning(
-                        "submission_stream_failed question_id=%s mode=%s duration_ms=%s detail=%s attempt=%s",
-                        question.id,
-                        mode,
-                        duration_ms,
-                        message,
-                        attempt,
-                    )
-                    yield _sse_event("error", {"detail": message})
-                    return
-                except Exception as exc:
-                    duration_ms = int((time.perf_counter() - start_time) * 1000)
-                    message = f"Unexpected Dify submission integration error: {str(exc)}"
-                    logger.exception(
-                        "submission_stream_failed question_id=%s mode=%s duration_ms=%s attempt=%s",
-                        question.id,
-                        mode,
-                        duration_ms,
-                        attempt,
-                    )
-                    yield _sse_event("error", {"detail": message})
-                    return
-            return
 
         for attempt in range(1, DIFY_SUBMISSION_STREAM_MAX_ATTEMPTS + 1):
             accumulated_text = ""
@@ -1065,16 +658,6 @@ def _call_dify_er_submission(
                 return
 
     return stream_generator()
-
-
-def _parse_json_field(value: str, field_name: str) -> Any:
-    try:
-        return json.loads(value)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{field_name} must be valid JSON",
-        )
 
 
 def _to_response(question: ERDiagramQuestion, *, hide_rubric_when_disabled: bool = True) -> ERDiagramQuestionResponse:
@@ -1345,21 +928,30 @@ def get_er_question(
 
 @router.post("/submission")
 def submit_er_diagram(
-    question_id: int = Form(...),
+    question_id: Optional[int] = Form(None),
     mode: ERSubmissionMode = Form(...),
     student_query: Optional[str] = Form(None),
     submission_xml_text: Optional[str] = Form(None),
     erd_img: Optional[UploadFile] = File(None),
+    er_lab_id: Optional[int] = Form(None),
+    er_lab_question_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    question = (
-        db.query(ERDiagramQuestion)
-        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
-        .first()
-    )
-    if not question:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+    # Exactly one of (question_id) vs (er_lab_id + er_lab_question_id) must be supplied.
+    bank_mode = question_id is not None
+    lab_mode = er_lab_id is not None and er_lab_question_id is not None
+    if bank_mode == lab_mode:  # both true or both false
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Supply either question_id (bank) OR er_lab_id+er_lab_question_id (lab), not both.",
+        )
+    if er_lab_id is not None and er_lab_question_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="er_lab_question_id is required when er_lab_id is supplied")
+    if er_lab_question_id is not None and er_lab_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="er_lab_id is required when er_lab_question_id is supplied")
 
     query_text = student_query.strip() if isinstance(student_query, str) else ""
     xml_text = submission_xml_text.strip() if isinstance(submission_xml_text, str) else ""
@@ -1368,44 +960,127 @@ def submit_er_diagram(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"submission_xml_text exceeds maximum length of {MAX_ER_XML_CHARS} characters",
         )
-
     if mode == "Query":
         if not query_text:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="student_query is required when mode is Query",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="student_query is required when mode is Query")
     else:
         if not xml_text and not erd_img:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Provide either submission_xml_text or erd_img when mode is Submit",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Provide either submission_xml_text or erd_img when mode is Submit")
         if xml_text and erd_img:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Provide only one submission input: submission_xml_text or erd_img",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Provide only one submission input: submission_xml_text or erd_img")
         if erd_img and (not erd_img.content_type or not erd_img.content_type.startswith("image/")):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="erd_img must be an image file",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="erd_img must be an image file")
 
-    stream = _call_dify_er_submission(
-        question=question,
-        mode=mode,
-        student_query=query_text or None,
-        submission_xml_text=xml_text or None,
-        erd_img=erd_img,
-    )
+    # ----- Bank mode: unchanged from today -----
+    if bank_mode:
+        question = (
+            db.query(ERDiagramQuestion)
+            .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+            .first()
+        )
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        stream = _call_dify_er_submission(
+            question=question,
+            mode=mode,
+            student_query=query_text or None,
+            submission_xml_text=xml_text or None,
+            erd_img=erd_img,
+        )
+        return StreamingResponse(
+            stream,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # ----- Lab mode -----
+    from app.models.er_lab import ErLab
+    from app.models.er_lab_question import ErLabQuestion
+    from app.models.er_lab_session import ErLabSession
+    from app.services.er_lab_submission_persistence import stream_with_lab_persistence
+    from app.utils.er_storage import get_er_storage_provider
+    from app.services.er_grading import stream_er_submission_grading, _wrap_bytes_as_upload_file
+
+    lab = db.query(ErLab).filter(ErLab.id == er_lab_id, ErLab.is_deleted == 0).first()
+    if not lab:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab not found")
+
+    is_staff = current_user.role.value == "staff"
+    if not is_staff and lab.is_running == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Lab is not running")
+
+    er_lab_question = db.query(ErLabQuestion).filter(
+        ErLabQuestion.id == er_lab_question_id,
+        ErLabQuestion.er_lab_id == er_lab_id,
+        ErLabQuestion.is_deleted == 0,
+    ).first()
+    if not er_lab_question:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab question not found")
+
+    session = db.query(ErLabSession).filter(
+        ErLabSession.er_lab_id == er_lab_id,
+        ErLabSession.user_id == current_user.id,
+        ErLabSession.is_active == 1,
+    ).first()
+    if not session and not is_staff:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="No active session for this lab")
+
+    image_key: Optional[str] = None
+    image_bytes: Optional[bytes] = None
+    if mode == "Submit" and erd_img is not None and erd_img.filename:
+        image_bytes = erd_img.file.read()
+        provider = get_er_storage_provider()
+        wrapped_for_save = _wrap_bytes_as_upload_file(image_bytes, filename=(erd_img.filename or "submission.png"))
+        image_key, _path = provider.save(wrapped_for_save)
+
+    if mode == "Submit":
+        grading_stream = stream_er_submission_grading(
+            question_id=er_lab_question.id,
+            problem_statement=er_lab_question.problem_statement,
+            difficulty_label=er_lab_question.difficulty_label,
+            rubric_json=er_lab_question.rubric_json,
+            submission_xml_text=xml_text or None,
+            student_query=query_text or None,
+            erd_img=None,
+            image_bytes=image_bytes,
+        )
+    else:
+        # Query mode in lab — reuse the existing er_diagram.py helper which handles both modes.
+        # It only reads question.id, .problem_statement, .difficulty_label, .rubric_json
+        # — all of which ErLabQuestion exposes with matching names.
+        grading_stream = _call_dify_er_submission(
+            question=er_lab_question,
+            mode=mode,
+            student_query=query_text or None,
+            submission_xml_text=None,
+            erd_img=None,
+        )
+
+    if mode == "Submit" and session is not None:
+        wrapped_stream = stream_with_lab_persistence(
+            stream=grading_stream,
+            db=db,
+            er_lab_id=er_lab_id,
+            er_lab_question_id=er_lab_question_id,
+            user_id=current_user.id,
+            session_id=session.id,
+            submitted_xml=xml_text or None,
+            submitted_image_storage_key=image_key,
+        )
+    else:
+        # Query mode (no persistence) or staff with no session (still no persistence)
+        wrapped_stream = grading_stream
+
     return StreamingResponse(
-        stream,
+        wrapped_stream,
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

@@ -5,7 +5,7 @@ import {
   Button, Group, Stack, Tabs, Title, Card, Text, Table, Badge,
   TextInput, Textarea, PasswordInput, ActionIcon, Menu,
 } from '@mantine/core';
-import { IconDots, IconPlus } from '@tabler/icons-react';
+import { IconArrowLeft, IconDots, IconPlus } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { erLabsService } from '@/services/erLabs.service';
 import type { ErLabStaffDetail, ErLabQuestionResponse } from '@/types/er-lab.types';
@@ -65,13 +65,24 @@ export default function ErLabDetailPage() {
   return (
     <Stack p="md">
       <Group justify="space-between">
-        <Stack gap={0}>
-          <Title order={2}>{lab.title}</Title>
-          <Group gap={4}>
-            <Badge color={lab.is_published ? 'green' : 'gray'}>{lab.is_published ? 'Published' : 'Unpublished'}</Badge>
-            <Badge color={lab.is_running ? 'blue' : 'gray'}>{lab.is_running ? 'Running' : 'Stopped'}</Badge>
-          </Group>
-        </Stack>
+        <Group align="center" gap="sm">
+          <ActionIcon
+            component="a"
+            href="/er-diagram"
+            variant="subtle"
+            size="sm"
+            aria-label="Back to ER diagram"
+          >
+            <IconArrowLeft size={18} />
+          </ActionIcon>
+          <Stack gap={0}>
+            <Title order={2}>{lab.title}</Title>
+            <Group gap={4}>
+              <Badge color={lab.is_published ? 'green' : 'gray'}>{lab.is_published ? 'Published' : 'Unpublished'}</Badge>
+              <Badge color={lab.is_running ? 'blue' : 'gray'}>{lab.is_running ? 'Running' : 'Stopped'}</Badge>
+            </Group>
+          </Stack>
+        </Group>
         <Button variant="default" onClick={() => router.push(`/er-diagram/lab/${labId}/students`)}>
           View students
         </Button>

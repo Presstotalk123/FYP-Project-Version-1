@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Stack, Title, PasswordInput, Button, Text } from '@mantine/core';
+import { ActionIcon, Group, Stack, Title, PasswordInput, Button, Text } from '@mantine/core';
+import { IconArrowLeft } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { erLabsService } from '@/services/erLabs.service';
 import { AxiosError } from 'axios';
@@ -32,7 +33,18 @@ export default function StudentErLabJoinPage() {
 
   return (
     <Stack p="md" maw={420}>
-      <Title order={2}>Join ER Lab</Title>
+      <Group align="center" gap="sm">
+        <ActionIcon
+          component="a"
+          href="/er-diagram"
+          variant="subtle"
+          size="sm"
+          aria-label="Back to ER diagram"
+        >
+          <IconArrowLeft size={18} />
+        </ActionIcon>
+        <Title order={2}>Join ER Lab</Title>
+      </Group>
       <Text c="dimmed">Enter the join password your instructor shared.</Text>
       <PasswordInput label="Join password" value={password}
                      onChange={e => setPassword(e.target.value)}

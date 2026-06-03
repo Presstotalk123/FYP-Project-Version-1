@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Stack, Title, Table, Text } from '@mantine/core';
+import { ActionIcon, Group, Stack, Title, Table, Text } from '@mantine/core';
+import { IconArrowLeft } from '@tabler/icons-react';
 import { erLabsService } from '@/services/erLabs.service';
 import type { ErLabStudentsResponse } from '@/types/er-lab.types';
 
@@ -16,7 +17,18 @@ export default function ErLabStudentsPage() {
 
   return (
     <Stack p="md">
-      <Title order={2}>{data.lab_title} — Students</Title>
+      <Group align="center" gap="sm">
+        <ActionIcon
+          component="a"
+          href={`/er-diagram/lab/${labId}`}
+          variant="subtle"
+          size="sm"
+          aria-label="Back to lab"
+        >
+          <IconArrowLeft size={18} />
+        </ActionIcon>
+        <Title order={2}>{data.lab_title} — Students</Title>
+      </Group>
       <Text c="dimmed">{data.total_questions} questions in this lab.</Text>
       <Table>
         <Table.Thead>

@@ -22,9 +22,11 @@ import { labService } from '@/services/lab.service';
 interface LabFormProps {
   lab?: LabDetail;
   isEdit?: boolean;
+  onSuccess?: (labId: number) => void;
+  submitLabel?: string;
 }
 
-export function LabForm({ lab, isEdit = false }: LabFormProps) {
+export function LabForm({ lab, isEdit = false, onSuccess, submitLabel }: LabFormProps) {
   const router = useRouter();
 
   // Form state
@@ -69,24 +71,22 @@ export function LabForm({ lab, isEdit = false }: LabFormProps) {
       };
 
       if (isEdit && lab) {
-        // Update existing lab
         await labService.updateLab(lab.id, payload);
         notifications.show({
           title: 'Success',
           message: 'Lab updated successfully',
           color: 'green',
         });
+        if (onSuccess) { onSuccess(lab.id); } else { router.push('/admin/labs'); }
       } else {
-        // Create new lab
-        await labService.createLab(payload);
+        const created = await labService.createLab(payload);
         notifications.show({
           title: 'Success',
           message: 'Lab created successfully',
           color: 'green',
         });
+        if (onSuccess) { onSuccess(created.id); } else { router.push('/admin/labs'); }
       }
-
-      router.push('/admin/labs');
     } catch (err) {
       const error = err as { response?: { data?: { detail?: string } } };
       const errorMessage =
@@ -203,7 +203,7 @@ export function LabForm({ lab, isEdit = false }: LabFormProps) {
             loading={loading}
             disabled={isEdit && lab?.is_running}
           >
-            {isEdit ? 'Update Lab' : 'Create Lab'}
+            {submitLabel ?? (isEdit ? 'Update Lab' : 'Create Lab')}
           </Button>
         </Group>
       </Stack>

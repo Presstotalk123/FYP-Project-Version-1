@@ -25,7 +25,6 @@ import {
   IconPlayerStop,
   IconEye,
   IconEyeOff,
-  IconFlask,
   IconChartBar,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
@@ -153,10 +152,6 @@ export default function AdminLabsPage() {
     setDeleteModalOpen(true);
   };
 
-  const handleAccessLab = (labId: number) => {
-    router.push(`/admin/labs/${labId}/workspace`);
-  };
-
   const handleViewStudentAttempts = (labId: number, labTitle: string) => {
     setSelectedLabForAttempts({ id: labId, title: labTitle });
     setStudentAttemptsModalOpen(true);
@@ -170,7 +165,7 @@ export default function AdminLabsPage() {
             <Title order={2}>Labs Management</Title>
             <Button
               leftSection={<IconPlus size={16} />}
-              onClick={() => router.push('/admin/labs/new')}
+              onClick={() => router.push('/admin/labs/wizard')}
             >
               Create New Lab
             </Button>
@@ -244,15 +239,6 @@ export default function AdminLabsPage() {
                             {lab.is_published ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                           </ActionIcon>
                         </Tooltip>
-                        <Tooltip label="Access Lab (Test)">
-                          <ActionIcon
-                            color="cyan"
-                            variant="light"
-                            onClick={() => handleAccessLab(lab.id)}
-                          >
-                            <IconFlask size={16} />
-                          </ActionIcon>
-                        </Tooltip>
                         <Tooltip label="View Student Attempts">
                           <ActionIcon
                             color="violet"
@@ -273,11 +259,11 @@ export default function AdminLabsPage() {
                             </ActionIcon>
                           </Tooltip>
                         )}
-                        <Tooltip label="Edit">
+                        <Tooltip label="Edit Lab">
                           <ActionIcon
                             color="blue"
                             variant="light"
-                            onClick={() => router.push(`/admin/labs/${lab.id}`)}
+                            onClick={() => router.push(`/admin/labs/${lab.id}/wizard`)}
                             disabled={lab.is_running}
                           >
                             <IconEdit size={16} />

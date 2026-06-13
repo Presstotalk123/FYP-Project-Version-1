@@ -10,11 +10,10 @@ import {
   Loader,
   Stack,
   Text,
-  Title,
   Alert,
   Button,
 } from '@mantine/core';
-import { IconArrowLeft, IconAlertCircle, IconLogout, IconRefresh, IconInfoCircle } from '@tabler/icons-react';
+import { IconAlertCircle, IconLogout, IconRefresh, IconInfoCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import { LabDetail, LabExecuteResponse, LabAttemptResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskAssignAnswer, LabTaskProgress } from '@/types/lab.types';
@@ -636,17 +635,7 @@ export function LabWorkspace({
       <Stack gap="md">
         {/* Header */}
         <Group justify="space-between" align="center">
-          <Group align="baseline" gap="sm">
-            <ActionIcon
-              onClick={() => router.push(isStaffMode ? '/admin/labs' : '/student/labs')}
-              variant="subtle"
-              size="sm"
-              aria-label="Back to labs"
-            >
-              <IconArrowLeft size={18} />
-            </ActionIcon>
-            <Title order={2}>Lab Workspace</Title>
-          </Group>
+          <Group align="baseline" gap="sm" />
           <Group gap="sm">
             <Button
               leftSection={<IconRefresh size={16} />}
@@ -660,27 +649,16 @@ export function LabWorkspace({
             </Button>
             <Button
               leftSection={<IconLogout size={16} />}
-              color="red"
+              color="green"
               variant="light"
               onClick={handleExit}
               size="sm"
             >
-              Exit Lab
+              Save and Exit
             </Button>
           </Group>
         </Group>
 
-        {/* Staff Testing Mode Banner */}
-        {isStaffMode && !reviewMode && (
-          <Alert
-            icon={<IconInfoCircle size={16} />}
-            color="cyan"
-            variant="light"
-            title="Staff Testing Mode"
-          >
-            You are testing this lab as staff. Your session is independent from student sessions.
-          </Alert>
-        )}
 
         {/* Review Mode Banner */}
         {reviewMode && (

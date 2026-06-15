@@ -68,10 +68,10 @@ export default function ErLabDetailPage() {
         <Group align="center" gap="sm">
           <ActionIcon
             component="a"
-            href="/er-diagram"
+            href="/er-diagram/labs"
             variant="subtle"
             size="sm"
-            aria-label="Back to ER diagram"
+            aria-label="Back to ER labs"
           >
             <IconArrowLeft size={18} />
           </ActionIcon>

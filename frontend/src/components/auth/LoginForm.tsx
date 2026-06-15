@@ -34,7 +34,7 @@ export default function LoginForm() {
     try {
       const loggedInUser = await login({ email, password });
       const redirectPath =
-        loggedInUser.role === UserRole.STAFF ? '/admin' : '/student';
+        loggedInUser.role === UserRole.STAFF ? '/admin' : '/problems';
       router.push(redirectPath);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };

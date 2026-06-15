@@ -42,7 +42,7 @@ export default function RegisterForm() {
 
     try {
       await register({ email, password, role });
-      const redirectPath = role === UserRole.STAFF ? '/admin' : '/student';
+      const redirectPath = role === UserRole.STAFF ? '/admin' : '/problems';
       router.push(redirectPath);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };

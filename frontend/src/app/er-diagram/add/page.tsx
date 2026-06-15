@@ -274,10 +274,10 @@ export default function AddERDiagramQuestionPage() {
         <Group align="baseline" gap="sm">
           <ActionIcon
             component="a"
-            href="/er-diagram"
+            href="/problems"
             variant="subtle"
             size="sm"
-            aria-label="Back to ER diagram list"
+            aria-label="Back to problems"
           >
             <IconArrowLeft size={18} />
           </ActionIcon>

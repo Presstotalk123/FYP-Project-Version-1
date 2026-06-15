@@ -28,13 +28,13 @@ export default function Home() {
     if (isStaff) {
       return {
         primary: { label: "Open Dashboard", href: "/admin" },
-        secondary: { label: "Practice ER Diagram", href: "/er-diagram" },
+        secondary: { label: "Browse Problems", href: "/problems" },
       };
     }
 
     return {
-      primary: { label: "Continue SQL Practice", href: "/student" },
-      secondary: { label: "Practice ER Diagram", href: "/er-diagram" },
+      primary: { label: "Browse Problems", href: "/problems" },
+      secondary: { label: "Open Labs", href: "/labs" },
     };
   }, [loading, isAuthenticated, isStaff]);
 

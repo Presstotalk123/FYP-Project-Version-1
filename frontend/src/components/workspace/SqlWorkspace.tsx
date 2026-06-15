@@ -182,10 +182,10 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
         {/* Header */}
         <Group align="baseline" gap="sm">
           <ActionIcon
-            onClick={() => router.push('/student')}
+            onClick={() => router.push('/problems')}
             variant="subtle"
             size="sm"
-            aria-label="Back to dashboard"
+            aria-label="Back to problems"
           >
             <IconArrowLeft size={18} />
           </ActionIcon>

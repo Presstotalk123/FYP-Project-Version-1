@@ -25,7 +25,7 @@ export default function StudentErLabJoinPage() {
         msg = e.response?.data?.detail ?? msg;
       }
       notifications.show({ color: 'red', message: msg });
-      router.push('/er-diagram');
+      router.push('/er-diagram/labs');
     } finally {
       setSubmitting(false);
     }
@@ -36,10 +36,10 @@ export default function StudentErLabJoinPage() {
       <Group align="center" gap="sm">
         <ActionIcon
           component="a"
-          href="/er-diagram"
+          href="/er-diagram/labs"
           variant="subtle"
           size="sm"
-          aria-label="Back to ER diagram"
+          aria-label="Back to ER labs"
         >
           <IconArrowLeft size={18} />
         </ActionIcon>

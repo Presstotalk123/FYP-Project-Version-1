@@ -37,7 +37,7 @@ export default function StudentErLabWorkspacePage() {
     } catch {
       // best effort
     }
-    router.push("/er-diagram");
+    router.push("/er-diagram/labs");
   };
 
   return (

@@ -20,7 +20,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
       if (!isAuthenticated) {
         router.replace('/login');
       } else if (requiredRole && user?.role !== requiredRole) {
-        const redirectPath = user?.role === UserRole.STAFF ? '/admin' : '/student';
+        const redirectPath = user?.role === UserRole.STAFF ? '/admin' : '/problems';
         router.replace(redirectPath);
       }
     }

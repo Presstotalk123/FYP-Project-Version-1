@@ -14,6 +14,9 @@ export const API_ENDPOINTS = {
     BASE: '/questions',
     DETAIL: (id: number) => `/questions/${id}`,
   },
+  PROBLEMS: {
+    BASE: '/problems',
+  },
   EXECUTE: {
     BASE: '/execute',
   },

@@ -24,9 +24,11 @@ interface LabFormProps {
   isEdit?: boolean;
   onSuccess?: (labId: number) => void;
   submitLabel?: string;
+  labType?: 'sql' | 'graph';
 }
 
-export function LabForm({ lab, isEdit = false, onSuccess, submitLabel }: LabFormProps) {
+export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: labTypeProp }: LabFormProps) {
+  const labType: 'sql' | 'graph' = labTypeProp ?? lab?.lab_type ?? 'sql';
   const router = useRouter();
 
   // Form state
@@ -51,10 +53,10 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel }: LabForm
       return;
     }
     if (!schemaSql.trim()) {
-      setError('Schema SQL is required');
+      setError(labType === 'graph' ? 'Cypher Statements are required' : 'Schema SQL is required');
       return;
     }
-    if (!sampleDataSql.trim()) {
+    if (labType !== 'graph' && !sampleDataSql.trim()) {
       setError('Sample Data SQL is required');
       return;
     }
@@ -67,7 +69,9 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel }: LabForm
         title,
         description,
         schema_sql: schemaSql,
-        sample_data_sql: sampleDataSql,
+        // Graph labs use a single Cypher field; send a placeholder for the unused column
+        sample_data_sql: labType === 'graph' ? ' ' : sampleDataSql,
+        lab_type: labType,
       };
 
       if (isEdit && lab) {
@@ -105,7 +109,11 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel }: LabForm
   return (
     <form onSubmit={handleSubmit}>
       <Stack gap="md">
-        <Title order={2}>{isEdit ? 'Edit Lab' : 'Create New Lab'}</Title>
+        <Title order={2}>
+          {isEdit
+            ? `Edit ${labType === 'graph' ? 'Graph Lab' : 'Lab'}`
+            : `Create New ${labType === 'graph' ? 'Graph Lab' : 'Lab'}`}
+        </Title>
 
         {error && (
           <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
@@ -138,61 +146,93 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel }: LabForm
           disabled={loading || (isEdit && lab?.is_running)}
         />
 
-        <Box>
-          <Text size="sm" fw={500} mb="xs">
-            Schema SQL (CREATE TABLE statements) <span style={{ color: 'red' }}>*</span>
-          </Text>
-          <Box
-            style={{
-              border: '1px solid var(--mantine-color-gray-3)',
-              borderRadius: '8px',
-              overflow: 'hidden',
-            }}
-          >
-            <Editor
-              height="200px"
-              language="sql"
-              theme="vs-dark"
-              value={schemaSql}
-              onChange={(value) => setSchemaSql(value || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                readOnly: loading || (isEdit && lab?.is_running),
+        {labType === 'graph' ? (
+          <Box>
+            <Text size="sm" fw={500} mb="xs">
+              Cypher Statements (CREATE / MERGE) <span style={{ color: 'red' }}>*</span>
+            </Text>
+            <Box
+              style={{
+                border: '1px solid var(--mantine-color-gray-3)',
+                borderRadius: '8px',
+                overflow: 'hidden',
               }}
-            />
+            >
+              <Editor
+                height="300px"
+                language="cypher"
+                theme="vs-dark"
+                value={schemaSql}
+                onChange={(value) => setSchemaSql(value || '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  readOnly: loading || (isEdit && lab?.is_running),
+                }}
+              />
+            </Box>
           </Box>
-        </Box>
+        ) : (
+          <>
+            <Box>
+              <Text size="sm" fw={500} mb="xs">
+                Schema SQL (CREATE TABLE statements) <span style={{ color: 'red' }}>*</span>
+              </Text>
+              <Box
+                style={{
+                  border: '1px solid var(--mantine-color-gray-3)',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                }}
+              >
+                <Editor
+                  height="200px"
+                  language="sql"
+                  theme="vs-dark"
+                  value={schemaSql}
+                  onChange={(value) => setSchemaSql(value || '')}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    readOnly: loading || (isEdit && lab?.is_running),
+                  }}
+                />
+              </Box>
+            </Box>
 
-        <Box>
-          <Text size="sm" fw={500} mb="xs">
-            Sample Data SQL (INSERT statements) <span style={{ color: 'red' }}>*</span>
-          </Text>
-          <Box
-            style={{
-              border: '1px solid var(--mantine-color-gray-3)',
-              borderRadius: '8px',
-              overflow: 'hidden',
-            }}
-          >
-            <Editor
-              height="200px"
-              language="sql"
-              theme="vs-dark"
-              value={sampleDataSql}
-              onChange={(value) => setSampleDataSql(value || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                readOnly: loading || (isEdit && lab?.is_running),
-              }}
-            />
-          </Box>
-        </Box>
+            <Box>
+              <Text size="sm" fw={500} mb="xs">
+                Sample Data SQL (INSERT statements) <span style={{ color: 'red' }}>*</span>
+              </Text>
+              <Box
+                style={{
+                  border: '1px solid var(--mantine-color-gray-3)',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                }}
+              >
+                <Editor
+                  height="200px"
+                  language="sql"
+                  theme="vs-dark"
+                  value={sampleDataSql}
+                  onChange={(value) => setSampleDataSql(value || '')}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    readOnly: loading || (isEdit && lab?.is_running),
+                  }}
+                />
+              </Box>
+            </Box>
+          </>
+        )}
 
         <Group justify="flex-end" mt="md">
           <Button variant="default" onClick={() => router.push('/admin/labs')}>

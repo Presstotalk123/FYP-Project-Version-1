@@ -37,6 +37,7 @@ export function LabWorkspace({
 }: LabWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const taskOrderChanged = useRef(false);
 
   // State
   const [lab, setLab] = useState<LabDetail | null>(null);
@@ -466,6 +467,13 @@ export function LabWorkspace({
   // Exit session
   const handleExit = async () => {
     try {
+      if (isStaffMode && taskOrderChanged.current) {
+        await Promise.all(
+          tasks.map(task =>
+            labService.updateLabTask(labId, task.id, { order_index: task.order_index })
+          )
+        );
+      }
       await labService.exitSession(labId);
       notifications.show({
         title: 'Session Ended',
@@ -520,6 +528,34 @@ export function LabWorkspace({
         color: 'red',
       });
     }
+  };
+
+  const handleUpdateTask = async (taskId: number, data: { title: string; description: string }) => {
+    try {
+      const updatedTask = await labService.updateLabTask(labId, taskId, data);
+      setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
+      notifications.show({
+        title: 'Task Updated',
+        message: 'Task updated successfully',
+        color: 'green',
+      });
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: error.response?.data?.detail || 'Failed to update task',
+        color: 'red',
+      });
+    }
+  };
+
+  const handleReorderTasks = (reorderedTasks: LabTask[]) => {
+    const tasksWithNewOrder = reorderedTasks.map((task, index) => ({
+      ...task,
+      order_index: index,
+    }));
+    setTasks(tasksWithNewOrder);
+    taskOrderChanged.current = true;
   };
 
   const handleAssignTaskAnswer = async (taskId: number, query: string) => {
@@ -704,6 +740,8 @@ export function LabWorkspace({
               taskProgress={taskProgress}
               onCreateTask={handleCreateTask}
               onDeleteTask={handleDeleteTask}
+              onEditTask={handleUpdateTask}
+              onReorderTasks={handleReorderTasks}
               reviewMode={reviewMode}
               studentQueries={studentQueries}
               currentQueryIndex={currentQueryIndex}
@@ -770,6 +808,7 @@ export function LabWorkspace({
               onClear={handleClear}
               isExecuting={isExecuting}
               executionTime={result?.execution_time_ms || null}
+              labType={lab?.lab_type ?? 'sql'}
             />
           </Box>
 

@@ -90,9 +90,16 @@ export default function StudentLabsPage() {
                         <Text fw={600} size="lg">
                           {lab.title}
                         </Text>
-                        <Badge color={lab.is_running ? 'green' : 'yellow'} size="sm">
-                          {lab.is_running ? 'Available' : 'Preview Only'}
-                        </Badge>
+                        <Group gap="xs">
+                          <Badge color={lab.is_running ? 'green' : 'yellow'} size="sm">
+                            {lab.is_running ? 'Available' : 'Preview Only'}
+                          </Badge>
+                          {lab.lab_type === 'graph' && (
+                            <Badge color="grape" variant="light" size="sm">
+                              Graph
+                            </Badge>
+                          )}
+                        </Group>
                       </Group>
                       <Text size="sm" c="dimmed" lineClamp={3}>
                         {lab.description}

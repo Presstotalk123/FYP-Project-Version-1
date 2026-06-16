@@ -163,12 +163,21 @@ export default function AdminLabsPage() {
         <Stack gap="md">
           <Group justify="space-between">
             <Title order={2}>Labs Management</Title>
-            <Button
-              leftSection={<IconPlus size={16} />}
-              onClick={() => router.push('/admin/labs/wizard')}
-            >
-              Create New Lab
-            </Button>
+            <Group gap="xs">
+              <Button
+                leftSection={<IconPlus size={16} />}
+                variant="default"
+                onClick={() => router.push('/admin/labs/wizard?type=graph')}
+              >
+                Create Graph Lab
+              </Button>
+              <Button
+                leftSection={<IconPlus size={16} />}
+                onClick={() => router.push('/admin/labs/wizard')}
+              >
+                Create New Lab
+              </Button>
+            </Group>
           </Group>
 
           {loading && (
@@ -195,6 +204,7 @@ export default function AdminLabsPage() {
                 <Table.Tr>
                   <Table.Th>Title</Table.Th>
                   <Table.Th>Description</Table.Th>
+                  <Table.Th>Type</Table.Th>
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Created</Table.Th>
                   <Table.Th>Actions</Table.Th>
@@ -210,6 +220,11 @@ export default function AdminLabsPage() {
                       <Text size="sm" lineClamp={2}>
                         {lab.description}
                       </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge color={lab.lab_type === 'graph' ? 'grape' : 'blue'} variant="light">
+                        {lab.lab_type === 'graph' ? 'Graph' : 'SQL'}
+                      </Badge>
                     </Table.Td>
                     <Table.Td>
                       <Group gap="xs">

@@ -4,6 +4,7 @@ export interface Lab {
   description: string;
   is_published: boolean;
   is_running: boolean;
+  lab_type: 'sql' | 'graph';
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +30,7 @@ export interface LabCreate {
   description: string;
   schema_sql: string;
   sample_data_sql: string;
+  lab_type?: 'sql' | 'graph';
 }
 
 export interface LabUpdate {
@@ -36,6 +38,7 @@ export interface LabUpdate {
   description?: string;
   schema_sql?: string;
   sample_data_sql?: string;
+  lab_type?: 'sql' | 'graph';
 }
 
 export interface SessionStartResponse {

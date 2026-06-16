@@ -93,8 +93,9 @@ export function LabResultsPanel({
     }
   };
 
-  // Get tasks without answers for the dropdown (staff)
-  const tasksWithoutAnswers = tasks.filter(task => !task.has_answer);
+  const selectedTaskHasAnswer = selectedTaskId
+    ? tasks.find(t => t.id.toString() === selectedTaskId)?.has_answer ?? false
+    : false;
 
   // Get tasks with answers for the dropdown (students)
   const tasksWithAnswers = tasks.filter(task => task.has_answer);
@@ -152,25 +153,29 @@ export function LabResultsPanel({
                 <Card withBorder padding="sm" bg="cyan.0">
                   <Stack gap="sm">
                     <Text size="sm" fw={500}>
-                      Assign this query result as the correct answer for a task
+                      Assign this query result as the correct answer for a task (you can also update an existing answer)
                     </Text>
-                    {tasksWithoutAnswers.length === 0 ? (
+                    {tasks.length === 0 ? (
                       <Alert color="blue" icon={<IconAlertCircle size={16} />}>
-                        All tasks have answers assigned. Create a new task in the Tasks tab to
-                        assign this result.
+                        No tasks exist yet. Create a task in the Tasks tab first.
                       </Alert>
                     ) : (
                       <>
                         <Select
                           label="Select Task"
-                          placeholder="Choose a task without an answer"
+                          placeholder="Choose a task to assign answer"
                           value={selectedTaskId}
                           onChange={(value) => setSelectedTaskId(value || '')}
-                          data={tasksWithoutAnswers.map((task) => ({
+                          data={tasks.map((task) => ({
                             value: task.id.toString(),
-                            label: task.title,
+                            label: `${task.title}${task.has_answer ? ' ✓' : ''}`,
                           }))}
                         />
+                        {selectedTaskHasAnswer && (
+                          <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                            This task already has a correct answer. Proceeding will overwrite it.
+                          </Alert>
+                        )}
                         <Button
                           leftSection={<IconCheck size={16} />}
                           onClick={handleAssignAnswer}
@@ -179,7 +184,7 @@ export function LabResultsPanel({
                           fullWidth
                           color="cyan"
                         >
-                          Assign Answer
+                          {selectedTaskHasAnswer ? 'Update Answer' : 'Assign Answer'}
                         </Button>
                       </>
                     )}
@@ -256,7 +261,11 @@ export function LabResultsPanel({
                       <Table.Tr key={idx}>
                         {result.columns.map((col) => (
                           <Table.Td key={col}>
-                            {row[col] !== null ? String(row[col]) : 'NULL'}
+                            {row[col] === null
+                              ? 'NULL'
+                              : typeof row[col] === 'object'
+                                ? JSON.stringify(row[col])
+                                : String(row[col])}
                           </Table.Td>
                         ))}
                       </Table.Tr>
@@ -446,7 +455,11 @@ export function LabResultsPanel({
                                   <Table.Tr key={idx}>
                                     {table.sample_data.columns.map((col) => (
                                       <Table.Td key={col}>
-                                        {row[col] !== null ? String(row[col]) : 'NULL'}
+                                        {row[col] === null
+                                          ? 'NULL'
+                                          : typeof row[col] === 'object'
+                                            ? JSON.stringify(row[col])
+                                            : String(row[col])}
                                       </Table.Td>
                                     ))}
                                   </Table.Tr>

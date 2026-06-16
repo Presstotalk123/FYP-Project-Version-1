@@ -30,6 +30,7 @@ class LabSession(Base):
             'uq_active_session_per_user_lab',
             'lab_id', 'user_id',
             unique=True,
+            sqlite_where=text('is_active = 1'),
             postgresql_where=text('is_active = 1')
         ),
     )

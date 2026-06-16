@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs, er_labs
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs, er_labs, users
 # Import models to register them with SQLAlchemy
 from app.models.user import User
 from app.models.question import Question
@@ -19,8 +20,24 @@ from app.models.er_lab_question import ErLabQuestion
 from app.models.er_lab_session import ErLabSession
 from app.models.er_lab_submission import ErLabSubmission
 
-# Database tables will be created manually via create_tables.py script
-# Do not auto-create on startup to avoid conflicts
+# Drop the broken non-partial unique index if it exists so create_all recreates it
+# correctly as a partial index (WHERE is_active = 1). This fixes SQLite ignoring
+# postgresql_where, which caused IntegrityError when creating a second session.
+with engine.connect() as _conn:
+    _conn.execute(text("DROP INDEX IF EXISTS uq_active_session_per_user_lab"))
+    _conn.commit()
+
+# Auto-create tables on startup (safe for SQLite; for PostgreSQL use create_tables.py)
+Base.metadata.create_all(bind=engine)
+
+# Add lab_type column if it doesn't exist (handles existing local SQLite databases)
+with engine.connect() as _conn:
+    try:
+        _conn.execute(text("ALTER TABLE labs ADD COLUMN lab_type VARCHAR(10) NOT NULL DEFAULT 'sql'"))
+        _conn.commit()
+    except Exception:
+        pass  # Column already exists
+
 print(f"Connected to database: {settings.DATABASE_URL[:30]}...")
 
 # Create FastAPI application
@@ -51,6 +68,7 @@ app.include_router(er_diagram.router, prefix="/api/v1")
 app.include_router(labs.router, prefix="/api/v1")
 app.include_router(er_labs.router, prefix="/api/v1")
 app.include_router(er_labs.override_router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
 
 
 @app.get("/")

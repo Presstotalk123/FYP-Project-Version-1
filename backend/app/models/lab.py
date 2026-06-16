@@ -18,9 +18,12 @@ class Lab(Base):
     # Template database
     template_db_path = Column(String(500), nullable=False)  # Filename of template DB
 
-    # SQL for recreating template (for editing)
+    # SQL/Cypher for recreating template (for editing)
     schema_sql = Column(Text, nullable=False)
     sample_data_sql = Column(Text, nullable=False)
+
+    # Lab type: "sql" for SQL labs, "graph" for Cypher/graphqlite labs
+    lab_type = Column(String(10), default="sql", nullable=False)
 
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)

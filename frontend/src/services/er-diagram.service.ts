@@ -153,15 +153,21 @@ export const erDiagramService = {
 
   async *submitStream(payload: ERSubmissionRequest): AsyncGenerator<ERSubmissionStreamEvent> {
     const formData = new FormData();
-    if (payload.question_id !== undefined) {
-      formData.append("question_id", String(payload.question_id));
+
+    const isUnified = payload.unified_lab_id !== undefined;
+
+    if (!isUnified) {
+      if (payload.question_id !== undefined) {
+        formData.append("question_id", String(payload.question_id));
+      }
+      if (payload.er_lab_id !== undefined) {
+        formData.append("er_lab_id", String(payload.er_lab_id));
+      }
+      if (payload.er_lab_question_id !== undefined) {
+        formData.append("er_lab_question_id", String(payload.er_lab_question_id));
+      }
     }
-    if (payload.er_lab_id !== undefined) {
-      formData.append("er_lab_id", String(payload.er_lab_id));
-    }
-    if (payload.er_lab_question_id !== undefined) {
-      formData.append("er_lab_question_id", String(payload.er_lab_question_id));
-    }
+
     formData.append("mode", payload.mode);
     if (payload.student_query?.trim()) {
       formData.append("student_query", payload.student_query.trim());
@@ -181,7 +187,11 @@ export const erDiagramService = {
       }
     }
 
-    const response = await fetch(submissionUrl, {
+    const url = isUnified
+      ? `${API_BASE_URL}${API_ENDPOINTS.UNIFIED_LABS.ITEM_SUBMISSION(payload.unified_lab_id as number, payload.unified_lab_item_id as number)}`
+      : submissionUrl;
+
+    const response = await fetch(url, {
       method: "POST",
       headers,
       body: formData,

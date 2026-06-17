@@ -12,7 +12,7 @@ class LabSession(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     # Student's isolated database copy
-    db_file_path = Column(String(500), nullable=False)  # e.g., "lab_1_student_42.db"
+    db_file_path = Column(String(500), nullable=True)  # set only when the lab has a shared-DB section
 
     # Session state
     is_active = Column(Integer, default=1)  # 1=active, 0=terminated

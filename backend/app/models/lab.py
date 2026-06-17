@@ -12,15 +12,17 @@ class Lab(Base):
     description = Column(Text, nullable=False)
 
     # Lab states - TWO INDEPENDENT flags
-    is_published = Column(Integer, default=0)  # Visibility: 0=unpublished, 1=published
-    is_running = Column(Integer, default=0)    # Active session: 0=stopped, 1=running
+    is_published = Column(Integer, default=0)
+    is_running = Column(Integer, default=0)
 
-    # Template database
-    template_db_path = Column(String(500), nullable=False)  # Filename of template DB
+    # Join gating (carried over from the ER lab)
+    join_password_hash = Column(String(255), nullable=False)
+    join_password_plain = Column(String(255), nullable=False)
 
-    # SQL for recreating template (for editing)
-    schema_sql = Column(Text, nullable=False)
-    sample_data_sql = Column(Text, nullable=False)
+    # Optional shared-DB section (null when the lab has no shared-DB section)
+    template_db_path = Column(String(500), nullable=True)
+    schema_sql = Column(Text, nullable=True)
+    sample_data_sql = Column(Text, nullable=True)
 
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)

@@ -209,3 +209,123 @@ class LabStudentAttemptsResponse(BaseModel):
     lab_title: str
     total_tasks: int
     students: List[StudentAttemptSummary]
+
+
+# ---------------------------------------------------------------------------
+# Unified lab schemas (Tasks 2+)
+# ---------------------------------------------------------------------------
+from typing import Literal
+
+LabItemKind = Literal["sql", "erd", "sqllab"]
+
+
+class UnifiedLabCreate(BaseModel):
+    """Create a unified lab. Shared-DB section is optional."""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(..., min_length=1)
+    join_password: str = Field(..., min_length=4, max_length=64)
+    schema_sql: Optional[str] = None        # shared-DB section (both or neither)
+    sample_data_sql: Optional[str] = None
+
+
+class LabItemCreate(BaseModel):
+    kind: LabItemKind
+    ref_id: Optional[int] = None            # required for sql/erd; null for sqllab
+
+
+class LabItemResponse(BaseModel):
+    id: int
+    kind: LabItemKind
+    ref_id: Optional[int] = None
+    order_index: int
+    title: str                              # resolved from the referenced question / section
+    difficulty: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LabReorderRequest(BaseModel):
+    item_ids: List[int]                     # full ordered list of lab_item ids
+
+
+class UnifiedLabDetail(BaseModel):
+    id: int
+    title: str
+    description: str
+    is_published: bool
+    is_running: bool
+    has_section: bool
+    items: List[LabItemResponse]
+
+    class Config:
+        from_attributes = True
+
+
+class JoinLabRequest(BaseModel):
+    join_password: Optional[str] = None     # staff may omit
+
+
+class SqlItemSubmit(BaseModel):
+    """Submit for a `sql` lab item or a shared-DB `sqllab` task."""
+    query: str = Field(..., min_length=1)
+    lab_task_id: Optional[int] = None       # set only for a shared-DB task
+
+
+class ItemGradeResponse(BaseModel):
+    is_passed: bool
+    score_earned: Optional[float] = None
+    score_total: Optional[float] = None
+    message: str
+
+
+class LabItemProgress(BaseModel):
+    lab_item_id: int
+    kind: LabItemKind
+    lab_task_id: Optional[int] = None
+    is_passed: bool
+    score_percent: Optional[float] = None
+
+
+class LabProgressResponse(BaseModel):
+    lab_id: int
+    done: int
+    total: int
+    items: List[LabItemProgress]
+
+
+class SubmissionOverrideRequest(BaseModel):
+    score_earned: float
+    score_total: float = Field(..., gt=0)
+    reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Task 13: Staff monitoring schemas
+# ---------------------------------------------------------------------------
+
+class LabStudentSummary(BaseModel):
+    user_id: int
+    email: str
+    passed_items: int
+    total_items: int
+    last_submitted_at: Optional[datetime] = None
+
+
+class LabStudentsResponse(BaseModel):
+    lab_id: int
+    total_items: int
+    students: List[LabStudentSummary]
+
+
+class LabSubmissionView(BaseModel):
+    id: int
+    lab_item_id: int
+    kind: str
+    item_title: str
+    is_passed: bool
+    score_earned: Optional[float] = None
+    score_total: Optional[float] = None
+    override_score_earned: Optional[float] = None
+    override_score_total: Optional[float] = None
+    submitted_at: datetime

@@ -209,6 +209,12 @@ def update_question(
             detail="Question not found"
         )
 
+    from app.services.lab_refs import running_labs_referencing
+    running = running_labs_referencing(db, "sql", question_id)
+    if running:
+        raise HTTPException(status_code=409,
+                            detail=f"Question is used by running labs: {', '.join(running)}")
+
     try:
         # Check if SQL needs to be regenerated
         sql_changed = (
@@ -304,6 +310,12 @@ def delete_question(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Question not found"
         )
+
+    from app.services.lab_refs import labs_referencing
+    used_by = labs_referencing(db, "sql", question_id)
+    if used_by:
+        raise HTTPException(status_code=409,
+                            detail=f"Question is used by labs: {', '.join(used_by)}")
 
     # Soft delete
     question.is_deleted = 1

@@ -1104,6 +1104,12 @@ def delete_er_question(
             detail="Only the question owner or staff can delete this question",
         )
 
+    from app.services.lab_refs import labs_referencing
+    used_by = labs_referencing(db, "erd", question_id)
+    if used_by:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Question is used by labs: {', '.join(used_by)}")
+
     question.is_deleted = 1
     db.commit()
 

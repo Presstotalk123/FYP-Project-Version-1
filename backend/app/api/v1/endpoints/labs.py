@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime
+import json as _json
 import sqlite3
 import os
 import logging
@@ -14,11 +16,20 @@ from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
+from app.models.lab_item import LabItem
+from app.models.lab_submission import LabSubmission
+from app.core.security import hash_password, verify_password
+from app.services.lab_items.registry import get_handler, HANDLERS
+from collections import defaultdict
 from app.schemas.lab import (
-    LabCreate, LabUpdate, LabListItem, LabDetail, LabResponse,
+    LabUpdate, LabListItem, LabResponse,
     SessionStart, SessionResponse, LabExecuteRequest, LabExecuteResponse,
     SchemaPreview, StopLabResponse, LabAttemptResponse, DatabaseStateResponse,
-    LabQueryHistoryResponse, StudentAttemptSummary, LabStudentAttemptsResponse
+    LabQueryHistoryResponse, StudentAttemptSummary, LabStudentAttemptsResponse,
+    UnifiedLabCreate, LabItemCreate, LabItemResponse, LabReorderRequest,
+    UnifiedLabDetail, JoinLabRequest, SqlItemSubmit, ItemGradeResponse,
+    LabItemProgress, LabProgressResponse, SubmissionOverrideRequest,
+    LabStudentSummary, LabStudentsResponse, LabSubmissionView,
 )
 from app.schemas.lab_task import (
     LabTaskCreate, LabTaskAssignAnswer, LabTaskUpdate, LabTaskResponse,
@@ -42,57 +53,46 @@ logger = logging.getLogger(__name__)
 # Lab CRUD Endpoints (Staff Only)
 # ==============================================================================
 
-@router.post("", response_model=LabResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_lab(
-    lab_data: LabCreate,
+    lab_data: UnifiedLabCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role)
+    current_user: User = Depends(require_staff_role),
 ):
-    """
-    Create a new lab (Staff only).
-    Creates a template database with the provided schema and data.
-    """
-    # Create lab record first (without template_db_path)
+    has_section = bool(lab_data.schema_sql and lab_data.sample_data_sql)
+    if bool(lab_data.schema_sql) != bool(lab_data.sample_data_sql):
+        raise HTTPException(status_code=400, detail="Provide both schema_sql and sample_data_sql, or neither")
+
     lab = Lab(
         title=lab_data.title,
         description=lab_data.description,
+        join_password_hash=hash_password(lab_data.join_password),
+        join_password_plain=lab_data.join_password,
         schema_sql=lab_data.schema_sql,
         sample_data_sql=lab_data.sample_data_sql,
-        template_db_path="",  # Will be set after creation
+        template_db_path=None,
         created_by=current_user.id,
-        is_published=0,
-        is_running=0,
-        is_deleted=0
+        is_published=0, is_running=0, is_deleted=0,
     )
     db.add(lab)
-    db.flush()  # Get the lab ID
+    db.flush()
 
-    # Create template database
-    try:
-        template_path = create_lab_template(
-            lab.id,
-            lab_data.schema_sql,
-            lab_data.sample_data_sql
-        )
-        lab.template_db_path = f"lab_{lab.id}_template.db"
-        db.commit()
-    except LabDatabaseError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create lab database: {str(e)}"
-        )
+    if has_section:
+        try:
+            create_lab_template(lab.id, lab_data.schema_sql, lab_data.sample_data_sql)
+            lab.template_db_path = f"lab_{lab.id}_template.db"
+        except LabDatabaseError as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Failed to create lab database: {str(e)}")
 
+    db.commit()
     db.refresh(lab)
-    return LabResponse(
-        id=lab.id,
-        title=lab.title,
-        description=lab.description,
-        is_published=bool(lab.is_published),
-        is_running=bool(lab.is_running),
-        created_at=lab.created_at,
-        updated_at=lab.updated_at
-    )
+    return {
+        "id": lab.id, "title": lab.title, "description": lab.description,
+        "is_published": bool(lab.is_published), "is_running": bool(lab.is_running),
+        "created_at": lab.created_at, "updated_at": lab.updated_at,
+        "has_section": has_section, "join_password": lab.join_password_plain,
+    }
 
 
 @router.get("", response_model=List[LabListItem])
@@ -129,48 +129,99 @@ def list_labs(
     ]
 
 
-@router.get("/{lab_id}", response_model=LabDetail)
-def get_lab(
-    lab_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Get lab details.
-    Students: only if published
-    Staff: any lab
-    """
-    lab = db.query(Lab).filter(
-        Lab.id == lab_id,
-        Lab.is_deleted == 0
-    ).first()
+def _item_view(db, item):
+    try:
+        v = get_handler(item.kind).to_view(db, item.ref_id)
+        return LabItemResponse(id=item.id, kind=item.kind, ref_id=item.ref_id,
+                               order_index=item.order_index, title=v.title, difficulty=v.difficulty)
+    except ValueError:
+        return LabItemResponse(id=item.id, kind=item.kind, ref_id=item.ref_id,
+                               order_index=item.order_index, title="(unavailable)", difficulty=None)
 
+
+@router.get("/{lab_id}", response_model=UnifiedLabDetail)
+def get_lab_detail(lab_id: int, db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_user)):
+    lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
     if not lab:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
-
-    # Check permissions for students
+        raise HTTPException(status_code=404, detail="Lab not found")
     if current_user.role.value == "student" and not lab.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
-
-    return LabDetail(
-        id=lab.id,
-        title=lab.title,
-        description=lab.description,
-        is_published=bool(lab.is_published),
-        is_running=bool(lab.is_running),
-        template_db_path=lab.template_db_path,
-        schema_sql=lab.schema_sql,
-        sample_data_sql=lab.sample_data_sql,
-        created_by=lab.created_by,
-        created_at=lab.created_at,
-        updated_at=lab.updated_at
+        raise HTTPException(status_code=404, detail="Lab not found")
+    items = (db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.is_deleted == 0)
+             .order_by(LabItem.order_index).all())
+    return UnifiedLabDetail(
+        id=lab.id, title=lab.title, description=lab.description,
+        is_published=bool(lab.is_published), is_running=bool(lab.is_running),
+        has_section=lab.template_db_path is not None,
+        items=[_item_view(db, it) for it in items],
     )
+
+
+def _staff_lab_or_404(db, lab_id, current_user):
+    lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
+    if not lab:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    return lab
+
+
+@router.post("/{lab_id}/items", status_code=status.HTTP_201_CREATED, response_model=LabItemResponse)
+def add_lab_item(lab_id: int, body: LabItemCreate, db: Session = Depends(get_db),
+                 current_user: User = Depends(require_staff_role)):
+    lab = _staff_lab_or_404(db, lab_id, current_user)
+    if lab.is_running:
+        raise HTTPException(status_code=400, detail="Cannot edit a running lab")
+    if body.kind in ("sql", "erd"):
+        if body.ref_id is None:
+            raise HTTPException(status_code=400, detail="ref_id is required for sql/erd items")
+        try:
+            get_handler(body.kind).resolve(db, body.ref_id)  # 404 if the pool question is gone
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+    elif body.kind == "sqllab":
+        if lab.template_db_path is None:
+            raise HTTPException(status_code=400, detail="Lab has no shared-DB section")
+        exists = db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.kind == "sqllab",
+                                          LabItem.is_deleted == 0).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="Lab already has a shared-DB section item")
+    else:
+        raise HTTPException(status_code=400, detail="Unknown item kind")
+
+    next_order = db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.is_deleted == 0).count()
+    item = LabItem(lab_id=lab_id, kind=body.kind, ref_id=body.ref_id, order_index=next_order)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return _item_view(db, item)
+
+
+@router.delete("/{lab_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_lab_item(lab_id: int, item_id: int, db: Session = Depends(get_db),
+                    current_user: User = Depends(require_staff_role)):
+    lab = _staff_lab_or_404(db, lab_id, current_user)
+    if lab.is_running:
+        raise HTTPException(status_code=400, detail="Cannot edit a running lab")
+    item = db.query(LabItem).filter(LabItem.id == item_id, LabItem.lab_id == lab_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item.is_deleted = 1
+    db.commit()
+    return None
+
+
+@router.put("/{lab_id}/items/order", status_code=status.HTTP_200_OK)
+def reorder_lab_items(lab_id: int, body: LabReorderRequest, db: Session = Depends(get_db),
+                      current_user: User = Depends(require_staff_role)):
+    lab = _staff_lab_or_404(db, lab_id, current_user)
+    if lab.is_running:
+        raise HTTPException(status_code=400, detail="Cannot edit a running lab")
+    items = {i.id: i for i in db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.is_deleted == 0).all()}
+    if set(body.item_ids) != set(items.keys()):
+        raise HTTPException(status_code=400, detail="item_ids must list exactly the lab's items")
+    for order, item_id in enumerate(body.item_ids):
+        items[item_id].order_index = order
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/{lab_id}", response_model=LabResponse)
@@ -313,6 +364,10 @@ def publish_lab(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Lab not found"
         )
+
+    has_items = db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.is_deleted == 0).count()
+    if not has_items:
+        raise HTTPException(status_code=400, detail="Cannot publish an empty lab")
 
     lab.is_published = 1
     lab.updated_at = datetime.utcnow()
@@ -457,104 +512,31 @@ def stop_lab(
 # Student Session Endpoints
 # ==============================================================================
 
-@router.post("/{lab_id}/session/start", response_model=SessionStart)
-def start_session(
-    lab_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Start a lab session (Student/Staff).
-    Students: Requires lab to be published AND running.
-    Staff: Can access any lab for testing purposes.
-    Idempotent: returns existing session if active.
-    Creates a database copy for the user.
-    """
-    # Get lab
-    lab = db.query(Lab).filter(
-        Lab.id == lab_id,
-        Lab.is_deleted == 0
-    ).first()
-
+@router.post("/{lab_id}/session/start", response_model=SessionResponse)
+def start_session(lab_id: int, body: JoinLabRequest, db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
+    lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
     if not lab:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
+        raise HTTPException(status_code=404, detail="Lab not found")
+    is_staff = current_user.role.value == "staff"
+    if not is_staff:
+        if not (lab.is_published and lab.is_running):
+            raise HTTPException(status_code=400, detail="Lab is not open")
+        if not verify_password(body.join_password or "", lab.join_password_hash):
+            raise HTTPException(status_code=401, detail="Incorrect join password")
 
-    # Check if lab is published and running (students only - staff can test any lab)
-    if current_user.role.value == "student":
-        if not lab.is_published or not lab.is_running:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Lab is not available for sessions"
-            )
-
-    # Check for existing active session (idempotent)
-    existing_session = db.query(LabSession).filter(
-        LabSession.lab_id == lab_id,
-        LabSession.user_id == current_user.id,
-        LabSession.is_active == 1
+    existing = db.query(LabSession).filter(
+        LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
     ).first()
+    if existing:
+        return existing
 
-    if existing_session:
-        return SessionStart(
-            session_id=existing_session.id,
-            lab_id=existing_session.lab_id,
-            started_at=existing_session.started_at
-        )
-
-    # Copy template database to create session database
-    try:
-        session_db_path = copy_template_to_session(lab_id, current_user.id)
-    except LabDatabaseError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create session database: {str(e)}"
-        )
-
-    # Create session record - wrapped in try-except to handle race conditions
-    try:
-        session = LabSession(
-            lab_id=lab_id,
-            user_id=current_user.id,
-            db_file_path=session_db_path,
-            is_active=1
-        )
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-
-        return SessionStart(
-            session_id=session.id,
-            lab_id=session.lab_id,
-            started_at=session.started_at
-        )
-    except IntegrityError:
-        # Race condition: another request created the session concurrently
-        db.rollback()
-        logger.info(f"Session already exists for lab {lab_id} user {current_user.id} (race condition caught)")
-
-        # Re-query for the existing session
-        existing_session = db.query(LabSession).filter(
-            LabSession.lab_id == lab_id,
-            LabSession.user_id == current_user.id,
-            LabSession.is_active == 1
-        ).first()
-
-        if existing_session:
-            return SessionStart(
-                session_id=existing_session.id,
-                lab_id=existing_session.lab_id,
-                started_at=existing_session.started_at
-            )
-        else:
-            # This should never happen, but handle it gracefully
-            logger.error(f"IntegrityError but no existing session found for lab {lab_id} user {current_user.id}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create or retrieve session"
-            )
+    db_file_path = None
+    if lab.template_db_path is not None:
+        db_file_path = copy_template_to_session(lab.id, current_user.id)
+    session = LabSession(lab_id=lab_id, user_id=current_user.id, db_file_path=db_file_path, is_active=1)
+    db.add(session); db.commit(); db.refresh(session)
+    return session
 
 
 @router.get("/{lab_id}/session", response_model=SessionResponse)
@@ -587,6 +569,121 @@ def get_session(
         started_at=session.started_at,
         ended_at=session.ended_at
     )
+
+
+# ==============================================================================
+# Item Submit / Progress / Override Endpoints
+# ==============================================================================
+
+@router.post("/{lab_id}/items/{item_id}/submit", response_model=ItemGradeResponse)
+def submit_item(lab_id: int, item_id: int, body: SqlItemSubmit, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    item = db.query(LabItem).filter(LabItem.id == item_id, LabItem.lab_id == lab_id,
+                                    LabItem.is_deleted == 0).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.kind == "erd":
+        raise HTTPException(status_code=400, detail="Use the streaming /submission endpoint for ERD items")
+    session = db.query(LabSession).filter(
+        LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
+    ).first()
+    if not session:
+        raise HTTPException(status_code=400, detail="No active session")
+
+    result = get_handler(item.kind).grade(
+        db, item.ref_id, {"query": body.query, "lab_task_id": body.lab_task_id}, session
+    )
+    sub = LabSubmission(
+        lab_id=lab_id, lab_item_id=item.id, lab_task_id=body.lab_task_id,
+        user_id=current_user.id, session_id=session.id,
+        is_passed=1 if result.is_passed else 0,
+        score_earned=result.score_earned, score_total=result.score_total,
+        detail_json=_json.dumps(result.detail),
+    )
+    db.add(sub); db.commit()
+    return ItemGradeResponse(is_passed=result.is_passed, score_earned=result.score_earned,
+                             score_total=result.score_total, message=result.message)
+
+
+@router.get("/{lab_id}/item-progress", response_model=LabProgressResponse)
+def lab_progress(lab_id: int, db: Session = Depends(get_db),
+                 current_user: User = Depends(get_current_user)):
+    items = (db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.is_deleted == 0)
+             .order_by(LabItem.order_index).all())
+    subs = db.query(LabSubmission).filter(
+        LabSubmission.lab_id == lab_id, LabSubmission.user_id == current_user.id
+    ).all()
+    passed_items = {s.lab_item_id for s in subs if s.is_passed}
+    rows, done = [], 0
+    for it in items:
+        is_passed = it.id in passed_items
+        if is_passed:
+            done += 1
+        rows.append(LabItemProgress(lab_item_id=it.id, kind=it.kind, lab_task_id=None, is_passed=is_passed))
+    return LabProgressResponse(lab_id=lab_id, done=done, total=len(items), items=rows)
+
+
+@router.post("/{lab_id}/items/{item_id}/submission")
+def submit_erd_item(
+    lab_id: int, item_id: int,
+    mode: str = Form(...),
+    student_query: Optional[str] = Form(None),
+    submission_xml_text: Optional[str] = Form(None),
+    erd_img: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = db.query(LabItem).filter(LabItem.id == item_id, LabItem.lab_id == lab_id,
+                                    LabItem.is_deleted == 0, LabItem.kind == "erd").first()
+    if not item:
+        raise HTTPException(status_code=404, detail="ERD item not found")
+    session = db.query(LabSession).filter(
+        LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
+    ).first()
+    if not session and current_user.role.value != "staff":
+        raise HTTPException(status_code=400, detail="No active session")
+
+    from app.models.er_diagram_question import ERDiagramQuestion
+    from app.services.er_grading import stream_er_submission_grading
+    from app.services.lab_erd_submission import stream_with_lab_item_persistence
+
+    q = db.query(ERDiagramQuestion).filter(ERDiagramQuestion.id == item.ref_id,
+                                           ERDiagramQuestion.is_deleted == 0).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="ER question not found")
+
+    grading = stream_er_submission_grading(
+        question_id=q.id, problem_statement=q.problem_statement,
+        difficulty_label=q.difficulty_label, rubric_json=q.rubric_json,
+        submission_xml_text=(submission_xml_text or None), student_query=(student_query or None),
+        erd_img=erd_img,
+    )
+    if mode == "Submit" and session is not None:
+        grading = stream_with_lab_item_persistence(
+            stream=grading, db=db, lab_id=lab_id, lab_item_id=item.id,
+            user_id=current_user.id, session_id=session.id,
+            submitted_xml=(submission_xml_text or None), submitted_image_storage_key=None,
+        )
+    return StreamingResponse(grading, media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/submissions/{submission_id}/override", response_model=ItemGradeResponse)
+def override_submission(submission_id: int, body: SubmissionOverrideRequest,
+                        db: Session = Depends(get_db),
+                        current_user: User = Depends(require_staff_role)):
+    sub = db.query(LabSubmission).filter(LabSubmission.id == submission_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    sub.override_score_earned = body.score_earned
+    sub.override_score_total = body.score_total
+    sub.override_reason = body.reason
+    sub.overridden_by = current_user.id
+    sub.overridden_at = datetime.utcnow()
+    sub.is_passed = 1 if (body.score_earned / body.score_total) >= 0.5 else 0
+    db.commit()
+    return ItemGradeResponse(is_passed=bool(sub.is_passed), score_earned=body.score_earned,
+                             score_total=body.score_total, message="Override applied")
 
 
 @router.post("/session/{session_id}/execute", response_model=LabExecuteResponse)
@@ -1569,6 +1666,54 @@ def get_lab_task_progress(
         )
 
     return LabTaskProgressResponse(tasks=task_progress_list)
+
+
+# ==============================================================================
+# Task 13: Staff monitoring endpoints
+# ==============================================================================
+
+@router.get("/{lab_id}/students", response_model=LabStudentsResponse)
+def lab_students(lab_id: int, db: Session = Depends(get_db),
+                 current_user: User = Depends(require_staff_role)):
+    total_items = db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.is_deleted == 0).count()
+    rows = (db.query(LabSubmission, User.email).join(User, LabSubmission.user_id == User.id)
+            .filter(LabSubmission.lab_id == lab_id).all())
+    agg: dict[int, dict] = defaultdict(lambda: {"email": "", "passed": set(), "last": None})
+    for sub, email in rows:
+        a = agg[sub.user_id]
+        a["email"] = email
+        if sub.is_passed:
+            a["passed"].add(sub.lab_item_id)
+        if a["last"] is None or sub.submitted_at > a["last"]:
+            a["last"] = sub.submitted_at
+    students = [LabStudentSummary(user_id=uid, email=a["email"], passed_items=len(a["passed"]),
+                                  total_items=total_items, last_submitted_at=a["last"])
+                for uid, a in agg.items()]
+    return LabStudentsResponse(lab_id=lab_id, total_items=total_items, students=students)
+
+
+@router.get("/{lab_id}/submissions", response_model=List[LabSubmissionView])
+def lab_submissions(lab_id: int, student_id: Optional[int] = None, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    is_staff = current_user.role.value == "staff"
+    if not is_staff and student_id is not None and student_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Students can only view their own submissions")
+    target = student_id if (is_staff and student_id) else current_user.id
+    rows = (db.query(LabSubmission, LabItem).join(LabItem, LabSubmission.lab_item_id == LabItem.id)
+            .filter(LabSubmission.lab_id == lab_id, LabSubmission.user_id == target)
+            .order_by(LabSubmission.submitted_at.desc()).all())
+    out: list[LabSubmissionView] = []
+    for sub, item in rows:
+        try:
+            title = get_handler(item.kind).to_view(db, item.ref_id).title
+        except ValueError:
+            title = "(unavailable)"
+        out.append(LabSubmissionView(
+            id=sub.id, lab_item_id=sub.lab_item_id, kind=item.kind, item_title=title,
+            is_passed=bool(sub.is_passed), score_earned=sub.score_earned, score_total=sub.score_total,
+            override_score_earned=sub.override_score_earned, override_score_total=sub.override_score_total,
+            submitted_at=sub.submitted_at))
+    return out
 
 
 @router.get("/{lab_id}/student-attempts", response_model=LabStudentAttemptsResponse)

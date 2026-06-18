@@ -19,7 +19,7 @@ interface CreateOption {
 
 export default function CreateProblemPage() {
   const router = useRouter();
-  const { isStaff } = useAuth();
+  const { isStaff, loading } = useAuth();
 
   const options: CreateOption[] = [
     {
@@ -29,7 +29,7 @@ export default function CreateProblemPage() {
       href: '/admin/questions/new',
       icon: <IconDatabase size={22} />,
       color: 'blue',
-      allowed: isStaff,
+      allowed: true,
     },
     {
       key: 'erd',
@@ -47,7 +47,7 @@ export default function CreateProblemPage() {
       href: '/admin/sql-lab-questions/new',
       icon: <IconDatabase size={22} />,
       color: 'teal',
-      allowed: isStaff,
+      allowed: true,
     },
     {
       key: 'lab',
@@ -63,14 +63,20 @@ export default function CreateProblemPage() {
   const available = options.filter((option) => option.allowed);
 
   // A user with only one option (a student → ERD) skips the picker entirely.
+  // Wait for auth to resolve first: while it loads, isStaff is briefly false, so a staff
+  // user would otherwise be redirected to the lone always-allowed option (ERD) before their
+  // role arrives — never seeing the picker.
   useEffect(() => {
-    if (available.length === 1) {
+    if (!loading && available.length === 1) {
       router.replace(available[0].href);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [available.length]);
+  }, [loading, available.length]);
 
-  // Render nothing while the single-option redirect fires, so a student never sees the picker.
+  // Wait for auth before deciding; then render nothing while a single-option redirect fires.
+  if (loading) {
+    return null;
+  }
   if (available.length === 1) {
     return null;
   }

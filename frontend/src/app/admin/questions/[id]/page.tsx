@@ -7,7 +7,6 @@ import { IconAlertCircle } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { QuestionForm } from '@/components/admin/QuestionForm';
-import { UserRole } from '@/types/user.types';
 import { QuestionDetail } from '@/types/question.types';
 import { questionService } from '@/services/question.service';
 
@@ -37,7 +36,7 @@ export default function EditQuestionPage() {
   }, [questionId]);
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute>
       <DashboardLayout>
         <Container size="lg">
           {loading ? (

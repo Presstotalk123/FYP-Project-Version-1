@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import require_staff_role, get_current_user
+from app.dependencies import get_current_user, ensure_owner_or_staff
 from app.models.user import User
 from app.models.sql_lab_question import SqlLabQuestion, SqlLabTask
 from app.schemas.sql_lab_question import (
@@ -40,7 +40,7 @@ def _to_response(q: SqlLabQuestion, tasks: list[SqlLabTask]) -> SqlLabQuestionRe
 def create_sql_lab_question(
     data: SqlLabQuestionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role),
+    current_user: User = Depends(get_current_user),
 ):
     q = SqlLabQuestion(
         title=data.title, description=data.description, difficulty=data.difficulty,
@@ -113,8 +113,9 @@ def get_sql_lab_question(qid: int, db: Session = Depends(get_db), current_user: 
 
 
 @router.delete("/{qid}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_sql_lab_question(qid: int, db: Session = Depends(get_db), current_user: User = Depends(require_staff_role)):
+def delete_sql_lab_question(qid: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = _load_or_404(db, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
     refs = labs_referencing(db, "sqllab", qid)
     if refs:
         raise HTTPException(status_code=409, detail=f"In use by lab(s): {', '.join(refs)}")

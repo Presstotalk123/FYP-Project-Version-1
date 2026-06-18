@@ -19,7 +19,7 @@ export function LabItemSidebar({ items, progress, activeId, onSelect }: {
           <Group gap={8} px="sm" py={8} wrap="nowrap">
             {passed.has(it.id) ? <IconCircleCheck size={16} color="var(--mantine-color-green-6)" />
               : <IconCircle size={16} color="var(--mantine-color-gray-4)" />}
-            <Text size="sm" style={{ flex: 1 }} truncate>{it.kind === 'sqllab' ? 'Shared-DB section' : it.title}</Text>
+            <Text size="sm" style={{ flex: 1 }} truncate>{it.title}</Text>
             <Badge size="xs" variant="light" color={COLOR[it.kind]}>{it.kind.toUpperCase()}</Badge>
           </Group>
         </UnstyledButton>

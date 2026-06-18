@@ -14,7 +14,7 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { IconArrowLeft, IconDatabase, IconPlus, IconUsers } from '@tabler/icons-react';
+import { IconArrowLeft, IconPlus, IconUsers } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { UserRole } from '@/types/user.types';
@@ -46,21 +46,11 @@ function ManageLabView({ labId }: { labId: number }) {
     })();
   }, [refresh]);
 
-  const addFromPool = async (picks: { kind: 'sql' | 'erd'; ref_id: number }[]) => {
+  const addFromPool = async (picks: { kind: 'sql' | 'erd' | 'sqllab'; ref_id: number }[]) => {
     for (const p of picks) {
       await unifiedLabService.addItem(labId, p.kind, p.ref_id);
     }
     await refresh();
-  };
-
-  const addSection = async () => {
-    try {
-      await unifiedLabService.addItem(labId, 'sqllab', null);
-      await refresh();
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
-      notifications.show({ color: 'red', message: e.response?.data?.detail || e.message || 'Failed to add section' });
-    }
   };
 
   const removeItem = async (itemId: number) => {
@@ -123,7 +113,6 @@ function ManageLabView({ labId }: { labId: number }) {
   const existingRefs = new Set(
     lab.items.filter((i: LabItem) => i.ref_id != null).map((i: LabItem) => `${i.kind}-${i.ref_id}`)
   );
-  const hasSqlSection = lab.items.some((i: LabItem) => i.kind === 'sqllab');
 
   return (
     <Box p="xl" maw={900} mx="auto">
@@ -196,15 +185,6 @@ function ManageLabView({ labId }: { labId: number }) {
               >
                 Add from pool
               </Button>
-              <Button
-                size="xs"
-                variant="default"
-                leftSection={<IconDatabase size={14} />}
-                onClick={addSection}
-                disabled={hasSqlSection}
-              >
-                {hasSqlSection ? 'Section added' : 'Add shared-DB section'}
-              </Button>
             </Group>
           )}
         </Group>
@@ -221,7 +201,7 @@ function ManageLabView({ labId }: { labId: number }) {
                 <Group key={it.id} gap="sm" px="sm" py={8} style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 8 }}>
                   <Text c="dimmed" size="sm" w={20}>{i + 1}</Text>
                   <Text style={{ flex: 1 }} size="sm">
-                    {it.kind === 'sqllab' ? 'Shared-DB section' : it.title}
+                    {it.title}
                   </Text>
                   {it.difficulty && <Badge variant="light" size="sm">{it.difficulty}</Badge>}
                   <Badge variant="light" size="sm" color={it.kind === 'sql' ? 'blue' : it.kind === 'erd' ? 'grape' : 'teal'}>
@@ -237,22 +217,6 @@ function ManageLabView({ labId }: { labId: number }) {
           <Text size="xs" c="dimmed" ta="center">Stop the lab to edit its contents.</Text>
         )}
       </Stack>
-
-      {/* Link to author shared-DB section tasks (reuses existing admin task UI) */}
-      {hasSqlSection && (
-        <>
-          <Divider my="md" />
-          <Group gap="sm">
-            <IconDatabase size={16} />
-            <Text size="sm">
-              Author shared-DB section tasks:{' '}
-              <Anchor href={`/admin/labs/${labId}/workspace`} size="sm">
-                Open task editor
-              </Anchor>
-            </Text>
-          </Group>
-        </>
-      )}
 
       <AddFromPoolModal
         opened={poolOpen}

@@ -229,12 +229,7 @@ export function SqlLabSolver({ loadQuestion, run, submit, getDatabase, reset, on
                     </Group>
                     <Text size="xs" c="dimmed" mt={2}>{tbl.columns.map((c) => `${c.name} ${c.type}`).join(', ')}</Text>
                     {tbl.sample_rows.length > 0 && (
-                      <Table withTableBorder striped mt={4}>
-                        <Table.Thead><Table.Tr>{tbl.columns.map((c) => <Table.Th key={c.name}>{c.name}</Table.Th>)}</Table.Tr></Table.Thead>
-                        <Table.Tbody>{tbl.sample_rows.slice(0, 20).map((row, i) => (
-                          <Table.Tr key={i}>{tbl.columns.map((c) => <Table.Td key={c.name}>{String(row[c.name] ?? '')}</Table.Td>)}</Table.Tr>
-                        ))}</Table.Tbody>
-                      </Table>
+                      <Box mt={4}><ResultsGrid columns={tbl.columns.map((c) => c.name)} rows={tbl.sample_rows} /></Box>
                     )}
                   </Box>
                 ))}

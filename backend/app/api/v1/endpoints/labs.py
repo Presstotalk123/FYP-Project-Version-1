@@ -41,9 +41,8 @@ from app.utils.lab_db_manager import (
 from app.utils.lab_cleanup import terminate_all_lab_sessions
 from app.core.lab_query_executor import execute_lab_query
 from app.core.answer_validator import generate_hash
-from app.models.sql_lab_question import SqlLabTask
 from app.utils.sqllab_db_manager import ensure_sqllab_session, reset_sqllab_session, introspect_db
-from app.schemas.lab import SqlLabTaskView, SqlLabRunRequest, SqlLabRunResult, DatabaseState
+from app.schemas.lab import SqlLabRunRequest, SqlLabRunResult, DatabaseState
 
 router = APIRouter(prefix="/labs", tags=["labs"])
 logger = logging.getLogger(__name__)
@@ -566,34 +565,6 @@ def _sqllab_item_or_404(db, lab_id, item_id):
     return item
 
 
-@router.get("/{lab_id}/items/{item_id}/tasks", response_model=List[SqlLabTaskView])
-def sqllab_item_tasks(lab_id: int, item_id: int, db: Session = Depends(get_db),
-                      current_user: User = Depends(get_current_user)):
-    item = _sqllab_item_or_404(db, lab_id, item_id)
-    tasks = (db.query(SqlLabTask).filter(SqlLabTask.sql_lab_question_id == item.ref_id,
-                                         SqlLabTask.is_deleted == 0).order_by(SqlLabTask.order_index).all())
-    return [SqlLabTaskView(id=t.id, title=t.title, description=t.description, order_index=t.order_index)
-            for t in tasks]
-
-
-@router.post("/{lab_id}/items/{item_id}/run", response_model=SqlLabRunResult)
-def sqllab_item_run(lab_id: int, item_id: int, body: SqlLabRunRequest, db: Session = Depends(get_db),
-                    current_user: User = Depends(get_current_user)):
-    item = _sqllab_item_or_404(db, lab_id, item_id)
-    session = db.query(LabSession).filter(
-        LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
-    ).first()
-    if not session:
-        raise HTTPException(status_code=400, detail="No active session")
-    try:
-        db_path = ensure_sqllab_session(item.ref_id, session.id, item.id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    result = execute_lab_query(db_path, body.query, timeout=15)
-    return SqlLabRunResult(success=result["success"], columns=result["columns"], results=result["results"],
-                           row_count=result["row_count"], error_message=result["error_message"])
-
-
 def _sqllab_item_active_session(db, lab_id, current_user):
     session = db.query(LabSession).filter(
         LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
@@ -601,6 +572,18 @@ def _sqllab_item_active_session(db, lab_id, current_user):
     if not session:
         raise HTTPException(status_code=400, detail="No active session")
     return session
+
+
+@router.post("/{lab_id}/items/{item_id}/run", response_model=SqlLabRunResult)
+def sqllab_item_run(lab_id: int, item_id: int, body: SqlLabRunRequest, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    item = _sqllab_item_or_404(db, lab_id, item_id)
+    session = _sqllab_item_active_session(db, lab_id, current_user)
+    try:
+        db_path = ensure_sqllab_session(item.ref_id, session.id, item.id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return SqlLabRunResult.from_executor(execute_lab_query(db_path, body.query, timeout=15))
 
 
 @router.get("/{lab_id}/items/{item_id}/database", response_model=DatabaseState)

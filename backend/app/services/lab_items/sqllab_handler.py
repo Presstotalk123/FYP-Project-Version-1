@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.sql_lab_question import SqlLabQuestion, SqlLabTask
 from app.core.lab_query_executor import execute_lab_query
-from app.core.answer_validator import generate_hash
+from app.core.answer_validator import hash_run_result
 from app.utils.sqllab_db_manager import ensure_sqllab_session
 from app.utils.lab_db_manager import LabDatabaseError
 from app.services.lab_items.base import LabItemHandler, ItemView, GradeResult
@@ -46,8 +46,7 @@ class SqlLabSectionHandler(LabItemHandler):
         result = execute_lab_query(db_path, payload["query"], timeout=15)
         if not result["success"]:
             return GradeResult(is_passed=False, message=result["error_message"] or "Query failed")
-        results_tuples = [tuple(row[col] for col in result["columns"]) for row in result["results"]]
-        passed = generate_hash(results_tuples, result["columns"]) == task.correct_answer_hash
+        passed = hash_run_result(result) == task.correct_answer_hash
         return GradeResult(
             is_passed=passed,
             detail={"query": payload["query"], "lab_task_id": task.id},

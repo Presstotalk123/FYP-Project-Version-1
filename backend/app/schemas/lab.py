@@ -241,14 +241,6 @@ class SqlItemSubmit(BaseModel):
     lab_task_id: Optional[int] = None       # set only for a sqllab-question task
 
 
-class SqlLabTaskView(BaseModel):
-    """One ordered task of a `sqllab` item, exposed to the solver."""
-    id: int
-    title: str
-    description: str
-    order_index: int
-
-
 class SqlLabRunRequest(BaseModel):
     """Run arbitrary SQL against the per-(session,item) writable DB."""
     query: str = Field(..., min_length=1)
@@ -260,6 +252,11 @@ class SqlLabRunResult(BaseModel):
     results: List[dict] = []
     row_count: int = 0
     error_message: Optional[str] = None
+
+    @classmethod
+    def from_executor(cls, r: dict) -> "SqlLabRunResult":
+        return cls(success=r["success"], columns=r["columns"], results=r["results"],
+                   row_count=r["row_count"], error_message=r["error_message"])
 
 
 class ItemGradeResponse(BaseModel):

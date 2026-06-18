@@ -100,13 +100,6 @@ export interface UnifiedLabStudentsResponse {
   students: UnifiedLabStudent[];
 }
 
-export interface SqlLabItemTask {
-  id: number;
-  title: string;
-  description: string;
-  order_index: number;
-}
-
 export interface SqlLabRunResult {
   success: boolean;
   columns: string[];

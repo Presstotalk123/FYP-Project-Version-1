@@ -2,7 +2,7 @@ import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import {
   DatabaseState, ItemGradeResult, LabItem, LabItemKind, LabProgress,
-  LabSessionResponse, SqlLabItemTask, SqlLabRunResult,
+  LabSessionResponse, SqlLabRunResult,
   UnifiedLabCreate, UnifiedLabCreateResponse, UnifiedLabDetail, UnifiedLabListItem,
   UnifiedLabStudentsResponse, UnifiedLabSubmissionView,
 } from '@/types/unified-lab.types';
@@ -33,9 +33,6 @@ export const unifiedLabService = {
   },
   async submitItem(id: number, itemId: number, query: string, labTaskId?: number): Promise<ItemGradeResult> {
     return (await api.post<ItemGradeResult>(E.ITEM_SUBMIT(id, itemId), { query, lab_task_id: labTaskId ?? null })).data;
-  },
-  async itemTasks(id: number, itemId: number): Promise<SqlLabItemTask[]> {
-    return (await api.get<SqlLabItemTask[]>(E.ITEM_TASKS(id, itemId))).data;
   },
   async itemRun(id: number, itemId: number, query: string): Promise<SqlLabRunResult> {
     return (await api.post<SqlLabRunResult>(E.ITEM_RUN(id, itemId), { query })).data;

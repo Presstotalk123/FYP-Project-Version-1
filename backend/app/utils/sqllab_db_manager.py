@@ -56,34 +56,30 @@ def create_sqllab_template(question_id: int, schema_sql: str, data_sql: str) -> 
         raise
 
 
-def ensure_sqllab_session(question_id: int, session_id: int, item_id: int) -> str:
-    """Return the per-(session,item) writable DB path, copying the template on FIRST use only
-    (state persists across runs/tasks)."""
-    session_path = get_sqllab_session_path(session_id, item_id)
-    if os.path.exists(session_path):
-        return session_path
-    template_path = get_sqllab_template_path(question_id)
-    if not os.path.exists(template_path):
-        raise LabDatabaseError(f"Template database not found for sql-lab question {question_id}")
-    shutil.copy2(template_path, session_path)
-    return session_path
-
-
 def get_sqllab_practice_path(question_id: int, user_id: int) -> str:
     return str(_dir("practice") / f"sqllab_q_{question_id}_u_{user_id}.db")
 
 
-def ensure_sqllab_practice_session(question_id: int, user_id: int) -> str:
-    """Return the per-(question,user) STANDALONE practice DB path (solving outside any lab),
-    copying the template on FIRST use only — state persists across runs/tasks and is resumable."""
-    practice_path = get_sqllab_practice_path(question_id, user_id)
-    if os.path.exists(practice_path):
-        return practice_path
+def _copy_template_once(question_id: int, working_path: str) -> str:
+    """Return working_path, seeding it from the question's template on FIRST use only — state
+    then persists across runs/tasks. In-lab and standalone solving share this one copy path."""
+    if os.path.exists(working_path):
+        return working_path
     template_path = get_sqllab_template_path(question_id)
     if not os.path.exists(template_path):
         raise LabDatabaseError(f"Template database not found for sql-lab question {question_id}")
-    shutil.copy2(template_path, practice_path)
-    return practice_path
+    shutil.copy2(template_path, working_path)
+    return working_path
+
+
+def ensure_sqllab_session(question_id: int, session_id: int, item_id: int) -> str:
+    """Per-(session, item) writable DB for in-lab solving (resumable)."""
+    return _copy_template_once(question_id, get_sqllab_session_path(session_id, item_id))
+
+
+def ensure_sqllab_practice_session(question_id: int, user_id: int) -> str:
+    """Per-(question, user) writable DB for standalone practice (resumable)."""
+    return _copy_template_once(question_id, get_sqllab_practice_path(question_id, user_id))
 
 
 def _safe_remove(path: str) -> None:

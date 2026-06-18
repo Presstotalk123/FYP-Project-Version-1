@@ -71,6 +71,14 @@ def generate_hash(results: List[Tuple], columns: List[str]) -> str:
     return hash_obj.hexdigest()
 
 
+def hash_run_result(result: Dict[str, Any]) -> str:
+    """Hash a lab_query_executor result dict the same way authoring does: tuple-ize each row
+    in column order, then generate_hash (which normalizes values). Shared by every SQL-lab
+    grading path so in-lab and standalone solving can never diverge."""
+    tuples = [tuple(row[col] for col in result["columns"]) for row in result["results"]]
+    return generate_hash(tuples, result["columns"])
+
+
 def validate_answer(
     user_results: List[Tuple],
     user_columns: List[str],

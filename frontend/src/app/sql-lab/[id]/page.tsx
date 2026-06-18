@@ -16,6 +16,7 @@ function SqlLabPracticeView({ id }: { id: number }) {
         <IconArrowLeft size={14} /> Back to problems
       </Anchor>
       <SqlLabSolver
+        key={id}
         loadQuestion={() => sqlLabQuestionService.loadForSolver(id)}
         run={(query) => sqlLabQuestionService.run(id, query)}
         submit={(query, taskId) => sqlLabQuestionService.submit(id, query, taskId)}

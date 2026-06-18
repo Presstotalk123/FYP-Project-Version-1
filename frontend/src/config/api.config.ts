@@ -78,7 +78,6 @@ export const API_ENDPOINTS = {
     SESSION_START: (id: number) => `/labs/${id}/session/start`,
     ITEM_SUBMIT: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/submit`,
     ITEM_SUBMISSION: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/submission`,
-    ITEM_TASKS: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/tasks`,
     ITEM_RUN: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/run`,
     ITEM_DATABASE: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/database`,
     ITEM_RESET: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/reset`,

@@ -5,8 +5,6 @@ from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime
 import json as _json
-import sqlite3
-import os
 import logging
 
 from app.database import get_db
@@ -38,12 +36,14 @@ from app.schemas.lab_task import (
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.utils.lab_db_manager import (
-    create_lab_template, copy_template_to_session, delete_session_database,
     delete_lab_template, get_lab_template_path, get_schema_info, LabDatabaseError
 )
 from app.utils.lab_cleanup import terminate_all_lab_sessions
 from app.core.lab_query_executor import execute_lab_query
 from app.core.answer_validator import generate_hash
+from app.models.sql_lab_question import SqlLabTask
+from app.utils.sqllab_db_manager import ensure_sqllab_session, reset_sqllab_session, introspect_db
+from app.schemas.lab import SqlLabTaskView, SqlLabRunRequest, SqlLabRunResult, DatabaseState
 
 router = APIRouter(prefix="/labs", tags=["labs"])
 logger = logging.getLogger(__name__)
@@ -59,39 +59,20 @@ def create_lab(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff_role),
 ):
-    has_section = bool(lab_data.schema_sql and lab_data.sample_data_sql)
-    if bool(lab_data.schema_sql) != bool(lab_data.sample_data_sql):
-        raise HTTPException(status_code=400, detail="Provide both schema_sql and sample_data_sql, or neither")
-
     lab = Lab(
         title=lab_data.title,
         description=lab_data.description,
         join_password_hash=hash_password(lab_data.join_password),
         join_password_plain=lab_data.join_password,
-        schema_sql=lab_data.schema_sql,
-        sample_data_sql=lab_data.sample_data_sql,
-        template_db_path=None,
         created_by=current_user.id,
         is_published=0, is_running=0, is_deleted=0,
     )
-    db.add(lab)
-    db.flush()
-
-    if has_section:
-        try:
-            create_lab_template(lab.id, lab_data.schema_sql, lab_data.sample_data_sql)
-            lab.template_db_path = f"lab_{lab.id}_template.db"
-        except LabDatabaseError as e:
-            db.rollback()
-            raise HTTPException(status_code=400, detail=f"Failed to create lab database: {str(e)}")
-
-    db.commit()
-    db.refresh(lab)
+    db.add(lab); db.commit(); db.refresh(lab)
     return {
         "id": lab.id, "title": lab.title, "description": lab.description,
         "is_published": bool(lab.is_published), "is_running": bool(lab.is_running),
         "created_at": lab.created_at, "updated_at": lab.updated_at,
-        "has_section": has_section, "join_password": lab.join_password_plain,
+        "join_password": lab.join_password_plain,
     }
 
 
@@ -152,7 +133,6 @@ def get_lab_detail(lab_id: int, db: Session = Depends(get_db),
     return UnifiedLabDetail(
         id=lab.id, title=lab.title, description=lab.description,
         is_published=bool(lab.is_published), is_running=bool(lab.is_running),
-        has_section=lab.template_db_path is not None,
         items=[_item_view(db, it) for it in items],
     )
 
@@ -170,20 +150,13 @@ def add_lab_item(lab_id: int, body: LabItemCreate, db: Session = Depends(get_db)
     lab = _staff_lab_or_404(db, lab_id, current_user)
     if lab.is_running:
         raise HTTPException(status_code=400, detail="Cannot edit a running lab")
-    if body.kind in ("sql", "erd"):
+    if body.kind in ("sql", "erd", "sqllab"):
         if body.ref_id is None:
-            raise HTTPException(status_code=400, detail="ref_id is required for sql/erd items")
+            raise HTTPException(status_code=400, detail="ref_id is required")
         try:
             get_handler(body.kind).resolve(db, body.ref_id)  # 404 if the pool question is gone
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
-    elif body.kind == "sqllab":
-        if lab.template_db_path is None:
-            raise HTTPException(status_code=400, detail="Lab has no shared-DB section")
-        exists = db.query(LabItem).filter(LabItem.lab_id == lab_id, LabItem.kind == "sqllab",
-                                          LabItem.is_deleted == 0).first()
-        if exists:
-            raise HTTPException(status_code=400, detail="Lab already has a shared-DB section item")
     else:
         raise HTTPException(status_code=400, detail="Unknown item kind")
 
@@ -232,9 +205,9 @@ def update_lab(
     current_user: User = Depends(require_staff_role)
 ):
     """
-    Update lab (Staff only).
-    Can only edit if lab is not running.
-    If SQL changed, regenerates template database.
+    Update lab metadata (Staff only).
+    Can only edit if lab is not running. The manual shared-DB section was
+    removed, so only title/description are editable here.
     """
     lab = db.query(Lab).filter(
         Lab.id == lab_id,
@@ -254,37 +227,11 @@ def update_lab(
             detail="Cannot edit lab while it is running. Stop the lab first."
         )
 
-    # Check if SQL changed
-    sql_changed = False
-    if lab_data.schema_sql and lab_data.schema_sql != lab.schema_sql:
-        sql_changed = True
-    if lab_data.sample_data_sql and lab_data.sample_data_sql != lab.sample_data_sql:
-        sql_changed = True
-
-    # Update fields
+    # Update editable fields (schema_sql/sample_data_sql no longer apply)
     if lab_data.title:
         lab.title = lab_data.title
     if lab_data.description:
         lab.description = lab_data.description
-    if lab_data.schema_sql:
-        lab.schema_sql = lab_data.schema_sql
-    if lab_data.sample_data_sql:
-        lab.sample_data_sql = lab_data.sample_data_sql
-
-    # Regenerate template if SQL changed
-    if sql_changed:
-        try:
-            template_path = create_lab_template(
-                lab.id,
-                lab.schema_sql,
-                lab.sample_data_sql
-            )
-        except LabDatabaseError as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to regenerate lab database: {str(e)}"
-            )
 
     lab.updated_at = datetime.utcnow()
     db.commit()
@@ -519,22 +466,26 @@ def start_session(lab_id: int, body: JoinLabRequest, db: Session = Depends(get_d
     if not lab:
         raise HTTPException(status_code=404, detail="Lab not found")
     is_staff = current_user.role.value == "staff"
-    if not is_staff:
-        if not (lab.is_published and lab.is_running):
-            raise HTTPException(status_code=400, detail="Lab is not open")
-        if not verify_password(body.join_password or "", lab.join_password_hash):
-            raise HTTPException(status_code=401, detail="Incorrect join password")
+    if not is_staff and not (lab.is_published and lab.is_running):
+        raise HTTPException(status_code=400, detail="Lab is not open")
 
+    # Already joined? Resume the existing session WITHOUT re-checking the password. The
+    # workspace calls this endpoint with no password on load, so re-checking here would
+    # reject a student who already joined — and the frontend's global 401 handler would
+    # then log them out.
     existing = db.query(LabSession).filter(
         LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
     ).first()
     if existing:
         return existing
 
-    db_file_path = None
-    if lab.template_db_path is not None:
-        db_file_path = copy_template_to_session(lab.id, current_user.id)
-    session = LabSession(lab_id=lab_id, user_id=current_user.id, db_file_path=db_file_path, is_active=1)
+    # New join: students must supply the correct join password. Use 403 (a forbidden
+    # action), NOT 401 — a 401 means "not authenticated" and trips the frontend's global
+    # logout-on-401 interceptor, kicking the student to the login screen.
+    if not is_staff and not verify_password(body.join_password or "", lab.join_password_hash):
+        raise HTTPException(status_code=403, detail="Incorrect join password")
+
+    session = LabSession(lab_id=lab_id, user_id=current_user.id, is_active=1)
     db.add(session); db.commit(); db.refresh(session)
     return session
 
@@ -591,7 +542,7 @@ def submit_item(lab_id: int, item_id: int, body: SqlItemSubmit, db: Session = De
         raise HTTPException(status_code=400, detail="No active session")
 
     result = get_handler(item.kind).grade(
-        db, item.ref_id, {"query": body.query, "lab_task_id": body.lab_task_id}, session
+        db, item.ref_id, {"query": body.query, "lab_task_id": body.lab_task_id, "lab_item_id": item.id}, session
     )
     sub = LabSubmission(
         lab_id=lab_id, lab_item_id=item.id, lab_task_id=body.lab_task_id,
@@ -603,6 +554,77 @@ def submit_item(lab_id: int, item_id: int, body: SqlItemSubmit, db: Session = De
     db.add(sub); db.commit()
     return ItemGradeResponse(is_passed=result.is_passed, score_earned=result.score_earned,
                              score_total=result.score_total, message=result.message)
+
+
+def _sqllab_item_or_404(db, lab_id, item_id):
+    item = db.query(LabItem).filter(LabItem.id == item_id, LabItem.lab_id == lab_id,
+                                    LabItem.is_deleted == 0).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.kind != "sqllab":
+        raise HTTPException(status_code=400, detail="Not a SQL-lab item")
+    return item
+
+
+@router.get("/{lab_id}/items/{item_id}/tasks", response_model=List[SqlLabTaskView])
+def sqllab_item_tasks(lab_id: int, item_id: int, db: Session = Depends(get_db),
+                      current_user: User = Depends(get_current_user)):
+    item = _sqllab_item_or_404(db, lab_id, item_id)
+    tasks = (db.query(SqlLabTask).filter(SqlLabTask.sql_lab_question_id == item.ref_id,
+                                         SqlLabTask.is_deleted == 0).order_by(SqlLabTask.order_index).all())
+    return [SqlLabTaskView(id=t.id, title=t.title, description=t.description, order_index=t.order_index)
+            for t in tasks]
+
+
+@router.post("/{lab_id}/items/{item_id}/run", response_model=SqlLabRunResult)
+def sqllab_item_run(lab_id: int, item_id: int, body: SqlLabRunRequest, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    item = _sqllab_item_or_404(db, lab_id, item_id)
+    session = db.query(LabSession).filter(
+        LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
+    ).first()
+    if not session:
+        raise HTTPException(status_code=400, detail="No active session")
+    try:
+        db_path = ensure_sqllab_session(item.ref_id, session.id, item.id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    result = execute_lab_query(db_path, body.query, timeout=15)
+    return SqlLabRunResult(success=result["success"], columns=result["columns"], results=result["results"],
+                           row_count=result["row_count"], error_message=result["error_message"])
+
+
+def _sqllab_item_active_session(db, lab_id, current_user):
+    session = db.query(LabSession).filter(
+        LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
+    ).first()
+    if not session:
+        raise HTTPException(status_code=400, detail="No active session")
+    return session
+
+
+@router.get("/{lab_id}/items/{item_id}/database", response_model=DatabaseState)
+def sqllab_item_database(lab_id: int, item_id: int, db: Session = Depends(get_db),
+                         current_user: User = Depends(get_current_user)):
+    item = _sqllab_item_or_404(db, lab_id, item_id)
+    session = _sqllab_item_active_session(db, lab_id, current_user)
+    try:
+        db_path = ensure_sqllab_session(item.ref_id, session.id, item.id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return DatabaseState(**introspect_db(db_path))
+
+
+@router.post("/{lab_id}/items/{item_id}/reset", status_code=status.HTTP_204_NO_CONTENT)
+def sqllab_item_reset(lab_id: int, item_id: int, db: Session = Depends(get_db),
+                      current_user: User = Depends(get_current_user)):
+    item = _sqllab_item_or_404(db, lab_id, item_id)
+    session = _sqllab_item_active_session(db, lab_id, current_user)
+    try:
+        reset_sqllab_session(session.id, item.id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return None
 
 
 @router.get("/{lab_id}/item-progress", response_model=LabProgressResponse)
@@ -694,78 +716,13 @@ def execute_query(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Execute a SQL query in a lab session (Student/Staff).
-    Verifies session is active and belongs to current user.
-    Allows all SQL statements (SELECT, INSERT, UPDATE, DELETE, CREATE, etc.)
-    15-second timeout.
+    Retired: the lab no longer owns a single shared session database.
+    SQL-lab items run queries via POST /{lab_id}/items/{item_id}/run instead.
     """
-    # Get session
-    session = db.query(LabSession).filter(
-        LabSession.id == session_id
-    ).first()
-
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-
-    # Verify session belongs to current user
-    if session.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this session"
-        )
-
-    # Verify session is active
-    if not session.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Session is not active"
-        )
-
-    # Verify lab is still running (students only - staff can execute queries anytime for testing)
-    lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
-    if not lab:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
-
-    if current_user.role.value == "student" and not lab.is_running:
-        # Auto-terminate session if lab stopped (students only)
-        from app.utils.lab_cleanup import terminate_session
-        terminate_session(session, db)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Lab is no longer running"
-        )
-
-    # Execute query on student's database
-    result = execute_lab_query(session.db_file_path, execute_request.query, timeout=15)
-
-    # Save attempt to history (skip in review mode)
-    if not execute_request.is_review_mode:
-        attempt = LabAttempt(
-            session_id=session.id,
-            lab_id=session.lab_id,
-            user_id=current_user.id,
-            query=execute_request.query,
-            success=1 if result["success"] else 0,
-            execution_time_ms=result["execution_time_ms"],
-            row_count=result["row_count"],
-            error_message=result["error_message"]
-        )
-        db.add(attempt)
-        db.commit()
-
-    return LabExecuteResponse(
-        success=result["success"],
-        columns=result["columns"],
-        results=result["results"],
-        execution_time_ms=result["execution_time_ms"],
-        row_count=result["row_count"],
-        error_message=result["error_message"]
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="The shared-DB session workspace was removed. "
+               "Use POST /labs/{lab_id}/items/{item_id}/run for SQL-lab items."
     )
 
 
@@ -956,68 +913,13 @@ def get_session_database_state(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get current database state for active session (Student).
-    Returns tables, schema, row counts, and sample data from the student's current database.
+    Retired: the lab no longer owns a single shared session database.
+    SQL-lab item databases are inspected via their own run endpoint.
     """
-    # Get session
-    session = db.query(LabSession).filter(
-        LabSession.id == session_id,
-        LabSession.user_id == current_user.id,
-        LabSession.is_active == 1
-    ).first()
-
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active session not found"
-        )
-
-    # Verify database file exists
-    if not os.path.exists(session.db_file_path):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Session database file not found"
-        )
-
-    # Get schema info
-    from app.utils.lab_db_manager import get_schema_info
-    schema_data = get_schema_info(session.db_file_path)
-
-    # For each table, get row count and sample data
-    tables_with_data = []
-    conn = sqlite3.connect(f"file:{session.db_file_path}?mode=ro", uri=True)
-
-    try:
-        for table_info in schema_data["tables"]:
-            table_name = table_info["name"]
-            cursor = conn.cursor()
-
-            # Get row count
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-            row_count = cursor.fetchone()[0]
-
-            # Get sample data (first 20 rows)
-            cursor.execute(f"SELECT * FROM {table_name} LIMIT 20")
-            rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-
-            tables_with_data.append({
-                "name": table_name,
-                "columns": table_info["columns"],
-                "create_sql": table_info["create_sql"],
-                "row_count": row_count,
-                "sample_data": {
-                    "columns": columns,
-                    "rows": [dict(zip(columns, row)) for row in rows]
-                }
-            })
-
-            cursor.close()
-
-    finally:
-        conn.close()
-
-    return {"tables": tables_with_data}
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="The shared-DB session workspace was removed."
+    )
 
 
 @router.post("/{lab_id}/session/reset")
@@ -1027,10 +929,9 @@ def reset_session(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Reset lab session database to original template (Student/Staff).
-    Deletes current database and creates fresh copy from template.
+    Reset the per-(session, item) SQL-lab databases for the caller's active
+    session, so the next run/submit re-copies each item's clean template.
     """
-    # Get active session
     session = db.query(LabSession).filter(
         LabSession.lab_id == lab_id,
         LabSession.user_id == current_user.id,
@@ -1043,23 +944,18 @@ def reset_session(
             detail="No active session found"
         )
 
-    # Delete current database file with retry logic
     from app.utils.lab_cleanup import delete_session_file_with_retry
-    if not delete_session_file_with_retry(session.db_file_path):
-        logger.warning(f"Could not delete session file during reset, continuing anyway: {session.db_file_path}")
+    from app.utils.sqllab_db_manager import get_sqllab_session_path
 
-    # Copy template database to create fresh session
-    try:
-        session_db_path = copy_template_to_session(lab_id, current_user.id)
-        session.db_file_path = session_db_path
-        db.commit()
-    except LabDatabaseError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reset session database: {str(e)}"
-        )
+    items = db.query(LabItem).filter(
+        LabItem.lab_id == lab_id, LabItem.kind == "sqllab", LabItem.is_deleted == 0
+    ).all()
+    for it in items:
+        path = get_sqllab_session_path(session.id, it.id)
+        if not delete_session_file_with_retry(path):
+            logger.warning(f"Could not delete sql-lab session file during reset: {path}")
 
-    return {"message": "Session database reset successfully"}
+    return {"message": "Session databases reset successfully"}
 
 
 @router.post("/{lab_id}/session/exit")
@@ -1451,64 +1347,12 @@ def validate_task_answer(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Validate student's answer against task's correct hash (Student/Staff).
-    Verifies session belongs to user and is active.
+    Retired: validated against the removed shared-DB section. SQL-lab items
+    run via POST /{lab_id}/items/{item_id}/run and submit via .../submit.
     """
-    # Get task
-    task = db.query(LabTask).filter(
-        LabTask.id == validate_request.task_id,
-        LabTask.is_deleted == 0
-    ).first()
-
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found"
-        )
-
-    # Check if task has an answer assigned
-    if not task.correct_answer_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task does not have an answer assigned yet"
-        )
-
-    # Get session and verify ownership
-    session = db.query(LabSession).filter(
-        LabSession.id == validate_request.session_id,
-        LabSession.user_id == current_user.id,
-        LabSession.is_active == 1
-    ).first()
-
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active session not found"
-        )
-
-    # Execute user's query on their session database
-    result = execute_lab_query(session.db_file_path, validate_request.user_query, timeout=15)
-
-    if not result["success"]:
-        return LabTaskValidateResponse(
-            is_correct=False,
-            message=f"Query failed: {result['error_message']}"
-        )
-
-    # Generate hash from user results
-    results_tuples = [
-        tuple(row[col] for col in result["columns"])
-        for row in result["results"]
-    ]
-    user_hash = generate_hash(results_tuples, result["columns"])
-
-    # Compare hashes
-    is_correct = user_hash == task.correct_answer_hash
-
-    return LabTaskValidateResponse(
-        is_correct=is_correct,
-        message="Correct! Your query produces the expected result." if is_correct
-                else "Incorrect. Your query result doesn't match the expected answer."
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="The shared-DB section was removed. Use the SQL-lab item run/submit endpoints."
     )
 
 

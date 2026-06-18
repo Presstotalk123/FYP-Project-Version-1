@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Group, Stack, Text } from '@mantine/core';
-import { IconPlayerPlay, IconTrash } from '@tabler/icons-react';
+import { IconPlayerPlay, IconTrash, IconCheck } from '@tabler/icons-react';
 import Editor from '@monaco-editor/react';
 
 interface EditorPanelProps {
@@ -11,6 +11,9 @@ interface EditorPanelProps {
   onClear: () => void;
   isExecuting: boolean;
   executionTime: number | null;
+  // Lab mode only: when provided, a Submit button grades the lab item.
+  onSubmit?: () => void;
+  isSubmitting?: boolean;
 }
 
 export function EditorPanel({
@@ -20,6 +23,8 @@ export function EditorPanel({
   onClear,
   isExecuting,
   executionTime,
+  onSubmit,
+  isSubmitting,
 }: EditorPanelProps) {
   return (
     <Stack gap="md" p="md" style={{ height: '100%' }}>
@@ -32,11 +37,22 @@ export function EditorPanel({
           >
             Run Query
           </Button>
+          {onSubmit && (
+            <Button
+              color="green"
+              leftSection={<IconCheck size={16} />}
+              onClick={onSubmit}
+              loading={isSubmitting}
+              disabled={isExecuting}
+            >
+              Submit
+            </Button>
+          )}
           <Button
             variant="default"
             leftSection={<IconTrash size={16} />}
             onClick={onClear}
-            disabled={isExecuting}
+            disabled={isExecuting || isSubmitting}
           >
             Clear
           </Button>

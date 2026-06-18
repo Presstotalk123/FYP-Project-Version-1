@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import { Box, Group, Loader, Text } from '@mantine/core';
 import { unifiedLabService } from '@/services/unifiedLab.service';
 import { erDiagramService } from '@/services/er-diagram.service';
-import { LabItem, LabProgress, LabSessionResponse, UnifiedLabDetail } from '@/types/unified-lab.types';
+import { LabItem, LabProgress, UnifiedLabDetail } from '@/types/unified-lab.types';
 import { ERDiagramWorkspace, ERDiagramWorkspaceQuestion } from '@/components/ERDiagramWorkspace';
 import { ERDiagramQuestion } from '@/types/er-diagram.types';
+import { SqlWorkspace } from '@/components/workspace/SqlWorkspace';
+import { sqlLabQuestionService } from '@/services/sqlLabQuestion.service';
 import { LabItemSidebar } from './LabItemSidebar';
-import { LabSqlItemPanel } from './LabSqlItemPanel';
-import { LabSectionPanel } from './LabSectionPanel';
+import { SqlLabSolver } from './SqlLabSolver';
 
 function mapErQuestion(q: ERDiagramQuestion): ERDiagramWorkspaceQuestion {
   return {
@@ -30,7 +31,6 @@ export function UnifiedLabWorkspace({ labId }: { labId: number }) {
   const [progress, setProgress] = useState<LabProgress | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sessionId, setSessionId] = useState<number | null>(null);
   const [erQuestion, setErQuestion] = useState<ERDiagramWorkspaceQuestion | null>(null);
 
   const reloadProgress = useCallback(async () => {
@@ -40,8 +40,7 @@ export function UnifiedLabWorkspace({ labId }: { labId: number }) {
   useEffect(() => {
     (async () => {
       try {
-        const session: LabSessionResponse = await unifiedLabService.startSession(labId);
-        setSessionId(session.id);
+        await unifiedLabService.startSession(labId);
         const detail = await unifiedLabService.get(labId);
         setLab(detail);
         setActiveId(detail.items[0]?.id ?? null);
@@ -75,7 +74,15 @@ export function UnifiedLabWorkspace({ labId }: { labId: number }) {
     if (!active) return <Text c="dimmed">This lab has no items.</Text>;
 
     if (active.kind === 'sql') {
-      return <LabSqlItemPanel labId={labId} item={active} onGraded={reloadProgress} />;
+      if (active.ref_id == null) return <Text c="dimmed">Question unavailable.</Text>;
+      return (
+        <SqlWorkspace
+          key={active.id}
+          questionId={active.ref_id}
+          unifiedLabContext={{ lab_id: labId, lab_item_id: active.id }}
+          onGraded={reloadProgress}
+        />
+      );
     }
 
     if (active.kind === 'erd') {
@@ -89,12 +96,17 @@ export function UnifiedLabWorkspace({ labId }: { labId: number }) {
     }
 
     if (active.kind === 'sqllab') {
-      if (sessionId == null) return <Group justify="center" py="xl"><Loader size="sm" /></Group>;
+      if (active.ref_id == null) return <Text c="dimmed">Question unavailable.</Text>;
+      const refId = active.ref_id;
+      const itemId = active.id;
       return (
-        <LabSectionPanel
-          labId={labId}
-          itemId={active.id}
-          sessionId={sessionId}
+        <SqlLabSolver
+          key={itemId}
+          loadQuestion={() => sqlLabQuestionService.loadForSolver(refId)}
+          run={(query) => unifiedLabService.itemRun(labId, itemId, query)}
+          submit={(query, taskId) => unifiedLabService.submitItem(labId, itemId, query, taskId)}
+          getDatabase={() => unifiedLabService.itemDatabase(labId, itemId)}
+          reset={() => unifiedLabService.itemReset(labId, itemId)}
           onGraded={reloadProgress}
         />
       );

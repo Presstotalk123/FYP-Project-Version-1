@@ -20,15 +20,20 @@ import { ExecuteResponse, Attempt } from '@/types/attempt.types';
 import { questionService } from '@/services/question.service';
 import { executeService } from '@/services/execute.service';
 import { attemptService } from '@/services/attempt.service';
+import { unifiedLabService } from '@/services/unifiedLab.service';
 import { QuestionPanel } from './QuestionPanel';
 import { EditorPanel } from './EditorPanel';
 import { ResultsPanel } from './ResultsPanel';
 
 interface SqlWorkspaceProps {
   questionId: number;
+  // When set, the workspace is embedded in a unified lab: a Submit button grades the
+  // lab item and the standalone "back to problems" chrome is hidden.
+  unifiedLabContext?: { lab_id: number; lab_item_id: number };
+  onGraded?: () => void;
 }
 
-export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
+export function SqlWorkspace({ questionId, unifiedLabContext, onGraded }: SqlWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -38,6 +43,7 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +117,34 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
     }
   };
 
+  // Submit for grading (lab mode only)
+  const handleSubmit = async () => {
+    if (!unifiedLabContext) return;
+    if (!query.trim()) {
+      notifications.show({ title: 'Empty Query', message: 'Please enter a SQL query', color: 'yellow' });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await unifiedLabService.submitItem(
+        unifiedLabContext.lab_id,
+        unifiedLabContext.lab_item_id,
+        query,
+      );
+      notifications.show({ color: res.is_passed ? 'green' : 'red', message: res.message });
+      onGraded?.();
+    } catch (err) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Submit failed',
+        message: error.response?.data?.detail || 'Failed to submit',
+        color: 'red',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Clear query
   const handleClear = () => {
     setQuery('');
@@ -177,20 +211,22 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
   const rightPercent = 100 - leftPercent - centerPercent;
 
   return (
-    <Container fluid px="sm" py="md">
+    <Container fluid px={unifiedLabContext ? 0 : 'sm'} py={unifiedLabContext ? 0 : 'md'}>
       <Stack gap="md">
-        {/* Header */}
-        <Group align="baseline" gap="sm">
-          <ActionIcon
-            onClick={() => router.push('/problems')}
-            variant="subtle"
-            size="sm"
-            aria-label="Back to problems"
-          >
-            <IconArrowLeft size={18} />
-          </ActionIcon>
-          <Title order={2}>SQL Workspace</Title>
-        </Group>
+        {/* Header (standalone only — the lab provides its own chrome) */}
+        {!unifiedLabContext && (
+          <Group align="baseline" gap="sm">
+            <ActionIcon
+              onClick={() => router.push('/problems')}
+              variant="subtle"
+              size="sm"
+              aria-label="Back to problems"
+            >
+              <IconArrowLeft size={18} />
+            </ActionIcon>
+            <Title order={2}>SQL Workspace</Title>
+          </Group>
+        )}
 
         {/* 3-Panel Layout */}
         <Box
@@ -273,6 +309,8 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
               onClear={handleClear}
               isExecuting={isExecuting}
               executionTime={result?.execution_time_ms || null}
+              onSubmit={unifiedLabContext ? handleSubmit : undefined}
+              isSubmitting={isSubmitting}
             />
           </Box>
 

@@ -1,4 +1,4 @@
-export type ProblemType = 'sql' | 'erd';
+export type ProblemType = 'sql' | 'erd' | 'sqllab';
 export type ProblemDifficulty = 'easy' | 'medium' | 'hard';
 export type ProblemCreatorRole = 'student' | 'staff';
 export type ProblemAuthorFilter = 'all' | 'staff' | 'students';
@@ -17,6 +17,7 @@ export interface ProblemCounts {
   all: number;
   sql: number;
   erd: number;
+  sqllab: number;
 }
 
 export interface ProblemListResponse {

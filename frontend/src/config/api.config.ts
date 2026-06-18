@@ -17,6 +17,14 @@ export const API_ENDPOINTS = {
   PROBLEMS: {
     BASE: '/problems',
   },
+  SQL_LAB_QUESTIONS: {
+    BASE: '/sql-lab-questions',
+    DETAIL: (id: number) => `/sql-lab-questions/${id}`,
+    RUN: (id: number) => `/sql-lab-questions/${id}/run`,
+    SUBMIT: (id: number) => `/sql-lab-questions/${id}/submit`,
+    DATABASE: (id: number) => `/sql-lab-questions/${id}/database`,
+    RESET: (id: number) => `/sql-lab-questions/${id}/reset`,
+  },
   EXECUTE: {
     BASE: '/execute',
   },
@@ -70,6 +78,10 @@ export const API_ENDPOINTS = {
     SESSION_START: (id: number) => `/labs/${id}/session/start`,
     ITEM_SUBMIT: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/submit`,
     ITEM_SUBMISSION: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/submission`,
+    ITEM_TASKS: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/tasks`,
+    ITEM_RUN: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/run`,
+    ITEM_DATABASE: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/database`,
+    ITEM_RESET: (id: number, itemId: number) => `/labs/${id}/items/${itemId}/reset`,
     PROGRESS: (id: number) => `/labs/${id}/item-progress`,
     PUBLISH: (id: number) => `/labs/${id}/publish`,
     UNPUBLISH: (id: number) => `/labs/${id}/unpublish`,

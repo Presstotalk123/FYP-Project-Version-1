@@ -1,8 +1,9 @@
 import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import {
-  ItemGradeResult, LabItem, LabItemKind, LabProgress,
-  LabSessionResponse, UnifiedLabCreate, UnifiedLabCreateResponse, UnifiedLabDetail, UnifiedLabListItem,
+  DatabaseState, ItemGradeResult, LabItem, LabItemKind, LabProgress,
+  LabSessionResponse, SqlLabItemTask, SqlLabRunResult,
+  UnifiedLabCreate, UnifiedLabCreateResponse, UnifiedLabDetail, UnifiedLabListItem,
   UnifiedLabStudentsResponse, UnifiedLabSubmissionView,
 } from '@/types/unified-lab.types';
 
@@ -32,6 +33,18 @@ export const unifiedLabService = {
   },
   async submitItem(id: number, itemId: number, query: string, labTaskId?: number): Promise<ItemGradeResult> {
     return (await api.post<ItemGradeResult>(E.ITEM_SUBMIT(id, itemId), { query, lab_task_id: labTaskId ?? null })).data;
+  },
+  async itemTasks(id: number, itemId: number): Promise<SqlLabItemTask[]> {
+    return (await api.get<SqlLabItemTask[]>(E.ITEM_TASKS(id, itemId))).data;
+  },
+  async itemRun(id: number, itemId: number, query: string): Promise<SqlLabRunResult> {
+    return (await api.post<SqlLabRunResult>(E.ITEM_RUN(id, itemId), { query })).data;
+  },
+  async itemDatabase(id: number, itemId: number): Promise<DatabaseState> {
+    return (await api.get<DatabaseState>(E.ITEM_DATABASE(id, itemId))).data;
+  },
+  async itemReset(id: number, itemId: number): Promise<void> {
+    await api.post(E.ITEM_RESET(id, itemId));
   },
   async progress(id: number): Promise<LabProgress> {
     return (await api.get<LabProgress>(E.PROGRESS(id))).data;

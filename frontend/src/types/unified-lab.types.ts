@@ -15,7 +15,6 @@ export interface UnifiedLabDetail {
   description: string;
   is_published: boolean;
   is_running: boolean;
-  has_section: boolean;
   items: LabItem[];
 }
 
@@ -33,14 +32,11 @@ export interface UnifiedLabCreate {
   title: string;
   description: string;
   join_password: string;
-  schema_sql?: string | null;
-  sample_data_sql?: string | null;
 }
 
 export interface UnifiedLabCreateResponse {
   id: number;
   title: string;
-  has_section: boolean;
   join_password: string;
 }
 
@@ -66,6 +62,22 @@ export interface ItemGradeResult {
   message: string;
 }
 
+export interface DatabaseColumn {
+  name: string;
+  type: string;
+}
+
+export interface DatabaseTableState {
+  name: string;
+  columns: DatabaseColumn[];
+  row_count: number;
+  sample_rows: Array<Record<string, unknown>>;
+}
+
+export interface DatabaseState {
+  tables: DatabaseTableState[];
+}
+
 export interface LabSessionResponse {
   id: number;
   lab_id: number;
@@ -86,6 +98,21 @@ export interface UnifiedLabStudentsResponse {
   lab_id: number;
   total_items: number;
   students: UnifiedLabStudent[];
+}
+
+export interface SqlLabItemTask {
+  id: number;
+  title: string;
+  description: string;
+  order_index: number;
+}
+
+export interface SqlLabRunResult {
+  success: boolean;
+  columns: string[];
+  results: Array<Record<string, unknown>>;
+  row_count: number;
+  error_message: string | null;
 }
 
 export interface UnifiedLabSubmissionView {

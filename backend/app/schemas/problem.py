@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-ProblemType = Literal["sql", "erd"]
+ProblemType = Literal["sql", "erd", "sqllab"]
 ProblemDifficulty = Literal["easy", "medium", "hard"]
 CreatorRole = Literal["student", "staff"]
 
@@ -22,6 +22,7 @@ class ProblemCounts(BaseModel):
     all: int
     sql: int
     erd: int
+    sqllab: int
 
 
 class ProblemListResponse(BaseModel):

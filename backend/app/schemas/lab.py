@@ -4,20 +4,10 @@ from datetime import datetime
 
 
 # Lab schemas
-class LabCreate(BaseModel):
-    """Schema for creating a new lab"""
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(..., min_length=1)
-    schema_sql: str = Field(..., min_length=1)
-    sample_data_sql: str = Field(..., min_length=1)
-
-
 class LabUpdate(BaseModel):
     """Schema for updating a lab"""
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, min_length=1)
-    schema_sql: Optional[str] = Field(None, min_length=1)
-    sample_data_sql: Optional[str] = Field(None, min_length=1)
 
 
 class LabListItem(BaseModel):
@@ -27,24 +17,6 @@ class LabListItem(BaseModel):
     description: str
     is_published: bool
     is_running: bool
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class LabDetail(BaseModel):
-    """Schema for detailed lab information"""
-    id: int
-    title: str
-    description: str
-    is_published: bool
-    is_running: bool
-    template_db_path: str
-    schema_sql: str
-    sample_data_sql: str
-    created_by: int
     created_at: datetime
     updated_at: datetime
 
@@ -220,12 +192,10 @@ LabItemKind = Literal["sql", "erd", "sqllab"]
 
 
 class UnifiedLabCreate(BaseModel):
-    """Create a unified lab. Shared-DB section is optional."""
+    """Create a unified lab (pool items only; no manual shared-DB section)."""
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(..., min_length=1)
     join_password: str = Field(..., min_length=4, max_length=64)
-    schema_sql: Optional[str] = None        # shared-DB section (both or neither)
-    sample_data_sql: Optional[str] = None
 
 
 class LabItemCreate(BaseModel):
@@ -255,7 +225,6 @@ class UnifiedLabDetail(BaseModel):
     description: str
     is_published: bool
     is_running: bool
-    has_section: bool
     items: List[LabItemResponse]
 
     class Config:
@@ -267,9 +236,30 @@ class JoinLabRequest(BaseModel):
 
 
 class SqlItemSubmit(BaseModel):
-    """Submit for a `sql` lab item or a shared-DB `sqllab` task."""
+    """Submit for a `sql` lab item or a `sqllab` question task."""
     query: str = Field(..., min_length=1)
-    lab_task_id: Optional[int] = None       # set only for a shared-DB task
+    lab_task_id: Optional[int] = None       # set only for a sqllab-question task
+
+
+class SqlLabTaskView(BaseModel):
+    """One ordered task of a `sqllab` item, exposed to the solver."""
+    id: int
+    title: str
+    description: str
+    order_index: int
+
+
+class SqlLabRunRequest(BaseModel):
+    """Run arbitrary SQL against the per-(session,item) writable DB."""
+    query: str = Field(..., min_length=1)
+
+
+class SqlLabRunResult(BaseModel):
+    success: bool
+    columns: List[str] = []
+    results: List[dict] = []
+    row_count: int = 0
+    error_message: Optional[str] = None
 
 
 class ItemGradeResponse(BaseModel):
@@ -277,6 +267,23 @@ class ItemGradeResponse(BaseModel):
     score_earned: Optional[float] = None
     score_total: Optional[float] = None
     message: str
+
+
+class DatabaseColumn(BaseModel):
+    name: str
+    type: str
+
+
+class DatabaseTableState(BaseModel):
+    name: str
+    columns: List[DatabaseColumn]
+    row_count: int
+    sample_rows: List[dict] = []
+
+
+class DatabaseState(BaseModel):
+    """Live snapshot of a student's writable SQL-lab DB (for the 'Database' browser)."""
+    tables: List[DatabaseTableState] = []
 
 
 class LabItemProgress(BaseModel):

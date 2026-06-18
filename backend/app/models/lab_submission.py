@@ -14,7 +14,7 @@ class LabSubmission(Base):
     id = Column(Integer, primary_key=True, index=True)
     lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False, index=True)
     lab_item_id = Column(Integer, ForeignKey("lab_items.id"), nullable=False, index=True)
-    lab_task_id = Column(Integer, ForeignKey("lab_tasks.id"), nullable=True)  # only for shared-DB tasks
+    lab_task_id = Column(Integer, nullable=True)  # sqllab-question task id (no FK; cross-table reference)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     session_id = Column(Integer, ForeignKey("lab_sessions.id"), nullable=False)
 

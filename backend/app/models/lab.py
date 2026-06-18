@@ -19,11 +19,6 @@ class Lab(Base):
     join_password_hash = Column(String(255), nullable=False)
     join_password_plain = Column(String(255), nullable=False)
 
-    # Optional shared-DB section (null when the lab has no shared-DB section)
-    template_db_path = Column(String(500), nullable=True)
-    schema_sql = Column(Text, nullable=True)
-    sample_data_sql = Column(Text, nullable=True)
-
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

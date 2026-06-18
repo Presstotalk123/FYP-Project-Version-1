@@ -41,9 +41,18 @@ export default function CreateProblemPage() {
       allowed: true,
     },
     {
+      key: 'sqllab',
+      title: 'SQL lab question',
+      description: 'A seed database plus a series of tasks. Students run SQL directly on the database.',
+      href: '/admin/sql-lab-questions/new',
+      icon: <IconDatabase size={22} />,
+      color: 'teal',
+      allowed: isStaff,
+    },
+    {
       key: 'lab',
       title: 'Lab',
-      description: 'A gated, multi-question lab session mixing SQL, ERD, and a shared-DB section.',
+      description: 'A gated, multi-question session built from SQL, ERD, and SQL-lab pool questions.',
       href: '/labs/new',
       icon: <IconFlask size={22} />,
       color: 'teal',
@@ -82,7 +91,7 @@ export default function CreateProblemPage() {
           Choose what you want to create.
         </Text>
 
-        <SimpleGrid cols={{ base: 1, sm: available.length > 1 ? 3 : 1 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, sm: Math.min(available.length, 3) }} spacing="md">
           {available.map((option) => (
             <Card
               key={option.key}

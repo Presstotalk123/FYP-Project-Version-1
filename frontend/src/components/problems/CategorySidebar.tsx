@@ -14,6 +14,7 @@ export function CategorySidebar({ counts, selected, onSelect }: CategorySidebarP
     { value: 'all', label: 'All problems', count: counts.all },
     { value: 'sql', label: 'SQL', count: counts.sql },
     { value: 'erd', label: 'ERD', count: counts.erd },
+    { value: 'sqllab', label: 'SQL Lab', count: counts.sqllab },
   ];
 
   return (

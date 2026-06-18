@@ -29,6 +29,7 @@ interface ProblemsListProps {
 const TYPE_BADGE: Record<ProblemType, { label: string; color: string }> = {
   sql: { label: 'SQL', color: 'blue' },
   erd: { label: 'ERD', color: 'grape' },
+  sqllab: { label: 'SQL Lab', color: 'teal' },
 };
 
 const DIFFICULTY_COLOR: Record<ProblemDifficulty, string> = {

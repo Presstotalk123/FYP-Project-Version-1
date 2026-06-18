@@ -24,6 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { problemService } from '@/services/problem.service';
 import { attemptService } from '@/services/attempt.service';
 import { erDiagramService } from '@/services/er-diagram.service';
+import { sqlLabQuestionService } from '@/services/sqlLabQuestion.service';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import {
@@ -34,7 +35,7 @@ import {
   ProblemType,
 } from '@/types/problem.types';
 
-const EMPTY_COUNTS: ProblemCounts = { all: 0, sql: 0, erd: 0 };
+const EMPTY_COUNTS: ProblemCounts = { all: 0, sql: 0, erd: 0, sqllab: 0 };
 
 export default function ProblemsPage() {
   const router = useRouter();
@@ -100,6 +101,8 @@ export default function ProblemsPage() {
   const openProblem = (row: ProblemRow) => {
     if (row.type === 'sql') {
       router.push(isStaff ? `/admin/questions/${row.id}` : `/student/workspace/${row.id}`);
+    } else if (row.type === 'sqllab') {
+      router.push(`/sql-lab/${row.id}`);
     } else {
       router.push(`/er-diagram/${row.id}`);
     }
@@ -110,13 +113,15 @@ export default function ProblemsPage() {
   };
 
   const deleteProblem = async (row: ProblemRow) => {
-    const label = row.type === 'sql' ? 'SQL' : 'ERD';
+    const label = row.type === 'sql' ? 'SQL' : row.type === 'sqllab' ? 'SQL lab' : 'ERD';
     if (!window.confirm(`Delete this ${label} question?`)) return;
     const key = `${row.type}-${row.id}`;
     try {
       setDeletingId(key);
       if (row.type === 'sql') {
         await api.delete(API_ENDPOINTS.QUESTIONS.DETAIL(row.id));
+      } else if (row.type === 'sqllab') {
+        await sqlLabQuestionService.remove(row.id);
       } else {
         await erDiagramService.deleteQuestion(row.id);
       }
@@ -140,7 +145,7 @@ export default function ProblemsPage() {
           <div>
             <Title order={2}>Problems</Title>
             <Text c="dimmed" mt={4}>
-              All SQL and ER diagram questions in one place
+              All SQL, ER diagram, and SQL-lab questions in one place
             </Text>
           </div>
           <Button leftSection={<IconPlus size={16} />} onClick={() => router.push('/problems/new')}>

@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Group, Loader, Alert, Button } from '@mantine/core';
+import { Group, Loader, Alert, Button, Container } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
-import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { LabWizardShell } from '@/components/admin/LabWizardShell';
 import { labService } from '@/services/lab.service';
 import { UserRole } from '@/types/user.types';
@@ -30,33 +29,31 @@ export default function EditLabWizardPage() {
 
   if (loading) {
     return (
-      <ProtectedRoute requiredRole={UserRole.STAFF}>
-        <DashboardLayout>
-          <Group justify="center" py="xl">
-            <Loader size="lg" />
-          </Group>
-        </DashboardLayout>
+      <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
+        <Group justify="center" py="xl" style={{ minHeight: '100vh' }}>
+          <Loader size="lg" />
+        </Group>
       </ProtectedRoute>
     );
   }
 
   if (error || !lab) {
     return (
-      <ProtectedRoute requiredRole={UserRole.STAFF}>
-        <DashboardLayout>
+      <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
+        <Container size="sm" py="xl">
           <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error" mb="md">
             {error ?? 'Lab not found.'}
           </Alert>
           <Button variant="default" onClick={() => router.push('/admin/labs')}>
             Back to Labs
           </Button>
-        </DashboardLayout>
+        </Container>
       </ProtectedRoute>
     );
   }
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <LabWizardShell title="Edit Lab" initialLab={lab} />
     </ProtectedRoute>
   );

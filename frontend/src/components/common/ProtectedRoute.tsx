@@ -9,9 +9,14 @@ import { UserRole } from '@/types/user.types';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: UserRole;
+  allowedRoles?: UserRole[];
 }
 
-export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+function isAdminOrStaff(role: UserRole | undefined) {
+  return role === UserRole.STAFF || role === UserRole.ADMIN;
+}
+
+export function ProtectedRoute({ children, requiredRole, allowedRoles }: ProtectedRouteProps) {
   const { user, loading, isAuthenticated } = useAuth();
   const router = useRouter();
 
@@ -19,12 +24,20 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     if (!loading) {
       if (!isAuthenticated) {
         router.replace('/login');
-      } else if (requiredRole && user?.role !== requiredRole) {
-        const redirectPath = user?.role === UserRole.STAFF ? '/admin' : '/problems';
-        router.replace(redirectPath);
+      } else {
+        const roleAllowed = allowedRoles
+          ? allowedRoles.includes(user!.role)
+          : requiredRole
+          ? user?.role === requiredRole
+          : true;
+
+        if (!roleAllowed) {
+          const redirectPath = isAdminOrStaff(user?.role) ? '/admin' : '/problems';
+          router.replace(redirectPath);
+        }
       }
     }
-  }, [loading, isAuthenticated, user, requiredRole, router]);
+  }, [loading, isAuthenticated, user, requiredRole, allowedRoles, router]);
 
   if (loading) {
     return (
@@ -38,7 +51,13 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     return null;
   }
 
-  if (requiredRole && user?.role !== requiredRole) {
+  const roleAllowed = allowedRoles
+    ? allowedRoles.includes(user!.role)
+    : requiredRole
+    ? user?.role === requiredRole
+    : true;
+
+  if (!roleAllowed) {
     return null;
   }
 

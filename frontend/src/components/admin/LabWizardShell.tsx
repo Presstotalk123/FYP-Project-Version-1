@@ -14,7 +14,6 @@ import {
 } from '@mantine/core';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { LabForm } from '@/components/admin/LabForm';
 import { LabWorkspace } from '@/components/workspace/LabWorkspace';
 import { labService } from '@/services/lab.service';
@@ -23,9 +22,11 @@ import { LabDetail } from '@/types/lab.types';
 interface LabWizardShellProps {
   initialLab?: LabDetail;
   title?: string;
+  labType?: 'sql' | 'graph';
 }
 
-export function LabWizardShell({ initialLab, title }: LabWizardShellProps) {
+export function LabWizardShell({ initialLab, title, labType: labTypeProp }: LabWizardShellProps) {
+  const labType: 'sql' | 'graph' = labTypeProp ?? initialLab?.lab_type ?? 'sql';
   const [step, setStep] = useState<1 | 2>(1);
   const [savedLab, setSavedLab] = useState<LabDetail | null>(initialLab ?? null);
   const [transitioning, setTransitioning] = useState(false);
@@ -82,7 +83,7 @@ export function LabWizardShell({ initialLab, title }: LabWizardShellProps) {
     : 'Next: Set Up Tasks →';
 
   return (
-    <DashboardLayout>
+    <div style={{ minHeight: '100vh', padding: '2rem 0' }}>
       <Container size="lg">
         <Stack gap="lg">
           <Title order={2}>{wizardTitle}</Title>
@@ -101,10 +102,11 @@ export function LabWizardShell({ initialLab, title }: LabWizardShellProps) {
               isEdit={savedLab != null}
               onSuccess={handleLabSaved}
               submitLabel={submitLabel}
+              labType={labType}
             />
           )}
         </Stack>
       </Container>
-    </DashboardLayout>
+    </div>
   );
 }

@@ -8,7 +8,7 @@ import { UserRole } from '@/types/user.types';
 
 export default function NewLabPage() {
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Container size="lg">
           <LabForm />

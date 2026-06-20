@@ -19,6 +19,9 @@ class Lab(Base):
     join_password_hash = Column(String(255), nullable=False)
     join_password_plain = Column(String(255), nullable=False)
 
+    # Lab type: "sql" for SQL labs, "graph" for Cypher/graphqlite labs
+    lab_type = Column(String(10), default="sql", nullable=False)
+
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

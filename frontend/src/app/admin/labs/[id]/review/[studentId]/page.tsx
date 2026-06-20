@@ -12,7 +12,7 @@ export default function LabReviewPage() {
   const studentId = parseInt(params.studentId as string);
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <LabWorkspace
           labId={labId}

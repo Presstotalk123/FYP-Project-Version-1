@@ -2,7 +2,9 @@
 
 import { Stack, Group, Button, Badge, Box } from '@mantine/core';
 import { IconPlayerPlay, IconTrash } from '@tabler/icons-react';
-import Editor from '@monaco-editor/react';
+import dynamic from 'next/dynamic';
+
+const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 interface LabEditorPanelProps {
   query: string;
@@ -11,6 +13,7 @@ interface LabEditorPanelProps {
   onClear: () => void;
   isExecuting: boolean;
   executionTime: number | null;
+  labType?: 'sql' | 'graph';
 }
 
 export function LabEditorPanel({
@@ -20,6 +23,7 @@ export function LabEditorPanel({
   onClear,
   isExecuting,
   executionTime,
+  labType = 'sql',
 }: LabEditorPanelProps) {
   return (
     <Stack gap="md" p="md" style={{ height: '100%' }}>
@@ -54,7 +58,7 @@ export function LabEditorPanel({
       <Box style={{ flex: 1, overflow: 'hidden' }}>
         <Editor
           height="100%"
-          language="sql"
+          language={labType === 'graph' ? 'cypher' : 'sql'}
           theme="vs-dark"
           value={query}
           onChange={(value) => onQueryChange(value || '')}

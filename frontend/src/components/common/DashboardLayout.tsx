@@ -1,7 +1,7 @@
 'use client';
 
 import { Box, NavLink } from '@mantine/core';
-import { IconLayoutDashboard, IconCode, IconDatabase } from '@tabler/icons-react';
+import { IconLayoutDashboard, IconCode, IconDatabase, IconUsers } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -10,7 +10,7 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { isStaff } = useAuth();
+  const { isStaff, isAdmin } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -24,7 +24,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           flexShrink: 0,
         }}
       >
-        {isStaff ? (
+        {isStaff || isAdmin ? (
           <>
             <NavLink
               label="Dashboard"
@@ -44,6 +44,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               active={pathname === '/admin/labs'}
               onClick={() => router.push('/admin/labs')}
             />
+            {isAdmin && (
+              <NavLink
+                label="Manage Users"
+                leftSection={<IconUsers size={16} />}
+                active={pathname === '/admin/users'}
+                onClick={() => router.push('/admin/users')}
+              />
+            )}
           </>
         ) : (
           <>

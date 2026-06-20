@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 import bcrypt
 from jose import JWTError, jwt
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 from app.config import settings
 from app.models.user import UserRole
 
@@ -36,6 +38,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
     return encoded_jwt
+
+
+def verify_google_token(token: str) -> Optional[dict]:
+    """Verify a Google ID token and return the payload (contains 'email', 'name', etc.)."""
+    try:
+        return google_id_token.verify_oauth2_token(
+            token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+        )
+    except Exception:
+        return None
 
 
 def decode_token(token: str) -> Optional[dict]:

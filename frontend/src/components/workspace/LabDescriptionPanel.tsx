@@ -17,6 +17,7 @@ import {
   ActionIcon,
   Loader,
   Alert,
+  Modal,
 } from '@mantine/core';
 import {
   IconPlus,
@@ -25,8 +26,24 @@ import {
   IconAlertCircle,
   IconChecks,
   IconX,
+  IconGripVertical,
+  IconPencil,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { LabDetail, LabTask, LabTaskCreate, LabTaskProgress, LabQueryHistoryResponse } from '@/types/lab.types';
 import { StudentQueryReviewPanel } from './StudentQueryReviewPanel';
 
@@ -39,6 +56,8 @@ interface LabDescriptionPanelProps {
   taskProgress: Record<number, LabTaskProgress>;
   onCreateTask: (taskData: LabTaskCreate) => Promise<void>;
   onDeleteTask: (taskId: number) => Promise<void>;
+  onEditTask: (taskId: number, data: { title: string; description: string }) => Promise<void>;
+  onReorderTasks: (reorderedTasks: LabTask[]) => void;
   reviewMode?: boolean;
   studentQueries?: LabQueryHistoryResponse[];
   currentQueryIndex?: number;
@@ -47,6 +66,136 @@ interface LabDescriptionPanelProps {
   onExecuteNext?: () => void;
   isLoadingStudentHistory?: boolean;
   studentEmail?: string;
+}
+
+interface SortableTaskCardProps {
+  task: LabTask;
+  index: number;
+  isStaffMode: boolean;
+  reviewMode: boolean;
+  taskProgress: Record<number, LabTaskProgress>;
+  onDeleteTask: (taskId: number) => Promise<void>;
+  onEditTask: (taskId: number, data: { title: string; description: string }) => void;
+}
+
+function SortableTaskCard({
+  task,
+  index,
+  isStaffMode,
+  reviewMode,
+  taskProgress,
+  onDeleteTask,
+  onEditTask,
+}: SortableTaskCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card withBorder padding="sm" radius="md">
+        <Stack gap="xs">
+          <Group justify="space-between">
+            <Group gap="xs">
+              {isStaffMode && !reviewMode && (
+                <ActionIcon
+                  variant="transparent"
+                  size="sm"
+                  color="gray"
+                  style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                  {...attributes}
+                  {...listeners}
+                  aria-label="Drag to reorder"
+                >
+                  <IconGripVertical size={16} />
+                </ActionIcon>
+              )}
+              <Text fw={600} size="sm">
+                {index + 1}. {task.title}
+              </Text>
+
+              {/* Review mode: Show student's task progress */}
+              {reviewMode && (
+                taskProgress[task.id]?.is_completed ? (
+                  <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
+                    Correct
+                  </Badge>
+                ) : taskProgress[task.id]?.attempt_count > 0 ? (
+                  <Badge color="red" size="xs" leftSection={<IconX size={12} />}>
+                    Incorrect ({taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''})
+                  </Badge>
+                ) : (
+                  <Badge color="yellow" size="xs">
+                    Incomplete
+                  </Badge>
+                )
+              )}
+
+              {/* Student mode: Show current student progress */}
+              {!reviewMode && !isStaffMode && taskProgress[task.id] && (
+                taskProgress[task.id].is_completed ? (
+                  <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
+                    Completed
+                  </Badge>
+                ) : taskProgress[task.id].attempt_count > 0 ? (
+                  <Badge color="yellow" size="xs">
+                    {taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''}
+                  </Badge>
+                ) : null
+              )}
+
+              {/* Staff testing mode: Show has_answer status */}
+              {!reviewMode && isStaffMode && (
+                task.has_answer ? (
+                  <Badge color="green" size="xs" leftSection={<IconChecks size={12} />}>
+                    Has Answer
+                  </Badge>
+                ) : (
+                  <Badge color="yellow" size="xs" leftSection={<IconAlertCircle size={12} />}>
+                    No Answer
+                  </Badge>
+                )
+              )}
+            </Group>
+            {isStaffMode && !reviewMode && (
+              <Group gap={4}>
+                <ActionIcon
+                  color="blue"
+                  variant="subtle"
+                  onClick={() => onEditTask(task.id, { title: task.title, description: task.description })}
+                  size="sm"
+                >
+                  <IconPencil size={16} />
+                </ActionIcon>
+                <ActionIcon
+                  color="red"
+                  variant="subtle"
+                  onClick={() => onDeleteTask(task.id)}
+                  size="sm"
+                >
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </Group>
+            )}
+          </Group>
+          <Text size="xs" c="dimmed">
+            {task.description}
+          </Text>
+        </Stack>
+      </Card>
+    </div>
+  );
 }
 
 export function LabDescriptionPanel({
@@ -58,6 +207,8 @@ export function LabDescriptionPanel({
   taskProgress,
   onCreateTask,
   onDeleteTask,
+  onEditTask,
+  onReorderTasks,
   reviewMode = false,
   studentQueries = [],
   currentQueryIndex = 0,
@@ -73,6 +224,44 @@ export function LabDescriptionPanel({
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
+
+  // Task edit modal state
+  const [editingTask, setEditingTask] = useState<LabTask | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const handleOpenEdit = (taskId: number, data: { title: string; description: string }) => {
+    const task = tasks.find(t => t.id === taskId)!;
+    setEditingTask(task);
+    setEditTitle(data.title);
+    setEditDescription(data.description);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTask || !editTitle.trim() || !editDescription.trim()) return;
+    setIsSavingEdit(true);
+    try {
+      await onEditTask(editingTask.id, { title: editTitle, description: editDescription });
+      setEditingTask(null);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = tasks.findIndex(t => t.id === active.id);
+    const newIndex = tasks.findIndex(t => t.id === over.id);
+    onReorderTasks(arrayMove(tasks, oldIndex, newIndex));
+  };
 
   if (!lab) {
     return (
@@ -191,75 +380,40 @@ export function LabDescriptionPanel({
                 </Text>
               )}
 
-              {tasks.map((task, index) => (
-                <Card key={task.id} withBorder padding="sm" radius="md">
-                  <Stack gap="xs">
-                    <Group justify="space-between">
-                      <Group gap="xs">
-                        <Text fw={600} size="sm">
-                          {index + 1}. {task.title}
-                        </Text>
-
-                        {/* Review mode: Show student's task progress */}
-                        {reviewMode && (
-                          taskProgress[task.id]?.is_completed ? (
-                            <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
-                              Correct
-                            </Badge>
-                          ) : taskProgress[task.id]?.attempt_count > 0 ? (
-                            <Badge color="red" size="xs" leftSection={<IconX size={12} />}>
-                              Incorrect ({taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''})
-                            </Badge>
-                          ) : (
-                            <Badge color="yellow" size="xs">
-                              Incomplete
-                            </Badge>
-                          )
-                        )}
-
-                        {/* Student mode: Show current student progress */}
-                        {!reviewMode && !isStaffMode && taskProgress[task.id] && (
-                          taskProgress[task.id].is_completed ? (
-                            <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
-                              Completed
-                            </Badge>
-                          ) : taskProgress[task.id].attempt_count > 0 ? (
-                            <Badge color="yellow" size="xs">
-                              {taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''}
-                            </Badge>
-                          ) : null
-                        )}
-
-                        {/* Staff testing mode: Show has_answer status */}
-                        {!reviewMode && isStaffMode && (
-                          task.has_answer ? (
-                            <Badge color="green" size="xs" leftSection={<IconChecks size={12} />}>
-                              Has Answer
-                            </Badge>
-                          ) : (
-                            <Badge color="yellow" size="xs" leftSection={<IconAlertCircle size={12} />}>
-                              No Answer
-                            </Badge>
-                          )
-                        )}
-                      </Group>
-                      {isStaffMode && (
-                        <ActionIcon
-                          color="red"
-                          variant="subtle"
-                          onClick={() => onDeleteTask(task.id)}
-                          size="sm"
-                        >
-                          <IconTrash size={16} />
-                        </ActionIcon>
-                      )}
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      {task.description}
-                    </Text>
-                  </Stack>
-                </Card>
-              ))}
+              {isStaffMode && !reviewMode ? (
+                <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                  <SortableContext
+                    items={tasks.map(t => t.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {tasks.map((task, index) => (
+                      <SortableTaskCard
+                        key={task.id}
+                        task={task}
+                        index={index}
+                        isStaffMode={isStaffMode}
+                        reviewMode={reviewMode}
+                        taskProgress={taskProgress}
+                        onDeleteTask={onDeleteTask}
+                        onEditTask={handleOpenEdit}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                tasks.map((task, index) => (
+                  <SortableTaskCard
+                    key={task.id}
+                    task={task}
+                    index={index}
+                    isStaffMode={isStaffMode}
+                    reviewMode={reviewMode}
+                    taskProgress={taskProgress}
+                    onDeleteTask={onDeleteTask}
+                    onEditTask={handleOpenEdit}
+                  />
+                ))
+              )}
 
               {/* Task Creation Form (Staff Only - Not in Review Mode) */}
               {isStaffMode && !reviewMode && (
@@ -319,6 +473,37 @@ export function LabDescriptionPanel({
           />
         </Tabs.Panel>
       )}
+
+      {/* Edit Task Modal */}
+      <Modal
+        opened={editingTask !== null}
+        onClose={() => setEditingTask(null)}
+        title="Edit Task"
+      >
+        <Stack gap="sm">
+          <TextInput
+            label="Task Title"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.currentTarget.value)}
+            required
+          />
+          <Textarea
+            label="Task Description"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.currentTarget.value)}
+            minRows={3}
+            required
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setEditingTask(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit} loading={isSavingEdit}>
+              Save Changes
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Tabs>
   );
 }

@@ -60,18 +60,10 @@ def get_current_user(
 
 def require_staff_role(current_user: User = Depends(get_current_user)) -> User:
     """
-    Require that the current user has staff role.
-
-    Args:
-        current_user: Current authenticated user
-
-    Returns:
-        User object if staff
-
-    Raises:
-        HTTPException: If user is not staff
+    Require that the current user has staff or admin role.
+    Admin inherits all staff privileges.
     """
-    if current_user.role != UserRole.STAFF:
+    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Staff role required"
@@ -87,3 +79,16 @@ def ensure_owner_or_staff(current_user: User, owner_id: int) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the owner or staff can do this",
         )
+
+
+def require_admin_role(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Require that the current user has admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    return current_user

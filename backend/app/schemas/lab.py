@@ -17,6 +17,7 @@ class LabListItem(BaseModel):
     description: str
     is_published: bool
     is_running: bool
+    lab_type: str = "sql"
     created_at: datetime
     updated_at: datetime
 
@@ -31,6 +32,7 @@ class LabResponse(BaseModel):
     description: str
     is_published: bool
     is_running: bool
+    lab_type: str = "sql"
     created_at: datetime
     updated_at: datetime
 

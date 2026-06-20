@@ -38,7 +38,7 @@ export default function EditLabPage() {
   };
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Container size="lg">
           {loading && (

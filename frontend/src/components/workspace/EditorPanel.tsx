@@ -2,7 +2,9 @@
 
 import { Button, Group, Stack, Text } from '@mantine/core';
 import { IconPlayerPlay, IconTrash, IconCheck } from '@tabler/icons-react';
-import Editor from '@monaco-editor/react';
+import dynamic from 'next/dynamic';
+
+const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 interface EditorPanelProps {
   query: string;

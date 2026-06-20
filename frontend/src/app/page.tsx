@@ -20,8 +20,8 @@ export default function Home() {
 
     if (!isAuthenticated) {
       return {
-        primary: { label: "Get Started", href: "/register" },
-        secondary: { label: "Log In", href: "/login" },
+        primary: { label: "Sign In", href: "/login" },
+        secondary: { label: "Sign In with Google", href: "/login" },
       };
     }
 

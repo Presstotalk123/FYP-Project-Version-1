@@ -35,3 +35,17 @@ class UserInDB(UserBase):
 
     class Config:
         from_attributes = True
+
+
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+
+
+class UserAddRequest(BaseModel):
+    email: EmailStr
+    role: UserRole
+
+
+class UserAddResponse(BaseModel):
+    user: UserResponse
+    temp_password: str | None = None

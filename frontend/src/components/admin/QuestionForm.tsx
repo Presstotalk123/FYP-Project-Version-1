@@ -14,7 +14,9 @@ import {
 } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import Editor from '@monaco-editor/react';
+import dynamic from 'next/dynamic';
+
+const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 import { QuestionDetail, Difficulty } from '@/types/question.types';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';

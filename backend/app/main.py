@@ -18,10 +18,6 @@ from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
-from app.models.er_lab import ErLab
-from app.models.er_lab_question import ErLabQuestion
-from app.models.er_lab_session import ErLabSession
-from app.models.er_lab_submission import ErLabSubmission
 from app.models.sql_lab_question import SqlLabQuestion, SqlLabTask
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it

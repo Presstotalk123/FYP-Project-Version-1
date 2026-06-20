@@ -127,8 +127,6 @@ export interface ERSubmissionRequest {
   student_query?: string | null;
   submission_xml_text?: string | null;
   erd_img?: File | null;
-  er_lab_id?: number;
-  er_lab_question_id?: number;
   unified_lab_id?: number;
   unified_lab_item_id?: number;
 }

@@ -160,12 +160,6 @@ export const erDiagramService = {
       if (payload.question_id !== undefined) {
         formData.append("question_id", String(payload.question_id));
       }
-      if (payload.er_lab_id !== undefined) {
-        formData.append("er_lab_id", String(payload.er_lab_id));
-      }
-      if (payload.er_lab_question_id !== undefined) {
-        formData.append("er_lab_question_id", String(payload.er_lab_question_id));
-      }
     }
 
     formData.append("mode", payload.mode);

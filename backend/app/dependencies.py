@@ -73,8 +73,8 @@ def require_staff_role(current_user: User = Depends(get_current_user)) -> User:
 
 
 def ensure_owner_or_staff(current_user: User, owner_id: int) -> None:
-    """Authorize a mutation only when the user is staff or owns the object."""
-    if current_user.role != UserRole.STAFF and current_user.id != owner_id:
+    """Authorize a mutation only when the user is staff/admin or owns the object."""
+    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN} and current_user.id != owner_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the owner or staff can do this",

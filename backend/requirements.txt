@@ -12,3 +12,4 @@ httpx>=0.25.0
 psycopg2-binary>=2.9.0  # PostgreSQL driver for Supabase
 graphqlite
 google-auth>=2.0.0
+requests>=2.31.0

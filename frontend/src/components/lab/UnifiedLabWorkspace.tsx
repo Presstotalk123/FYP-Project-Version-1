@@ -10,6 +10,7 @@ import { ERDiagramWorkspace, ERDiagramWorkspaceQuestion } from '@/components/ERD
 import { ERDiagramQuestion } from '@/types/er-diagram.types';
 import { SqlWorkspace } from '@/components/workspace/SqlWorkspace';
 import { sqlLabQuestionService } from '@/services/sqlLabQuestion.service';
+import { graphQuestionService } from '@/services/graphQuestion.service';
 import { LabItemSidebar } from './LabItemSidebar';
 import { SqlLabSolver } from './SqlLabSolver';
 
@@ -103,6 +104,24 @@ export function UnifiedLabWorkspace({ labId }: { labId: number }) {
         <SqlLabSolver
           key={itemId}
           loadQuestion={() => sqlLabQuestionService.loadForSolver(refId)}
+          run={(query) => unifiedLabService.itemRun(labId, itemId, query)}
+          submit={(query, taskId) => unifiedLabService.submitItem(labId, itemId, query, taskId)}
+          getDatabase={() => unifiedLabService.itemDatabase(labId, itemId)}
+          reset={() => unifiedLabService.itemReset(labId, itemId)}
+          onGraded={reloadProgress}
+        />
+      );
+    }
+
+    if (active.kind === 'graph') {
+      if (active.ref_id == null) return <Text c="dimmed">Question unavailable.</Text>;
+      const refId = active.ref_id;
+      const itemId = active.id;
+      return (
+        <SqlLabSolver
+          key={itemId}
+          editorLanguage="cypher"
+          loadQuestion={() => graphQuestionService.loadForSolver(refId)}
           run={(query) => unifiedLabService.itemRun(labId, itemId, query)}
           submit={(query, taskId) => unifiedLabService.submitItem(labId, itemId, query, taskId)}
           getDatabase={() => unifiedLabService.itemDatabase(labId, itemId)}

@@ -6,12 +6,13 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { IconSearch } from '@tabler/icons-react';
 import { problemService } from '@/services/problem.service';
 import { ProblemListItem } from '@/types/problem.types';
+import { LabItemKind } from '@/types/unified-lab.types';
 
 interface AddFromPoolModalProps {
   opened: boolean;
   onClose: () => void;
   existingRefs: Set<string>;                 // `${type}-${id}` already in the lab
-  onAdd: (picks: { kind: 'sql' | 'erd' | 'sqllab'; ref_id: number }[]) => void;
+  onAdd: (picks: { kind: LabItemKind; ref_id: number }[]) => void;
 }
 
 export function AddFromPoolModal({ opened, onClose, existingRefs, onAdd }: AddFromPoolModalProps) {
@@ -20,7 +21,7 @@ export function AddFromPoolModal({ opened, onClose, existingRefs, onAdd }: AddFr
   const [difficulty, setDifficulty] = useState<string | null>('all');
   const [search, setSearch] = useState('');
   const [debounced] = useDebouncedValue(search, 400);
-  const [picked, setPicked] = useState<Map<string, { kind: 'sql' | 'erd' | 'sqllab'; ref_id: number }>>(new Map());
+  const [picked, setPicked] = useState<Map<string, { kind: LabItemKind; ref_id: number }>>(new Map());
 
   useEffect(() => {
     if (!opened) return;
@@ -68,7 +69,7 @@ export function AddFromPoolModal({ opened, onClose, existingRefs, onAdd }: AddFr
                        style={{ opacity: already ? 0.5 : 1 }}>
                   <Checkbox checked={picked.has(key)} disabled={already} onChange={() => toggle(it)} />
                   <Text style={{ flex: 1 }} size="sm">{it.title}</Text>
-                  <Badge variant="light" color={it.type === 'sql' ? 'blue' : it.type === 'erd' ? 'grape' : 'teal'}>{it.type.toUpperCase()}</Badge>
+                  <Badge variant="light" color={it.type === 'sql' ? 'blue' : it.type === 'erd' ? 'grape' : it.type === 'graph' ? 'orange' : 'teal'}>{it.type.toUpperCase()}</Badge>
                   <Badge variant="light">{it.difficulty}</Badge>
                   {already && <Text size="xs" c="dimmed">added</Text>}
                 </Group>

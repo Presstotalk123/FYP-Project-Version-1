@@ -25,6 +25,7 @@ import { problemService } from '@/services/problem.service';
 import { attemptService } from '@/services/attempt.service';
 import { erDiagramService } from '@/services/er-diagram.service';
 import { sqlLabQuestionService } from '@/services/sqlLabQuestion.service';
+import { graphQuestionService } from '@/services/graphQuestion.service';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import {
@@ -35,7 +36,7 @@ import {
   ProblemType,
 } from '@/types/problem.types';
 
-const EMPTY_COUNTS: ProblemCounts = { all: 0, sql: 0, erd: 0, sqllab: 0 };
+const EMPTY_COUNTS: ProblemCounts = { all: 0, sql: 0, erd: 0, sqllab: 0, graph: 0 };
 
 export default function ProblemsPage() {
   const router = useRouter();
@@ -103,6 +104,8 @@ export default function ProblemsPage() {
       router.push(isStaff ? `/admin/questions/${row.id}` : `/student/workspace/${row.id}`);
     } else if (row.type === 'sqllab') {
       router.push(`/sql-lab/${row.id}`);
+    } else if (row.type === 'graph') {
+      router.push(`/graph-lab/${row.id}`);
     } else {
       router.push(`/er-diagram/${row.id}`);
     }
@@ -113,7 +116,8 @@ export default function ProblemsPage() {
   };
 
   const deleteProblem = async (row: ProblemRow) => {
-    const label = row.type === 'sql' ? 'SQL' : row.type === 'sqllab' ? 'SQL lab' : 'ERD';
+    const label =
+      row.type === 'sql' ? 'SQL' : row.type === 'sqllab' ? 'SQL lab' : row.type === 'graph' ? 'Graph' : 'ERD';
     if (!window.confirm(`Delete this ${label} question?`)) return;
     const key = `${row.type}-${row.id}`;
     try {
@@ -122,6 +126,8 @@ export default function ProblemsPage() {
         await api.delete(API_ENDPOINTS.QUESTIONS.DETAIL(row.id));
       } else if (row.type === 'sqllab') {
         await sqlLabQuestionService.remove(row.id);
+      } else if (row.type === 'graph') {
+        await graphQuestionService.remove(row.id);
       } else {
         await erDiagramService.deleteQuestion(row.id);
       }

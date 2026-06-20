@@ -30,6 +30,7 @@ const TYPE_BADGE: Record<ProblemType, { label: string; color: string }> = {
   sql: { label: 'SQL', color: 'blue' },
   erd: { label: 'ERD', color: 'grape' },
   sqllab: { label: 'SQL Lab', color: 'teal' },
+  graph: { label: 'Graph', color: 'orange' },
 };
 
 const DIFFICULTY_COLOR: Record<ProblemDifficulty, string> = {

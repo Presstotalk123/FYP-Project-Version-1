@@ -4,7 +4,7 @@ import { Badge, Box, Group, Text, UnstyledButton } from '@mantine/core';
 import { IconCircle, IconCircleCheck } from '@tabler/icons-react';
 import { LabItem, LabProgress } from '@/types/unified-lab.types';
 
-const COLOR: Record<string, string> = { sql: 'blue', erd: 'grape', sqllab: 'teal' };
+const COLOR: Record<string, string> = { sql: 'blue', erd: 'grape', sqllab: 'teal', graph: 'orange' };
 
 export function LabItemSidebar({ items, progress, activeId, onSelect }: {
   items: LabItem[]; progress: LabProgress | null; activeId: number | null; onSelect: (id: number) => void;

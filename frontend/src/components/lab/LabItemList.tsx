@@ -6,7 +6,7 @@ import { LabItem } from '@/types/unified-lab.types';
 
 const KIND_BADGE: Record<string, { label: string; color: string }> = {
   sql: { label: 'SQL', color: 'blue' }, erd: { label: 'ERD', color: 'grape' },
-  sqllab: { label: 'SQL Lab', color: 'teal' },
+  sqllab: { label: 'SQL Lab', color: 'teal' }, graph: { label: 'Graph', color: 'orange' },
 };
 
 export function LabItemList({ items, onRemove, onMove }: {

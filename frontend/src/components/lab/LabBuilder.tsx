@@ -6,7 +6,7 @@ import { Box, Button, Group, Stack, TextInput, Textarea, Title, Text, ActionIcon
 import { IconPlus, IconRefresh } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { unifiedLabService } from '@/services/unifiedLab.service';
-import { LabItem } from '@/types/unified-lab.types';
+import { LabItem, LabItemKind } from '@/types/unified-lab.types';
 import { AddFromPoolModal } from './AddFromPoolModal';
 import { LabItemList } from './LabItemList';
 
@@ -38,7 +38,7 @@ export function LabBuilder() {
 
   const refresh = async (id: number) => setItems((await unifiedLabService.get(id)).items);
 
-  const addFromPool = async (picks: { kind: 'sql' | 'erd' | 'sqllab'; ref_id: number }[]) => {
+  const addFromPool = async (picks: { kind: LabItemKind; ref_id: number }[]) => {
     try {
       const id = await ensureLab();
       for (const p of picks) await unifiedLabService.addItem(id, p.kind, p.ref_id);

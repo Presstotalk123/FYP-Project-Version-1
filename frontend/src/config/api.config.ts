@@ -24,6 +24,14 @@ export const API_ENDPOINTS = {
     DATABASE: (id: number) => `/sql-lab-questions/${id}/database`,
     RESET: (id: number) => `/sql-lab-questions/${id}/reset`,
   },
+  GRAPH_QUESTIONS: {
+    BASE: '/graph-questions',
+    DETAIL: (id: number) => `/graph-questions/${id}`,
+    RUN: (id: number) => `/graph-questions/${id}/run`,
+    SUBMIT: (id: number) => `/graph-questions/${id}/submit`,
+    DATABASE: (id: number) => `/graph-questions/${id}/database`,
+    RESET: (id: number) => `/graph-questions/${id}/reset`,
+  },
   EXECUTE: {
     BASE: '/execute',
   },

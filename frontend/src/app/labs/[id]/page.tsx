@@ -21,7 +21,7 @@ import { UserRole } from '@/types/user.types';
 import { unifiedLabService } from '@/services/unifiedLab.service';
 import { AddFromPoolModal } from '@/components/lab/AddFromPoolModal';
 import { LabItemList } from '@/components/lab/LabItemList';
-import type { LabItem, UnifiedLabDetail } from '@/types/unified-lab.types';
+import type { LabItem, LabItemKind, UnifiedLabDetail } from '@/types/unified-lab.types';
 
 function ManageLabView({ labId }: { labId: number }) {
   const router = useRouter();
@@ -46,7 +46,7 @@ function ManageLabView({ labId }: { labId: number }) {
     })();
   }, [refresh]);
 
-  const addFromPool = async (picks: { kind: 'sql' | 'erd' | 'sqllab'; ref_id: number }[]) => {
+  const addFromPool = async (picks: { kind: LabItemKind; ref_id: number }[]) => {
     for (const p of picks) {
       await unifiedLabService.addItem(labId, p.kind, p.ref_id);
     }

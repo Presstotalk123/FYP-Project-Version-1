@@ -50,6 +50,15 @@ export default function CreateProblemPage() {
       allowed: true,
     },
     {
+      key: 'graph',
+      title: 'Graph question',
+      description: 'A seed graph plus a series of tasks. Students run Cypher directly on the graph.',
+      href: '/admin/graph-questions/new',
+      icon: <IconSitemap size={22} />,
+      color: 'orange',
+      allowed: true,
+    },
+    {
       key: 'lab',
       title: 'Lab',
       description: 'A gated, multi-question session built from SQL, ERD, and SQL-lab pool questions.',

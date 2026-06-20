@@ -1,4 +1,4 @@
-export type LabItemKind = 'sql' | 'erd' | 'sqllab';
+export type LabItemKind = 'sql' | 'erd' | 'sqllab' | 'graph';
 
 export interface LabItem {
   id: number;

@@ -19,6 +19,8 @@ export interface SqlLabSolverProps {
   getDatabase: () => Promise<DatabaseState>;
   reset: () => Promise<void>;
   onGraded?: () => void;
+  // Language for the Monaco code editor; defaults to 'sql'. Graph questions pass 'cypher'.
+  editorLanguage?: 'sql' | 'cypher';
 }
 
 interface HistoryEntry {
@@ -41,7 +43,7 @@ function ResultsGrid({ columns, rows }: { columns: string[]; rows: Array<Record<
   );
 }
 
-export function SqlLabSolver({ loadQuestion, run, submit, getDatabase, reset, onGraded }: SqlLabSolverProps) {
+export function SqlLabSolver({ loadQuestion, run, submit, getDatabase, reset, onGraded, editorLanguage = 'sql' }: SqlLabSolverProps) {
   const [question, setQuestion] = useState<SqlLabSolverQuestion | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -122,8 +124,12 @@ export function SqlLabSolver({ loadQuestion, run, submit, getDatabase, reset, on
               <Divider my="sm" />
               <Text size="sm" fw={600} mb={4}>Database schema</Text>
               <Code block style={{ fontSize: 12 }}>{question.schema_sql}</Code>
-              <Text size="sm" fw={600} mt="sm" mb={4}>Seed data</Text>
-              <Code block style={{ fontSize: 12 }}>{question.sample_data_sql}</Code>
+              {question.sample_data_sql && (
+                <>
+                  <Text size="sm" fw={600} mt="sm" mb={4}>Seed data</Text>
+                  <Code block style={{ fontSize: 12 }}>{question.sample_data_sql}</Code>
+                </>
+              )}
             </ScrollArea>
           </Tabs.Panel>
           <Tabs.Panel value="tasks" style={{ flex: 1, overflow: 'hidden' }}>
@@ -159,7 +165,7 @@ export function SqlLabSolver({ loadQuestion, run, submit, getDatabase, reset, on
         </Group>
         {activeTask && <Text size="sm" c="dimmed">{activeTask.description}</Text>}
         <Box style={{ flex: 1, border: '1px solid var(--mantine-color-gray-3)', borderRadius: 8, overflow: 'hidden', minHeight: 200 }}>
-          <Editor height="100%" defaultLanguage="sql" value={query} onChange={(v) => setQuery(v ?? '')} />
+          <Editor height="100%" defaultLanguage={editorLanguage} value={query} onChange={(v) => setQuery(v ?? '')} />
         </Box>
         <Group>
           <Button leftSection={<IconPlayerPlay size={16} />} variant="light" onClick={doRun} loading={busy}>Run</Button>

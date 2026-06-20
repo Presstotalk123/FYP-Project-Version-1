@@ -1,0 +1,41 @@
+from sqlalchemy import Column, Integer, String, Text, DateTime, Enum as SQLEnum, ForeignKey, Index
+from sqlalchemy.sql import func
+from app.database import Base
+from app.models.question import Difficulty  # reuse easy|medium|hard
+
+
+class GraphQuestion(Base):
+    """A pool question with a seed graph (Cypher) + ordered tasks, solved on a writable copy."""
+    __tablename__ = "graph_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    difficulty = Column(SQLEnum(Difficulty), nullable=False)
+
+    seed_cypher = Column(Text, nullable=False)
+    template_db_path = Column(String(500), nullable=True)  # set on create
+
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_deleted = Column(Integer, default=0)
+
+
+class GraphTask(Base):
+    """One ordered task within a GraphQuestion."""
+    __tablename__ = "graph_tasks"
+    __table_args__ = (
+        Index("idx_graph_q_order", "graph_question_id", "order_index"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    graph_question_id = Column(Integer, ForeignKey("graph_questions.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)            # the prompt
+    order_index = Column(Integer, nullable=False, default=0)
+    correct_query = Column(Text, nullable=True)
+    correct_answer_hash = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_deleted = Column(Integer, default=0)

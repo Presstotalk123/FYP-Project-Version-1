@@ -158,7 +158,7 @@ export default function AdminLabsPage() {
   };
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Stack gap="md">
           <Group justify="space-between">

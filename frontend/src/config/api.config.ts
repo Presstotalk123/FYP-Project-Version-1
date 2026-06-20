@@ -6,8 +6,7 @@ export const API_BASE_URL =
 
 export const API_ENDPOINTS = {
   AUTH: {
-    LOGIN: '/auth/login',
-    REGISTER: '/auth/register',
+    GOOGLE: '/auth/google',
     ME: '/auth/me',
   },
   QUESTIONS: {

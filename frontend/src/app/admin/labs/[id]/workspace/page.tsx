@@ -10,7 +10,7 @@ export default function AdminLabWorkspacePage() {
   const labId = parseInt(params.id as string);
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <LabWorkspace labId={labId} isStaffMode={true} />
     </ProtectedRoute>
   );

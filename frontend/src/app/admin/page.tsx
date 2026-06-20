@@ -71,7 +71,7 @@ export default function AdminDashboard() {
   }, []);
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Stack gap="lg">
           <div>

@@ -1,19 +1,12 @@
 import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
-import { LoginRequest, LoginResponse, RegisterRequest } from '@/types/api.types';
+import { GoogleAuthRequest, LoginResponse } from '@/types/api.types';
 import { User } from '@/types/user.types';
 
 export const authService = {
-  async login(credentials: LoginRequest): Promise<LoginResponse> {
-    const response = await api.post<LoginResponse>(
-      API_ENDPOINTS.AUTH.LOGIN,
-      credentials
-    );
-    return response.data;
-  },
-
-  async register(data: RegisterRequest): Promise<User> {
-    const response = await api.post<User>(API_ENDPOINTS.AUTH.REGISTER, data);
+  async googleLogin(token: string): Promise<LoginResponse> {
+    const body: GoogleAuthRequest = { token };
+    const response = await api.post<LoginResponse>(API_ENDPOINTS.AUTH.GOOGLE, body);
     return response.data;
   },
 

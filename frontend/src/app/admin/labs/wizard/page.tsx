@@ -13,7 +13,7 @@ function LabWizardPageContent() {
   const title = labType === 'graph' ? 'Create Graph Lab' : 'Create New Lab';
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <LabWizardShell title={title} labType={labType} />
     </ProtectedRoute>
   );

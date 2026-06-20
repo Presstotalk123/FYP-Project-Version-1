@@ -29,7 +29,7 @@ export default function EditLabWizardPage() {
 
   if (loading) {
     return (
-      <ProtectedRoute requiredRole={UserRole.STAFF}>
+      <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
         <Group justify="center" py="xl" style={{ minHeight: '100vh' }}>
           <Loader size="lg" />
         </Group>
@@ -39,7 +39,7 @@ export default function EditLabWizardPage() {
 
   if (error || !lab) {
     return (
-      <ProtectedRoute requiredRole={UserRole.STAFF}>
+      <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
         <Container size="sm" py="xl">
           <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error" mb="md">
             {error ?? 'Lab not found.'}
@@ -53,7 +53,7 @@ export default function EditLabWizardPage() {
   }
 
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <LabWizardShell title="Edit Lab" initialLab={lab} />
     </ProtectedRoute>
   );

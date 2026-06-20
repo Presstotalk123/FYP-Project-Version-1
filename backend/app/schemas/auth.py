@@ -15,14 +15,6 @@ class TokenData(BaseModel):
     role: Optional[UserRole] = None
 
 
-class LoginRequest(BaseModel):
-    """Login request schema"""
-    email: EmailStr
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    """Registration request schema"""
-    email: EmailStr
-    password: str
-    role: UserRole = UserRole.STUDENT
+class GoogleAuthRequest(BaseModel):
+    """Google SSO login request — contains the Google ID token"""
+    token: str

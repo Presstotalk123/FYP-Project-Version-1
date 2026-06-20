@@ -3,16 +3,15 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, UserRole } from '@/types/user.types';
 import { authService } from '@/services/auth.service';
-import { LoginRequest, RegisterRequest } from '@/types/api.types';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (credentials: LoginRequest) => Promise<User>;
-  register: (data: RegisterRequest) => Promise<void>;
+  googleLogin: (token: string) => Promise<User>;
   logout: () => void;
   isAuthenticated: boolean;
   isStaff: boolean;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,17 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
-  const login = async (credentials: LoginRequest): Promise<User> => {
-    const response = await authService.login(credentials);
+  const googleLogin = async (token: string): Promise<User> => {
+    const response = await authService.googleLogin(token);
     authService.setToken(response.access_token);
     const currentUser = await authService.getCurrentUser();
     setUser(currentUser);
     return currentUser;
-  };
-
-  const register = async (data: RegisterRequest) => {
-    await authService.register(data);
-    await login({ email: data.email, password: data.password });
   };
 
   const logout = () => {
@@ -61,11 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         loading,
-        login,
-        register,
+        googleLogin,
         logout,
         isAuthenticated: !!user,
         isStaff: user?.role === UserRole.STAFF,
+        isAdmin: user?.role === UserRole.ADMIN,
       }}
     >
       {children}

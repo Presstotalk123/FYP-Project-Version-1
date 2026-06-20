@@ -3,9 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs, er_labs, users
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs, er_labs, users, whitelist
 # Import models to register them with SQLAlchemy
 from app.models.user import User
+from app.models.whitelist import WhitelistEntry
 from app.models.question import Question
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.attempt import Attempt
@@ -69,6 +70,7 @@ app.include_router(labs.router, prefix="/api/v1")
 app.include_router(er_labs.router, prefix="/api/v1")
 app.include_router(er_labs.override_router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(whitelist.router, prefix="/api/v1")
 
 
 @app.get("/")

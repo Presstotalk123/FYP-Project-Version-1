@@ -1,7 +1,7 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   (typeof window !== 'undefined' && window.location.hostname === 'proud-stone-0ec93a000.2.azurestaticapps.net'
-    ? 'https://fyp-sql-learning.azurewebsites.net/api/v1'
+    ? 'https://aidb-backend.azurewebsites.net/api/v1'
     : 'http://localhost:8000/api/v1');
 
 export const API_ENDPOINTS = {

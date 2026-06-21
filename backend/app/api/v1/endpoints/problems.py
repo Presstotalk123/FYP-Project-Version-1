@@ -16,7 +16,10 @@ router = APIRouter(prefix="/problems", tags=["problems"])
 
 
 def _role_value(role) -> str:
-    return role.value if isinstance(role, UserRole) else str(role).strip().lower()
+    # Surface admin authors as "staff" so the problem-list tag matches the author
+    # filter, which groups admin with staff (User.role.in_([STAFF, ADMIN])).
+    value = role.value if isinstance(role, UserRole) else str(role).strip().lower()
+    return "staff" if value == "admin" else value
 
 
 @router.get("", response_model=ProblemListResponse)

@@ -11,6 +11,25 @@ class Difficulty(str, enum.Enum):
     HARD = "hard"
 
 
+def difficulty_db_type() -> SQLEnum:
+    """SQLAlchemy type for the shared ``difficulty`` enum column.
+
+    Persists the lowercase enum *values* (``easy``/``medium``/``hard``) to match
+    the Postgres ``difficulty`` enum type. SQLAlchemy's default for a Python enum
+    is to persist the member *name* (``EASY``/``MEDIUM``/``HARD``), which Postgres
+    rejects ("invalid input value for enum difficulty"). SQLite does not enforce
+    enum labels, so the mismatch only surfaces on Postgres/Supabase.
+
+    Used by every difficulty column (questions, sql_lab_questions,
+    graph_questions) so they stay in lockstep. See tests/test_difficulty_enum.py.
+    """
+    return SQLEnum(
+        Difficulty,
+        name="difficulty",
+        values_callable=lambda enum_cls: [member.value for member in enum_cls],
+    )
+
+
 class Question(Base):
     """Question model for SQL practice questions"""
     __tablename__ = "questions"
@@ -18,7 +37,7 @@ class Question(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
-    difficulty = Column(SQLEnum(Difficulty), nullable=False)
+    difficulty = Column(difficulty_db_type(), nullable=False)
 
     # SQLite database file path
     db_file_path = Column(String(500), nullable=False)

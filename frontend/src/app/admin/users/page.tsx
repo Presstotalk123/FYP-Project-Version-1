@@ -203,9 +203,10 @@ export default function ManageUsersPage() {
                         <TextInput
                           placeholder={`Add email to ${label} list`}
                           value={addEmail[role]}
-                          onChange={(e) =>
-                            setAddEmail((prev) => ({ ...prev, [role]: e.currentTarget.value }))
-                          }
+                          onChange={(e) => {
+                            const value = e.currentTarget.value;
+                            setAddEmail((prev) => ({ ...prev, [role]: value }));
+                          }}
                           onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
                           style={{ flex: 1 }}
                           type="email"

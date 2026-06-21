@@ -1,13 +1,22 @@
 import os
+import shutil
+from pathlib import Path
 from typing import Any, Dict, List
 
 from graphqlite import Graph
 
-from app.utils.lab_db_manager import (
-    get_lab_template_path,
-    get_student_session_path,  # noqa: F401  (re-exported for callers)
-    LabDatabaseError,
-)
+from app.config import settings
+from app.utils.lab_db_manager import LabDatabaseError
+
+
+def _dir(sub: str) -> Path:
+    p = Path(settings.LAB_DB_PATH) / "graph" / sub
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def get_graph_template_path(question_id: int) -> str:
+    return str(_dir("templates") / f"graph_q_{question_id}_template.db")
 
 
 def _python_type_to_str(value: Any) -> str:
@@ -43,7 +52,7 @@ def create_graph_template(lab_id: int, schema_cypher: str, seed_cypher: str) -> 
     Raises:
         LabDatabaseError
     """
-    template_path = get_lab_template_path(lab_id)
+    template_path = get_graph_template_path(lab_id)
 
     # Remove any existing template
     if os.path.exists(template_path):
@@ -101,12 +110,12 @@ def create_graph_template(lab_id: int, schema_cypher: str, seed_cypher: str) -> 
 def get_graph_schema_info(db_path: str) -> Dict[str, List[Dict]]:
     """
     Return schema + sample data for a graphqlite database in the same shape as
-    the SQL get_schema_info() / get_session_database_state() output so the
-    frontend DatabaseTab and SchemaPreview render without changes.
+    the SQL get_schema_info() output so the frontend DatabaseTab renders
+    without changes.
 
     Node labels map to "tables". Relationship types are appended after nodes.
 
-    Returns a dict compatible with both SchemaPreview and DatabaseStateResponse:
+    Returns a dict compatible with DatabaseStateResponse:
         {
             "tables": [
                 {
@@ -267,3 +276,55 @@ def get_graph_schema_info(db_path: str) -> Dict[str, List[Dict]]:
                 g.close()
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Per-practice / per-session writable graph DB helpers (mirror sqllab_db_manager).
+# ---------------------------------------------------------------------------
+
+def get_graph_session_path(session_id: int, item_id: int) -> str:
+    return str(_dir("sessions") / f"graph_sess_{session_id}_item_{item_id}.db")
+
+
+def get_graph_practice_path(question_id: int, user_id: int) -> str:
+    return str(_dir("practice") / f"graph_q_{question_id}_u_{user_id}.db")
+
+
+def _copy_template_once(question_id: int, working_path: str) -> str:
+    """Return working_path, seeding it from the question's template on FIRST use only — state
+    then persists across runs/tasks. In-lab and standalone solving share this one copy path."""
+    if os.path.exists(working_path):
+        return working_path
+    template_path = get_graph_template_path(question_id)
+    if not os.path.exists(template_path):
+        raise LabDatabaseError(f"Template database not found for graph question {question_id}")
+    shutil.copy2(template_path, working_path)
+    return working_path
+
+
+def ensure_graph_session(question_id: int, session_id: int, item_id: int) -> str:
+    """Per-(session, item) writable DB for in-lab solving (resumable)."""
+    return _copy_template_once(question_id, get_graph_session_path(session_id, item_id))
+
+
+def ensure_graph_practice_session(question_id: int, user_id: int) -> str:
+    """Per-(question, user) writable DB for standalone practice (resumable)."""
+    return _copy_template_once(question_id, get_graph_practice_path(question_id, user_id))
+
+
+def _safe_remove(path: str) -> None:
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError as e:
+            raise LabDatabaseError(f"Could not reset database (file in use): {e}")
+
+
+def reset_graph_practice(question_id: int, user_id: int) -> None:
+    """Discard a student's standalone practice DB so the next run re-seeds from the template."""
+    _safe_remove(get_graph_practice_path(question_id, user_id))
+
+
+def reset_graph_session(session_id: int, item_id: int) -> None:
+    """Discard a student's in-lab item DB so the next run re-seeds from the template."""
+    _safe_remove(get_graph_session_path(session_id, item_id))

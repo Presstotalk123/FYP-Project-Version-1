@@ -4,24 +4,16 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Anchor, Box, Button, Container, Group, Text } from "@mantine/core";
 import { useAuth } from "@/contexts/AuthContext";
-import { UserRole } from "@/types/user.types";
 
 export function HeaderNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAuthenticated, isStaff } = useAuth();
-
-  // Dynamic SQL link based on user role
-  const sqlLink = isAuthenticated
-    ? isStaff
-      ? "/admin/questions"
-      : "/student"
-    : "/login";
+  const { user, logout, isAuthenticated } = useAuth();
 
   const links = [
     { label: "Home", href: "/" },
-    { label: "SQL", href: sqlLink },
-    { label: "ER Diagram", href: "/er-diagram" },
+    { label: "Problems", href: "/problems" },
+    { label: "Labs", href: "/labs" },
   ];
 
   const handleLogout = () => {

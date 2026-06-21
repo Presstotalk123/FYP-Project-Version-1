@@ -933,25 +933,14 @@ def submit_er_diagram(
     student_query: Optional[str] = Form(None),
     submission_xml_text: Optional[str] = Form(None),
     erd_img: Optional[UploadFile] = File(None),
-    er_lab_id: Optional[int] = Form(None),
-    er_lab_question_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Exactly one of (question_id) vs (er_lab_id + er_lab_question_id) must be supplied.
-    bank_mode = question_id is not None
-    lab_mode = er_lab_id is not None and er_lab_question_id is not None
-    if bank_mode == lab_mode:  # both true or both false
+    if question_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Supply either question_id (bank) OR er_lab_id+er_lab_question_id (lab), not both.",
+            detail="question_id is required",
         )
-    if er_lab_id is not None and er_lab_question_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="er_lab_question_id is required when er_lab_id is supplied")
-    if er_lab_question_id is not None and er_lab_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="er_lab_id is required when er_lab_question_id is supplied")
 
     query_text = student_query.strip() if isinstance(student_query, str) else ""
     xml_text = submission_xml_text.strip() if isinstance(submission_xml_text, str) else ""
@@ -975,110 +964,22 @@ def submit_er_diagram(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="erd_img must be an image file")
 
-    # ----- Bank mode: unchanged from today -----
-    if bank_mode:
-        question = (
-            db.query(ERDiagramQuestion)
-            .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
-            .first()
-        )
-        if not question:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        stream = _call_dify_er_submission(
-            question=question,
-            mode=mode,
-            student_query=query_text or None,
-            submission_xml_text=xml_text or None,
-            erd_img=erd_img,
-        )
-        return StreamingResponse(
-            stream,
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    # ----- Lab mode -----
-    from app.models.er_lab import ErLab
-    from app.models.er_lab_question import ErLabQuestion
-    from app.models.er_lab_session import ErLabSession
-    from app.services.er_lab_submission_persistence import stream_with_lab_persistence
-    from app.utils.er_storage import get_er_storage_provider
-    from app.services.er_grading import stream_er_submission_grading, _wrap_bytes_as_upload_file
-
-    lab = db.query(ErLab).filter(ErLab.id == er_lab_id, ErLab.is_deleted == 0).first()
-    if not lab:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab not found")
-
-    is_staff = current_user.role.value == "staff"
-    if not is_staff and lab.is_running == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Lab is not running")
-
-    er_lab_question = db.query(ErLabQuestion).filter(
-        ErLabQuestion.id == er_lab_question_id,
-        ErLabQuestion.er_lab_id == er_lab_id,
-        ErLabQuestion.is_deleted == 0,
-    ).first()
-    if not er_lab_question:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab question not found")
-
-    session = db.query(ErLabSession).filter(
-        ErLabSession.er_lab_id == er_lab_id,
-        ErLabSession.user_id == current_user.id,
-        ErLabSession.is_active == 1,
-    ).first()
-    if not session and not is_staff:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="No active session for this lab")
-
-    image_key: Optional[str] = None
-    image_bytes: Optional[bytes] = None
-    if mode == "Submit" and erd_img is not None and erd_img.filename:
-        image_bytes = erd_img.file.read()
-        provider = get_er_storage_provider()
-        wrapped_for_save = _wrap_bytes_as_upload_file(image_bytes, filename=(erd_img.filename or "submission.png"))
-        image_key, _path = provider.save(wrapped_for_save)
-
-    if mode == "Submit":
-        grading_stream = stream_er_submission_grading(
-            question_id=er_lab_question.id,
-            problem_statement=er_lab_question.problem_statement,
-            difficulty_label=er_lab_question.difficulty_label,
-            rubric_json=er_lab_question.rubric_json,
-            submission_xml_text=xml_text or None,
-            student_query=query_text or None,
-            erd_img=None,
-            image_bytes=image_bytes,
-        )
-    else:
-        # Query mode in lab — reuse the existing er_diagram.py helper which handles both modes.
-        # It only reads question.id, .problem_statement, .difficulty_label, .rubric_json
-        # — all of which ErLabQuestion exposes with matching names.
-        grading_stream = _call_dify_er_submission(
-            question=er_lab_question,
-            mode=mode,
-            student_query=query_text or None,
-            submission_xml_text=None,
-            erd_img=None,
-        )
-
-    if mode == "Submit" and session is not None:
-        wrapped_stream = stream_with_lab_persistence(
-            stream=grading_stream,
-            db=db,
-            er_lab_id=er_lab_id,
-            er_lab_question_id=er_lab_question_id,
-            user_id=current_user.id,
-            session_id=session.id,
-            submitted_xml=xml_text or None,
-            submitted_image_storage_key=image_key,
-        )
-    else:
-        # Query mode (no persistence) or staff with no session (still no persistence)
-        wrapped_stream = grading_stream
-
+    question = (
+        db.query(ERDiagramQuestion)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if not question:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+    stream = _call_dify_er_submission(
+        question=question,
+        mode=mode,
+        student_query=query_text or None,
+        submission_xml_text=xml_text or None,
+        erd_img=erd_img,
+    )
     return StreamingResponse(
-        wrapped_stream,
+        stream,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -1098,11 +999,17 @@ def delete_er_question(
 
     if not question:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-    if current_user.role != UserRole.STAFF and question.created_by != current_user.id:
+    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN} and question.created_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the question owner or staff can delete this question",
         )
+
+    from app.services.lab_refs import labs_referencing
+    used_by = labs_referencing(db, "erd", question_id)
+    if used_by:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Question is used by labs: {', '.join(used_by)}")
 
     question.is_deleted = 1
     db.commit()

@@ -3,6 +3,28 @@ import json
 from typing import List, Dict, Any, Tuple
 
 
+def _normalize_value(value: Any) -> Any:
+    """Normalize one cell value for hashing. Recurses into graph node/relationship dicts
+    and lists so numeric properties inside them are coerced the same way scalar columns
+    are -- otherwise `RETURN n` answers differ on int 25 vs float 25.0 inside the node."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        # bool is an int subclass; keep it distinct from 0/1 so True does not hash as 1.
+        return value
+    if isinstance(value, (int, float)):
+        # Convert all numbers to float for consistent type and hashing
+        return float(value)
+    if isinstance(value, bytes):
+        return value.decode('utf-8')
+    if isinstance(value, dict):
+        return {k: _normalize_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_value(v) for v in value]
+    # Convert to string and normalize whitespace (multiple spaces -> single space)
+    return ' '.join(str(value).strip().split())
+
+
 def normalize_results(results: List[Tuple], columns: List[str]) -> List[Dict[str, Any]]:
     """
     Normalize query results for consistent comparison.
@@ -14,33 +36,12 @@ def normalize_results(results: List[Tuple], columns: List[str]) -> List[Dict[str
     Returns:
         Normalized results as list of dictionaries
     """
-    # Convert tuples to dictionaries
-    result_dicts = []
-    for row in results:
-        row_dict = {}
-        for i, col_name in enumerate(columns):
-            value = row[i]
+    result_dicts = [
+        {col_name: _normalize_value(row[i]) for i, col_name in enumerate(columns)}
+        for row in results
+    ]
 
-            # Normalize value
-            if value is None:
-                row_dict[col_name] = None
-            elif isinstance(value, (int, float)):
-                # Convert all numbers to float for consistent type and hashing
-                row_dict[col_name] = float(value)
-            elif isinstance(value, bytes):
-                # Convert bytes to string
-                row_dict[col_name] = value.decode('utf-8')
-            else:
-                # Convert to string and normalize whitespace
-                normalized = str(value).strip()
-                # Normalize internal whitespace: multiple spaces → single space
-                normalized = ' '.join(normalized.split())
-                row_dict[col_name] = normalized
-
-        result_dicts.append(row_dict)
-
-    # Sort results by all columns for consistent ordering
-    # Convert each dict to a sorted tuple of items for comparison
+    # Sort results for consistent ordering regardless of the DB's physical row order.
     sorted_results = sorted(
         result_dicts,
         key=lambda x: json.dumps(x, sort_keys=True, default=str)
@@ -69,6 +70,14 @@ def generate_hash(results: List[Tuple], columns: List[str]) -> str:
     # Generate hash
     hash_obj = hashlib.sha256(json_str.encode('utf-8'))
     return hash_obj.hexdigest()
+
+
+def hash_run_result(result: Dict[str, Any]) -> str:
+    """Hash a lab_query_executor result dict the same way authoring does: tuple-ize each row
+    in column order, then generate_hash (which normalizes values). Shared by every SQL-lab
+    grading path so in-lab and standalone solving can never diverge."""
+    tuples = [tuple(row[col] for col in result["columns"]) for row in result["results"]]
+    return generate_hash(tuples, result["columns"])
 
 
 def validate_answer(

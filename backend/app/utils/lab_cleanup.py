@@ -59,8 +59,11 @@ def delete_session_file_with_retry(db_file_path: str, max_retries: int = 10) -> 
 
 def terminate_session(session: LabSession, db: Session) -> bool:
     """
-    Terminate a single session and cleanup resources.
+    Terminate a single session.
     Query history is preserved for learning analytics and student review.
+
+    Per-item SQL-lab databases are keyed by (session, item) and cleaned up
+    separately; a session no longer owns a single shared DB file.
 
     Args:
         session: LabSession object to terminate
@@ -76,18 +79,6 @@ def terminate_session(session: LabSession, db: Session) -> bool:
         db.commit()
 
         logger.info(f"Terminated session {session.id}, query history preserved")
-
-        # Delete database file if exists - using retry logic for Windows file locking
-        if os.path.exists(session.db_file_path):
-            delete_success = delete_session_file_with_retry(session.db_file_path)
-            if not delete_success:
-                logger.warning(
-                    f"Session {session.id} marked inactive but file deletion failed: "
-                    f"{session.db_file_path}"
-                )
-            # Return True because session is marked inactive in DB regardless of file deletion
-            return True
-
         return True
     except Exception as e:
         logger.error(f"Failed to terminate session {session.id}: {e}")
@@ -121,8 +112,12 @@ def terminate_all_lab_sessions(lab_id: int, db: Session) -> int:
 
 def cleanup_orphan_session_files(db: Session, lab_db_path: str) -> int:
     """
-    Clean up session database files that have no active session record.
-    Run periodically via cron or scheduler.
+    Clean up per-(session, item) SQL-lab database files whose session is no
+    longer active. Run periodically via cron or scheduler.
+
+    Session DB files are named ``sqllab_sess_{session_id}_item_{item_id}.db``
+    under ``{lab_db_path}/sqllab/sessions``. A file is orphaned when its
+    session id has no active LabSession row.
 
     Args:
         db: Database session
@@ -131,31 +126,28 @@ def cleanup_orphan_session_files(db: Session, lab_db_path: str) -> int:
     Returns:
         Number of files cleaned up
     """
+    import re
     from pathlib import Path
 
-    session_dir = Path(lab_db_path) / "sessions"
+    session_dir = Path(lab_db_path) / "sqllab" / "sessions"
     if not session_dir.exists():
         return 0
 
+    active_ids = {
+        sid for (sid,) in db.query(LabSession.id).filter(LabSession.is_active == 1).all()
+    }
+
     cleaned_count = 0
-
-    # Get all active session file paths
-    active_sessions = db.query(LabSession.db_file_path).filter(
-        LabSession.is_active == 1
-    ).all()
-    active_paths = {session[0] for session in active_sessions}
-
-    # Check all files in session directory
-    for file_path in session_dir.glob("lab_*_student_*.db"):
-        full_path = str(file_path)
-
-        # If file not in active sessions, delete it
-        if full_path not in active_paths:
-            try:
-                os.remove(full_path)
-                logger.info(f"Cleaned up orphan file: {full_path}")
-                cleaned_count += 1
-            except Exception as e:
-                logger.error(f"Failed to delete orphan file {full_path}: {e}")
+    pattern = re.compile(r"sqllab_sess_(\d+)_item_\d+\.db$")
+    for file_path in session_dir.glob("sqllab_sess_*_item_*.db"):
+        m = pattern.search(file_path.name)
+        if m and int(m.group(1)) in active_ids:
+            continue
+        try:
+            os.remove(str(file_path))
+            logger.info(f"Cleaned up orphan file: {file_path}")
+            cleaned_count += 1
+        except Exception as e:
+            logger.error(f"Failed to delete orphan file {file_path}: {e}")
 
     return cleaned_count

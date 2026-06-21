@@ -20,6 +20,7 @@ import { notifications } from "@mantine/notifications";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import Editor from "@monaco-editor/react";
+import { ProtectedRoute } from "@/components/common/ProtectedRoute";
 import { erDiagramService } from "@/services/er-diagram.service";
 import type { ERRubricJson, GenerateRubricDifficulty, GenerateRubricMode } from "@/types/er-diagram.types";
 import { formatRubricJson, isRubricJsonObject } from "@/utils/er-rubric-authoring";
@@ -269,15 +270,16 @@ export default function AddERDiagramQuestionPage() {
   const saveDisabled = !hasOutput || !difficulty || isSaving || hasRubricJsonError || !hasUnsavedChanges;
 
   return (
+    <ProtectedRoute>
     <Container size="xl" py="xl">
       <Stack gap="lg">
         <Group align="baseline" gap="sm">
           <ActionIcon
             component="a"
-            href="/er-diagram"
+            href="/problems"
             variant="subtle"
             size="sm"
-            aria-label="Back to ER diagram list"
+            aria-label="Back to problems"
           >
             <IconArrowLeft size={18} />
           </ActionIcon>
@@ -477,5 +479,6 @@ export default function AddERDiagramQuestionPage() {
         </Grid>
       </Stack>
     </Container>
+    </ProtectedRoute>
   );
 }

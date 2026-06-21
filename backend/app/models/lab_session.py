@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, text
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Index, text
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -10,9 +10,6 @@ class LabSession(Base):
     id = Column(Integer, primary_key=True, index=True)
     lab_id = Column(Integer, ForeignKey("labs.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-
-    # Student's isolated database copy
-    db_file_path = Column(String(500), nullable=False)  # e.g., "lab_1_student_42.db"
 
     # Session state
     is_active = Column(Integer, default=1)  # 1=active, 0=terminated

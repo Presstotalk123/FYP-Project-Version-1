@@ -1,6 +1,5 @@
 import sqlite3
 import os
-import shutil
 from pathlib import Path
 from typing import Tuple
 from app.config import settings
@@ -24,22 +23,6 @@ def get_lab_template_path(lab_id: int) -> str:
     base_path = Path(settings.LAB_DB_PATH) / "templates"
     os.makedirs(base_path, exist_ok=True)
     return str(base_path / f"lab_{lab_id}_template.db")
-
-
-def get_student_session_path(lab_id: int, user_id: int) -> str:
-    """
-    Get path for student session database.
-
-    Args:
-        lab_id: Lab ID
-        user_id: User ID
-
-    Returns:
-        Full path to student session database
-    """
-    base_path = Path(settings.LAB_DB_PATH) / "sessions"
-    os.makedirs(base_path, exist_ok=True)
-    return str(base_path / f"lab_{lab_id}_student_{user_id}.db")
 
 
 def create_lab_template(lab_id: int, schema_sql: str, data_sql: str) -> str:
@@ -115,64 +98,6 @@ def create_lab_template(lab_id: int, schema_sql: str, data_sql: str) -> str:
         if isinstance(e, LabDatabaseError):
             raise
         raise LabDatabaseError(f"Unexpected error creating template: {str(e)}")
-
-
-def copy_template_to_session(lab_id: int, user_id: int) -> str:
-    """
-    Copy template database to create a student session database.
-
-    Args:
-        lab_id: Lab ID
-        user_id: User ID
-
-    Returns:
-        Path to the created session database
-
-    Raises:
-        LabDatabaseError: If copy fails
-    """
-    template_path = get_lab_template_path(lab_id)
-    session_path = get_student_session_path(lab_id, user_id)
-
-    # Verify template exists
-    if not os.path.exists(template_path):
-        raise LabDatabaseError(f"Template database not found for lab {lab_id}")
-
-    # Remove existing session database if it exists - with retry logic for Windows file locking
-    if os.path.exists(session_path):
-        from app.utils.lab_cleanup import delete_session_file_with_retry
-        if not delete_session_file_with_retry(session_path, max_retries=10):
-            raise LabDatabaseError(
-                f"Failed to remove existing session database (file locked): {session_path}. "
-                "Please try again in a few seconds."
-            )
-
-    # Copy template to session
-    try:
-        shutil.copy2(template_path, session_path)
-    except Exception as e:
-        raise LabDatabaseError(f"Failed to copy template database: {str(e)}")
-
-    # Verify copy was successful
-    if not os.path.exists(session_path):
-        raise LabDatabaseError("Session database was not created")
-
-    return session_path
-
-
-def delete_session_database(db_file_path: str) -> None:
-    """
-    Delete a student session database file.
-
-    Args:
-        db_file_path: Path to the database file to delete
-    """
-    if os.path.exists(db_file_path):
-        try:
-            os.remove(db_file_path)
-        except Exception as e:
-            # Log the error but don't raise - cleanup is best effort
-            print(f"Warning: Failed to delete session database {db_file_path}: {str(e)}")
 
 
 def delete_lab_template(lab_id: int) -> None:

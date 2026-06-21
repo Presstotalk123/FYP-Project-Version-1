@@ -24,7 +24,7 @@ export default function LoginForm() {
     try {
       const user = await googleLogin(token);
       const redirectPath =
-        user.role === UserRole.STAFF || user.role === UserRole.ADMIN ? '/admin' : '/student';
+        user.role === UserRole.STAFF || user.role === UserRole.ADMIN ? '/admin' : '/problems';
       router.push(redirectPath);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };

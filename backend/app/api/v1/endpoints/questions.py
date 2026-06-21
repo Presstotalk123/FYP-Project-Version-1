@@ -11,7 +11,7 @@ from app.schemas.question import (
     QuestionDetail,
     QuestionListItem
 )
-from app.dependencies import get_current_user, require_staff_role
+from app.dependencies import get_current_user, ensure_owner_or_staff
 from app.utils.db_generator import (
     create_sqlite_from_sql,
     execute_query_on_database,
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/questions", tags=["questions"])
 def create_question(
     question_data: QuestionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Create a new question (staff only).
@@ -180,7 +180,7 @@ def update_question(
     question_id: int,
     question_data: QuestionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Update a question (staff only).
@@ -208,6 +208,14 @@ def update_question(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Question not found"
         )
+
+    ensure_owner_or_staff(current_user, question.created_by)
+
+    from app.services.lab_refs import running_labs_referencing
+    running = running_labs_referencing(db, "sql", question_id)
+    if running:
+        raise HTTPException(status_code=409,
+                            detail=f"Question is used by running labs: {', '.join(running)}")
 
     try:
         # Check if SQL needs to be regenerated
@@ -280,7 +288,7 @@ def update_question(
 def delete_question(
     question_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Soft delete a question (staff only).
@@ -304,6 +312,14 @@ def delete_question(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Question not found"
         )
+
+    ensure_owner_or_staff(current_user, question.created_by)
+
+    from app.services.lab_refs import labs_referencing
+    used_by = labs_referencing(db, "sql", question_id)
+    if used_by:
+        raise HTTPException(status_code=409,
+                            detail=f"Question is used by labs: {', '.join(used_by)}")
 
     # Soft delete
     question.is_deleted = 1

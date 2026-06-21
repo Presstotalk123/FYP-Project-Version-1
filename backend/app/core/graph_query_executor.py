@@ -75,8 +75,10 @@ class GraphQueryExecutor:
                 raw = g.query(query)
 
                 if raw and isinstance(raw[0], dict):
-                    # Write queries return a single dict with key 'result'
-                    if list(raw[0].keys()) == ['result']:
+                    # graphqlite write queries (CREATE/MERGE/... with no RETURN) come back as a
+                    # single {'result': ...} dict. A READ that aliases its column `AS result`
+                    # looks identical, so only treat it as a write when there is no RETURN.
+                    if list(raw[0].keys()) == ['result'] and 'return' not in query.lower():
                         result_container['columns'] = []
                         result_container['results'] = []
                     else:

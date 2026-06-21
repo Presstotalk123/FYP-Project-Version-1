@@ -1,7 +1,7 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Enum as SQLEnum, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
 from app.database import Base
-from app.models.question import Difficulty  # reuse easy|medium|hard
+from app.models.question import difficulty_db_type  # shared easy|medium|hard enum
 
 
 class GraphQuestion(Base):
@@ -11,7 +11,7 @@ class GraphQuestion(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
-    difficulty = Column(SQLEnum(Difficulty), nullable=False)
+    difficulty = Column(difficulty_db_type(), nullable=False)
 
     seed_cypher = Column(Text, nullable=False)
     template_db_path = Column(String(500), nullable=True)  # set on create

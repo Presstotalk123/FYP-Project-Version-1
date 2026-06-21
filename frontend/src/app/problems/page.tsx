@@ -65,6 +65,8 @@ export default function ProblemsPage() {
         difficulty: difficulty && difficulty !== 'all' ? (difficulty as ProblemDifficulty) : undefined,
         author: author && author !== 'all' ? (author as ProblemAuthorFilter) : undefined,
         search: debouncedSearch || undefined,
+        // Only show ready questions in the pool; draft sqllab/graph are excluded.
+        status: 'ready',
       });
       setItems(data.items);
       setCounts(data.counts);
@@ -117,6 +119,8 @@ export default function ProblemsPage() {
 
   const editProblem = (row: ProblemRow) => {
     if (row.type === 'sql') router.push(`/admin/questions/${row.id}`);
+    else if (row.type === 'sqllab') router.push(`/sql-lab/${row.id}/author`);
+    else if (row.type === 'graph') router.push(`/graph-lab/${row.id}/author`);
   };
 
   const deleteProblem = async (row: ProblemRow) => {

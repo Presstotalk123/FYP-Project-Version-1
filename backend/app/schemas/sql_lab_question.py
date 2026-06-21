@@ -12,11 +12,41 @@ class SqlLabTaskCreate(BaseModel):
 
 class SqlLabQuestionCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(..., min_length=1)
+    description: str = Field(default="")  # optional during draft authoring
     difficulty: Difficulty
     schema_sql: str = Field(..., min_length=1)
     sample_data_sql: str = Field(..., min_length=1)
-    tasks: List[SqlLabTaskCreate] = Field(..., min_length=1)
+    # Optional: the wizard creates a draft with no tasks; bulk callers may still pass tasks.
+    tasks: Optional[List[SqlLabTaskCreate]] = None
+
+
+class SqlLabTaskShellCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="")  # prompt filled in progressively during authoring
+
+
+class SqlLabTaskUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=255)  # may be cleared while drafting
+    description: Optional[str] = None  # None = leave unchanged; "" = clear the prompt
+
+
+class SqlLabTaskAssign(BaseModel):
+    query: str = Field(..., min_length=1)
+
+
+class SqlLabReorderRequest(BaseModel):
+    ordered_ids: List[int] = Field(..., min_length=1)
+
+
+class SqlLabMetaUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None, min_length=1)
+    difficulty: Optional[Difficulty] = None
+
+
+class SqlLabSeedUpdate(BaseModel):
+    schema_sql: str = Field(..., min_length=1)
+    sample_data_sql: str = Field(..., min_length=1)
 
 
 class SqlLabTaskView(BaseModel):
@@ -35,6 +65,7 @@ class SqlLabQuestionResponse(BaseModel):
     title: str
     description: str
     difficulty: str
+    status: str
     schema_sql: str
     sample_data_sql: str
     created_by: int
@@ -46,6 +77,7 @@ class SqlLabQuestionListItem(BaseModel):
     id: int
     title: str
     difficulty: str
+    status: str
     task_count: int
     created_by: int
     created_at: datetime

@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,10 @@ from app.models.sql_lab_question import SqlLabQuestion, SqlLabTask
 from app.schemas.sql_lab_question import (
     SqlLabQuestionCreate, SqlLabQuestionResponse, SqlLabTaskView,
     SqlLabQuestionListItem, SqlLabPracticeSubmit,
+    SqlLabTaskShellCreate, SqlLabTaskUpdate, SqlLabTaskAssign,
+    SqlLabReorderRequest, SqlLabMetaUpdate, SqlLabSeedUpdate,
 )
-from app.schemas.lab import SqlLabRunRequest, SqlLabRunResult, ItemGradeResponse, DatabaseState
+from app.schemas.lab import SqlLabRunRequest, SqlLabRunResult, ItemGradeResponse, DatabaseState, SeedRebuildResult
 from app.utils.sqllab_db_manager import (
     create_sqllab_template, get_sqllab_template_path, ensure_sqllab_practice_session,
     reset_sqllab_practice, introspect_db,
@@ -21,6 +23,8 @@ from app.utils.lab_db_manager import LabDatabaseError
 from app.core.lab_query_executor import execute_lab_query
 from app.core.answer_validator import hash_run_result
 from app.services.lab_refs import running_labs_referencing
+from app.services import question_authoring as qa
+from app.services.question_authoring import SQLLAB_ADAPTER
 
 router = APIRouter(prefix="/sql-lab-questions", tags=["sql-lab-questions"])
 
@@ -28,7 +32,7 @@ router = APIRouter(prefix="/sql-lab-questions", tags=["sql-lab-questions"])
 def _to_response(q: SqlLabQuestion, tasks: list[SqlLabTask]) -> SqlLabQuestionResponse:
     return SqlLabQuestionResponse(
         id=q.id, title=q.title, description=q.description, difficulty=q.difficulty.value,
-        schema_sql=q.schema_sql, sample_data_sql=q.sample_data_sql,
+        status=q.status, schema_sql=q.schema_sql, sample_data_sql=q.sample_data_sql,
         created_by=q.created_by, created_at=q.created_at,
         tasks=[SqlLabTaskView(id=t.id, title=t.title, description=t.description,
                               order_index=t.order_index, has_answer=t.correct_answer_hash is not None)
@@ -37,63 +41,36 @@ def _to_response(q: SqlLabQuestion, tasks: list[SqlLabTask]) -> SqlLabQuestionRe
 
 
 @router.post("", response_model=SqlLabQuestionResponse, status_code=status.HTTP_201_CREATED)
-def create_sql_lab_question(
-    data: SqlLabQuestionCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    q = SqlLabQuestion(
-        title=data.title, description=data.description, difficulty=data.difficulty,
-        schema_sql=data.schema_sql, sample_data_sql=data.sample_data_sql,
-        created_by=current_user.id, is_deleted=0,
-    )
-    db.add(q)
-    db.flush()  # get q.id
-
-    # Build the template DB from schema + seed
-    try:
-        create_sqllab_template(q.id, data.schema_sql, data.sample_data_sql)
-        q.template_db_path = f"sqllab_q_{q.id}_template.db"
-    except LabDatabaseError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=f"Failed to build question database: {str(e)}")
-
-    # Create tasks and assign each answer hash by running its correct query on the template
-    template_path = get_sqllab_template_path(q.id)
-    tasks: list[SqlLabTask] = []
-    for idx, t in enumerate(data.tasks):
-        result = execute_lab_query(template_path, t.correct_query, timeout=15)
-        if not result["success"]:
-            db.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Task {idx + 1} ({t.title}) correct query failed: {result['error_message']}",
-            )
-        task = SqlLabTask(
-            sql_lab_question_id=q.id, title=t.title, description=t.description, order_index=idx,
-            correct_query=t.correct_query, correct_answer_hash=hash_run_result(result),
-        )
-        db.add(task)
-        tasks.append(task)
-
-    db.commit()
-    db.refresh(q)
-    for t in tasks:
-        db.refresh(t)
-    return _to_response(q, tasks)
+def create_sql_lab_question(data: SqlLabQuestionCreate, db: Session = Depends(get_db),
+                            current_user: User = Depends(get_current_user)):
+    q = qa.create_draft(db, SQLLAB_ADAPTER, title=data.title, description=data.description,
+                        difficulty=data.difficulty,
+                        seed={"schema_sql": data.schema_sql, "sample_data_sql": data.sample_data_sql},
+                        created_by=current_user.id)
+    if data.tasks:  # legacy bulk path: create + hash + auto-finalize
+        for t in data.tasks:
+            task = qa.add_task(db, SQLLAB_ADAPTER, q, title=t.title, description=t.description)
+            qa.assign_answer(db, SQLLAB_ADAPTER, q, task, query=t.correct_query)
+        qa.finalize(db, SQLLAB_ADAPTER, q)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, q.id))
 
 
 @router.get("", response_model=List[SqlLabQuestionListItem])
-def list_sql_lab_questions(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    rows = (db.query(SqlLabQuestion, func.count(SqlLabTask.id))
-            .outerjoin(SqlLabTask, (SqlLabTask.sql_lab_question_id == SqlLabQuestion.id)
-                       & (SqlLabTask.is_deleted == 0))
-            .filter(SqlLabQuestion.is_deleted == 0)
-            .group_by(SqlLabQuestion.id)
-            .order_by(SqlLabQuestion.created_at.desc())
-            .all())
+def list_sql_lab_questions(status_filter: str | None = Query(default=None, alias="status"),
+                           mine: bool = False,
+                           db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = (db.query(SqlLabQuestion, func.count(SqlLabTask.id))
+             .outerjoin(SqlLabTask, (SqlLabTask.sql_lab_question_id == SqlLabQuestion.id)
+                        & (SqlLabTask.is_deleted == 0))
+             .filter(SqlLabQuestion.is_deleted == 0))
+    if status_filter:
+        query = query.filter(SqlLabQuestion.status == status_filter)
+    if mine:
+        query = query.filter(SqlLabQuestion.created_by == current_user.id)
+    rows = query.group_by(SqlLabQuestion.id).order_by(SqlLabQuestion.created_at.desc()).all()
     return [SqlLabQuestionListItem(id=q.id, title=q.title, difficulty=q.difficulty.value,
-                                   task_count=n, created_by=q.created_by, created_at=q.created_at)
+                                   status=q.status, task_count=n, created_by=q.created_by,
+                                   created_at=q.created_at)
             for q, n in rows]
 
 
@@ -124,6 +101,103 @@ def delete_sql_lab_question(qid: int, db: Session = Depends(get_db), current_use
         t.is_deleted = 1
     db.commit()
     return None
+
+
+# ---------------------------------------------------------------------------
+# Two-phase authoring endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/{qid}/tasks", response_model=SqlLabQuestionResponse)
+def add_task(qid: int, body: SqlLabTaskShellCreate, db: Session = Depends(get_db),
+             current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, SQLLAB_ADAPTER, q)
+    qa.add_task(db, SQLLAB_ADAPTER, q, title=body.title, description=body.description)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
+
+
+def _load_task(db, qid: int, task_id: int) -> SqlLabTask:
+    t = db.query(SqlLabTask).filter(SqlLabTask.id == task_id,
+                                    SqlLabTask.sql_lab_question_id == qid,
+                                    SqlLabTask.is_deleted == 0).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return t
+
+
+@router.post("/{qid}/tasks/{task_id}/assign", response_model=SqlLabQuestionResponse)
+def assign_answer(qid: int, task_id: int, body: SqlLabTaskAssign, db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, SQLLAB_ADAPTER, q)
+    qa.assign_answer(db, SQLLAB_ADAPTER, q, _load_task(db, qid, task_id), query=body.query)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
+
+
+@router.put("/{qid}/tasks/reorder", response_model=SqlLabQuestionResponse)
+def reorder(qid: int, body: SqlLabReorderRequest, db: Session = Depends(get_db),
+            current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, SQLLAB_ADAPTER, q)
+    qa.reorder_tasks(db, SQLLAB_ADAPTER, q, body.ordered_ids)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
+
+
+@router.put("/{qid}/tasks/{task_id}", response_model=SqlLabQuestionResponse)
+def update_task(qid: int, task_id: int, body: SqlLabTaskUpdate, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.update_task(db, _load_task(db, qid, task_id), title=body.title, description=body.description)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
+
+
+@router.delete("/{qid}/tasks/{task_id}", response_model=SqlLabQuestionResponse)
+def delete_task(qid: int, task_id: int, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, SQLLAB_ADAPTER, q)
+    qa.soft_delete_task(db, _load_task(db, qid, task_id))
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
+
+
+@router.patch("/{qid}", response_model=SqlLabQuestionResponse)
+def update_meta(qid: int, body: SqlLabMetaUpdate, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    if body.title is not None:
+        q.title = body.title
+    if body.description is not None:
+        q.description = body.description
+    if body.difficulty is not None:
+        q.difficulty = body.difficulty
+    db.commit()
+    db.refresh(q)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
+
+
+@router.put("/{qid}/seed", response_model=SeedRebuildResult)
+def update_seed(qid: int, body: SqlLabSeedUpdate, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, SQLLAB_ADAPTER, q)
+    return qa.rebuild_seed(db, SQLLAB_ADAPTER, q,
+                           {"schema_sql": body.schema_sql, "sample_data_sql": body.sample_data_sql})
+
+
+@router.post("/{qid}/finalize", response_model=SqlLabQuestionResponse)
+def finalize(qid: int, db: Session = Depends(get_db),
+             current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, SQLLAB_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.finalize(db, SQLLAB_ADAPTER, q)
+    return _to_response(q, qa.list_tasks(db, SQLLAB_ADAPTER, qid))
 
 
 # ---------------------------------------------------------------------------

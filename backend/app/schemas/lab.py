@@ -236,3 +236,9 @@ class LabSubmissionView(BaseModel):
     override_score_earned: Optional[float] = None
     override_score_total: Optional[float] = None
     submitted_at: datetime
+
+
+class SeedRebuildResult(BaseModel):
+    """Result of rebuilding a question's seed DB and re-hashing its tasks."""
+    status: str                 # the question's status after the rebuild ('draft' | 'ready')
+    warnings: List[str]         # human-readable notes, e.g. tasks whose answer was invalidated

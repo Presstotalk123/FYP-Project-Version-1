@@ -12,6 +12,7 @@ class SqlLabQuestion(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     difficulty = Column(difficulty_db_type(), nullable=False)
+    status = Column(String(16), nullable=False, server_default="draft")  # 'draft' | 'ready'
 
     schema_sql = Column(Text, nullable=False)
     sample_data_sql = Column(Text, nullable=False)

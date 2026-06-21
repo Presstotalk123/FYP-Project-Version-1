@@ -28,6 +28,7 @@ def list_problems(
     difficulty: Optional[Literal["easy", "medium", "hard"]] = Query(None),
     search: Optional[str] = Query(None),
     author: Optional[Literal["all", "staff", "students"]] = Query(None),
+    status: Optional[Literal["draft", "ready"]] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -110,6 +111,8 @@ def list_problems(
             .join(User, SqlLabQuestion.created_by == User.id)
             .filter(SqlLabQuestion.is_deleted == 0)
         )
+        if status:
+            slq = slq.filter(SqlLabQuestion.status == status)
         if difficulty:
             slq = slq.filter(SqlLabQuestion.difficulty == Difficulty(difficulty))
         if search:
@@ -141,6 +144,8 @@ def list_problems(
             .join(User, GraphQuestion.created_by == User.id)
             .filter(GraphQuestion.is_deleted == 0)
         )
+        if status:
+            gq = gq.filter(GraphQuestion.status == status)
         if difficulty:
             gq = gq.filter(GraphQuestion.difficulty == Difficulty(difficulty))
         if search:

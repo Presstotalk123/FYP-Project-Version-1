@@ -21,7 +21,7 @@ def difficulty_db_type() -> SQLEnum:
     enum labels, so the mismatch only surfaces on Postgres/Supabase.
 
     Used by every difficulty column (questions, sql_lab_questions,
-    graph_questions) so they stay in lockstep. See tests/test_difficulty_enum.py.
+    graph_questions) so they stay in lockstep.
     """
     return SQLEnum(
         Difficulty,

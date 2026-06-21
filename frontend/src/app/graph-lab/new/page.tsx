@@ -1,18 +1,15 @@
-// frontend/src/app/admin/graph-questions/new/page.tsx
 'use client';
-
 import { Container } from '@mantine/core';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
-import { GraphQuestionForm } from '@/components/admin/GraphQuestionForm';
+import { QuestionMetaForm } from '@/components/question/QuestionMetaForm';
+import { graphAuthorConfig } from '@/config/questionAuthorConfigs';
 
-export default function NewGraphQuestionPage() {
+export default function NewGraphLabPage() {
   return (
     <ProtectedRoute>
       <DashboardLayout>
-        <Container size="lg">
-          <GraphQuestionForm />
-        </Container>
+        <Container size="lg"><QuestionMetaForm config={graphAuthorConfig} kindLabel="Graph question" /></Container>
       </DashboardLayout>
     </ProtectedRoute>
   );

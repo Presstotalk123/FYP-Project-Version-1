@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,10 @@ from app.models.graph_question import GraphQuestion, GraphTask
 from app.schemas.graph_question import (
     GraphQuestionCreate, GraphQuestionResponse, GraphTaskView,
     GraphQuestionListItem, GraphPracticeSubmit,
+    GraphTaskShellCreate, GraphTaskUpdate, GraphTaskAssign,
+    GraphReorderRequest, GraphMetaUpdate, GraphSeedUpdate,
 )
-from app.schemas.lab import SqlLabRunRequest, SqlLabRunResult, ItemGradeResponse, DatabaseStateResponse
+from app.schemas.lab import SqlLabRunRequest, SqlLabRunResult, ItemGradeResponse, DatabaseStateResponse, SeedRebuildResult
 from app.utils.graph_db_manager import (
     create_graph_template, get_graph_template_path, ensure_graph_practice_session,
     reset_graph_practice, get_graph_schema_info,
@@ -21,6 +23,8 @@ from app.utils.lab_db_manager import LabDatabaseError
 from app.core.graph_query_executor import execute_graph_query
 from app.core.answer_validator import hash_run_result
 from app.services.lab_refs import running_labs_referencing
+from app.services import question_authoring as qa
+from app.services.question_authoring import GRAPH_ADAPTER
 
 router = APIRouter(prefix="/graph-questions", tags=["graph-questions"])
 
@@ -28,7 +32,7 @@ router = APIRouter(prefix="/graph-questions", tags=["graph-questions"])
 def _to_response(q: GraphQuestion, tasks: list[GraphTask]) -> GraphQuestionResponse:
     return GraphQuestionResponse(
         id=q.id, title=q.title, description=q.description, difficulty=q.difficulty.value,
-        seed_cypher=q.seed_cypher,
+        status=q.status, seed_cypher=q.seed_cypher,
         created_by=q.created_by, created_at=q.created_at,
         tasks=[GraphTaskView(id=t.id, title=t.title, description=t.description,
                              order_index=t.order_index, has_answer=t.correct_answer_hash is not None)
@@ -37,63 +41,36 @@ def _to_response(q: GraphQuestion, tasks: list[GraphTask]) -> GraphQuestionRespo
 
 
 @router.post("", response_model=GraphQuestionResponse, status_code=status.HTTP_201_CREATED)
-def create_graph_question(
-    data: GraphQuestionCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    q = GraphQuestion(
-        title=data.title, description=data.description, difficulty=data.difficulty,
-        seed_cypher=data.seed_cypher,
-        created_by=current_user.id, is_deleted=0,
-    )
-    db.add(q)
-    db.flush()  # get q.id
-
-    # Build the template DB from the single seed Cypher script
-    try:
-        create_graph_template(q.id, data.seed_cypher, "")
-        q.template_db_path = f"graph_q_{q.id}_template.db"
-    except LabDatabaseError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=f"Failed to build question database: {str(e)}")
-
-    # Create tasks and assign each answer hash by running its correct query on the template
-    template_path = get_graph_template_path(q.id)
-    tasks: list[GraphTask] = []
-    for idx, t in enumerate(data.tasks):
-        result = execute_graph_query(template_path, t.correct_query, timeout=15)
-        if not result["success"]:
-            db.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Task {idx + 1} ({t.title}) correct query failed: {result['error_message']}",
-            )
-        task = GraphTask(
-            graph_question_id=q.id, title=t.title, description=t.description, order_index=idx,
-            correct_query=t.correct_query, correct_answer_hash=hash_run_result(result),
-        )
-        db.add(task)
-        tasks.append(task)
-
-    db.commit()
-    db.refresh(q)
-    for t in tasks:
-        db.refresh(t)
-    return _to_response(q, tasks)
+def create_graph_question(data: GraphQuestionCreate, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    q = qa.create_draft(db, GRAPH_ADAPTER, title=data.title, description=data.description,
+                        difficulty=data.difficulty,
+                        seed={"seed_cypher": data.seed_cypher},
+                        created_by=current_user.id)
+    if data.tasks:  # legacy bulk path: create + hash + auto-finalize
+        for t in data.tasks:
+            task = qa.add_task(db, GRAPH_ADAPTER, q, title=t.title, description=t.description)
+            qa.assign_answer(db, GRAPH_ADAPTER, q, task, query=t.correct_query)
+        qa.finalize(db, GRAPH_ADAPTER, q)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, q.id))
 
 
 @router.get("", response_model=List[GraphQuestionListItem])
-def list_graph_questions(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    rows = (db.query(GraphQuestion, func.count(GraphTask.id))
-            .outerjoin(GraphTask, (GraphTask.graph_question_id == GraphQuestion.id)
-                       & (GraphTask.is_deleted == 0))
-            .filter(GraphQuestion.is_deleted == 0)
-            .group_by(GraphQuestion.id)
-            .order_by(GraphQuestion.created_at.desc())
-            .all())
+def list_graph_questions(status_filter: str | None = Query(default=None, alias="status"),
+                         mine: bool = False,
+                         db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = (db.query(GraphQuestion, func.count(GraphTask.id))
+             .outerjoin(GraphTask, (GraphTask.graph_question_id == GraphQuestion.id)
+                        & (GraphTask.is_deleted == 0))
+             .filter(GraphQuestion.is_deleted == 0))
+    if status_filter:
+        query = query.filter(GraphQuestion.status == status_filter)
+    if mine:
+        query = query.filter(GraphQuestion.created_by == current_user.id)
+    rows = query.group_by(GraphQuestion.id).order_by(GraphQuestion.created_at.desc()).all()
     return [GraphQuestionListItem(id=q.id, title=q.title, difficulty=q.difficulty.value,
-                                  task_count=n, created_by=q.created_by, created_at=q.created_at)
+                                  status=q.status, task_count=n, created_by=q.created_by,
+                                  created_at=q.created_at)
             for q, n in rows]
 
 
@@ -124,6 +101,102 @@ def delete_graph_question(qid: int, db: Session = Depends(get_db), current_user:
         t.is_deleted = 1
     db.commit()
     return None
+
+
+# ---------------------------------------------------------------------------
+# Two-phase authoring endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/{qid}/tasks", response_model=GraphQuestionResponse)
+def add_task(qid: int, body: GraphTaskShellCreate, db: Session = Depends(get_db),
+             current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, GRAPH_ADAPTER, q)
+    qa.add_task(db, GRAPH_ADAPTER, q, title=body.title, description=body.description)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
+
+
+def _load_task(db, qid: int, task_id: int) -> GraphTask:
+    t = db.query(GraphTask).filter(GraphTask.id == task_id,
+                                   GraphTask.graph_question_id == qid,
+                                   GraphTask.is_deleted == 0).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return t
+
+
+@router.post("/{qid}/tasks/{task_id}/assign", response_model=GraphQuestionResponse)
+def assign_answer(qid: int, task_id: int, body: GraphTaskAssign, db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, GRAPH_ADAPTER, q)
+    qa.assign_answer(db, GRAPH_ADAPTER, q, _load_task(db, qid, task_id), query=body.query)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
+
+
+@router.put("/{qid}/tasks/reorder", response_model=GraphQuestionResponse)
+def reorder(qid: int, body: GraphReorderRequest, db: Session = Depends(get_db),
+            current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, GRAPH_ADAPTER, q)
+    qa.reorder_tasks(db, GRAPH_ADAPTER, q, body.ordered_ids)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
+
+
+@router.put("/{qid}/tasks/{task_id}", response_model=GraphQuestionResponse)
+def update_task(qid: int, task_id: int, body: GraphTaskUpdate, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.update_task(db, _load_task(db, qid, task_id), title=body.title, description=body.description)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
+
+
+@router.delete("/{qid}/tasks/{task_id}", response_model=GraphQuestionResponse)
+def delete_task(qid: int, task_id: int, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, GRAPH_ADAPTER, q)
+    qa.soft_delete_task(db, _load_task(db, qid, task_id))
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
+
+
+@router.patch("/{qid}", response_model=GraphQuestionResponse)
+def update_meta(qid: int, body: GraphMetaUpdate, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    if body.title is not None:
+        q.title = body.title
+    if body.description is not None:
+        q.description = body.description
+    if body.difficulty is not None:
+        q.difficulty = body.difficulty
+    db.commit()
+    db.refresh(q)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
+
+
+@router.put("/{qid}/seed", response_model=SeedRebuildResult)
+def update_seed(qid: int, body: GraphSeedUpdate, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.assert_not_running(db, GRAPH_ADAPTER, q)
+    return qa.rebuild_seed(db, GRAPH_ADAPTER, q, {"seed_cypher": body.seed_cypher})
+
+
+@router.post("/{qid}/finalize", response_model=GraphQuestionResponse)
+def finalize(qid: int, db: Session = Depends(get_db),
+             current_user: User = Depends(get_current_user)):
+    q = qa.load_question(db, GRAPH_ADAPTER, qid)
+    ensure_owner_or_staff(current_user, q.created_by)
+    qa.finalize(db, GRAPH_ADAPTER, q)
+    return _to_response(q, qa.list_tasks(db, GRAPH_ADAPTER, qid))
 
 
 # ---------------------------------------------------------------------------

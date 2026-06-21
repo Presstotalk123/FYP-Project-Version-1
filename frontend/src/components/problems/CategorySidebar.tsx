@@ -12,9 +12,9 @@ interface CategorySidebarProps {
 export function CategorySidebar({ counts, selected, onSelect }: CategorySidebarProps) {
   const categories: { value: ProblemType | 'all'; label: string; count: number }[] = [
     { value: 'all', label: 'All problems', count: counts.all },
-    { value: 'sql', label: 'SQL', count: counts.sql },
+    // "SQL" lists the SQL family — single-query questions and SQL-lab questions together.
+    { value: 'sql', label: 'SQL', count: counts.sql + counts.sqllab },
     { value: 'erd', label: 'ERD', count: counts.erd },
-    { value: 'sqllab', label: 'SQL Lab', count: counts.sqllab },
     { value: 'graph', label: 'Graph', count: counts.graph },
   ];
 

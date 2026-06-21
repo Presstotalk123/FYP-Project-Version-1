@@ -60,7 +60,8 @@ export default function ProblemsPage() {
       setLoading(true);
       setError(null);
       const data = await problemService.getProblems({
-        type: category === 'all' ? undefined : category,
+        // "sql" is the merged SQL family (sql + sqllab) — fetch unfiltered and narrow client-side.
+        type: category === 'all' || category === 'sql' ? undefined : category,
         difficulty: difficulty && difficulty !== 'all' ? (difficulty as ProblemDifficulty) : undefined,
         author: author && author !== 'all' ? (author as ProblemAuthorFilter) : undefined,
         search: debouncedSearch || undefined,
@@ -92,11 +93,14 @@ export default function ProblemsPage() {
 
   const rows: ProblemRow[] = useMemo(
     () =>
-      items.map((item) => ({
-        ...item,
-        completed: item.type === 'sql' && completedSqlIds.has(item.id),
-      })),
-    [items, completedSqlIds]
+      items
+        // Merged "SQL" category lists the SQL family; other categories are already type-filtered.
+        .filter((item) => category !== 'sql' || item.type === 'sql' || item.type === 'sqllab')
+        .map((item) => ({
+          ...item,
+          completed: item.type === 'sql' && completedSqlIds.has(item.id),
+        })),
+    [items, completedSqlIds, category]
   );
 
   const openProblem = (row: ProblemRow) => {

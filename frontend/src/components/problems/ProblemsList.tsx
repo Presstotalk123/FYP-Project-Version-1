@@ -49,8 +49,9 @@ function canDelete(row: ProblemListItem, isStaff: boolean, currentUserId: number
 }
 
 function canEdit(row: ProblemListItem, isStaff: boolean): boolean {
-  // ERD bank questions have no edit page today; only staff edit SQL questions.
-  return row.type === 'sql' && isStaff;
+  // ERD bank questions have no edit page today; staff can edit sql, sqllab, and graph questions.
+  if (row.type === 'sql' || row.type === 'sqllab' || row.type === 'graph') return isStaff;
+  return false;
 }
 
 export function ProblemsList({

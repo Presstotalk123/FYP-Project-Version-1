@@ -12,6 +12,7 @@ class GraphQuestion(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     difficulty = Column(difficulty_db_type(), nullable=False)
+    status = Column(String(16), nullable=False, server_default="draft")  # 'draft' | 'ready'
 
     seed_cypher = Column(Text, nullable=False)
     template_db_path = Column(String(500), nullable=True)  # set on create

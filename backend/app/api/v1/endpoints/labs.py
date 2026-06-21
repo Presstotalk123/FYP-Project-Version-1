@@ -487,7 +487,21 @@ def start_session(lab_id: int, body: JoinLabRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=403, detail="Incorrect join password")
 
     session = LabSession(lab_id=lab_id, user_id=current_user.id, is_active=1)
-    db.add(session); db.commit(); db.refresh(session)
+    db.add(session)
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent join won the race (partial unique index on active sessions);
+        # resume that session instead of returning a 500.
+        db.rollback()
+        existing = db.query(LabSession).filter(
+            LabSession.lab_id == lab_id, LabSession.user_id == current_user.id,
+            LabSession.is_active == 1
+        ).first()
+        if existing:
+            return existing
+        raise
+    db.refresh(session)
     return session
 
 

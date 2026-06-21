@@ -12,7 +12,7 @@ export interface SqlLabQuestionCreate {
   difficulty: Difficulty;
   schema_sql: string;
   sample_data_sql: string;
-  tasks: SqlLabTaskInput[];
+  tasks?: SqlLabTaskInput[];
 }
 
 export interface SqlLabTaskView {
@@ -28,11 +28,20 @@ export interface SqlLabQuestionResponse {
   title: string;
   description: string;
   difficulty: string;
+  status: string;
   schema_sql: string;
   sample_data_sql: string;
   created_by: number;
   created_at: string;
   tasks: SqlLabTaskView[];
+}
+
+export interface SqlLabDraftCreate {
+  title: string;
+  description: string;
+  difficulty: Difficulty;
+  schema_sql: string;
+  sample_data_sql: string;
 }
 
 // Shape the SqlLabSolver needs, derived from a question (lab + standalone use the same).

@@ -2,6 +2,7 @@ import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import { GraphQuestionCreate, GraphQuestionResponse, GraphSolverQuestion } from '@/types/graph-question.types';
 import { SqlLabRunResult, ItemGradeResult, DatabaseState } from '@/types/unified-lab.types';
+import { AuthorQuestion, QuestionAuthoringService, SeedRebuildResult } from '@/types/question-author.types';
 
 export const graphQuestionService = {
   async create(payload: GraphQuestionCreate): Promise<GraphQuestionResponse> {
@@ -50,4 +51,35 @@ export const graphQuestionService = {
       tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, description: t.description, order_index: t.order_index })),
     };
   },
+};
+
+function toAuthorQuestion(q: GraphQuestionResponse): AuthorQuestion {
+  return {
+    id: q.id, title: q.title, description: q.description, difficulty: q.difficulty, status: q.status,
+    seed: { seed_cypher: q.seed_cypher },
+    tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, description: t.description,
+                                 order_index: t.order_index, has_answer: t.has_answer })),
+  };
+}
+
+export const graphAuthoring: QuestionAuthoringService & {
+  createDraft: (m: { title: string; description: string; difficulty: string }, seed: Record<string, string>) => Promise<{ id: number }>;
+} = {
+  async createDraft(m, seed) {
+    const payload = { ...m, seed_cypher: seed.seed_cypher };
+    const { data } = await api.post<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.BASE, payload);
+    return { id: data.id };
+  },
+  async getById(id) { return toAuthorQuestion((await api.get<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.DETAIL(id))).data); },
+  async updateMeta(id, patch) { return toAuthorQuestion((await api.patch<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.META(id), patch)).data); },
+  async updateSeed(id, seed) { return (await api.put<SeedRebuildResult>(API_ENDPOINTS.GRAPH_QUESTIONS.SEED(id), seed)).data; },
+  async addTask(id, body) { return toAuthorQuestion((await api.post<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.TASKS(id), body)).data); },
+  async assignAnswer(id, taskId, query) { return toAuthorQuestion((await api.post<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.TASK_ASSIGN(id, taskId), { query })).data); },
+  async updateTask(id, taskId, patch) { return toAuthorQuestion((await api.put<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.TASK_DETAIL(id, taskId), patch)).data); },
+  async deleteTask(id, taskId) { return toAuthorQuestion((await api.delete<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.TASK_DETAIL(id, taskId))).data); },
+  async reorderTasks(id, orderedIds) { return toAuthorQuestion((await api.put<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.TASK_REORDER(id), { ordered_ids: orderedIds })).data); },
+  async finalize(id) { return toAuthorQuestion((await api.post<GraphQuestionResponse>(API_ENDPOINTS.GRAPH_QUESTIONS.FINALIZE(id))).data); },
+  run: (id, query) => graphQuestionService.run(id, query),
+  database: (id) => graphQuestionService.database(id),
+  reset: (id) => graphQuestionService.reset(id),
 };

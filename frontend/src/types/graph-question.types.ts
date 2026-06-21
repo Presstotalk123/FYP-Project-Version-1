@@ -11,7 +11,7 @@ export interface GraphQuestionCreate {
   description: string;
   difficulty: Difficulty;
   seed_cypher: string;
-  tasks: GraphTaskInput[];
+  tasks?: GraphTaskInput[];
 }
 
 export interface GraphTaskView {
@@ -27,10 +27,18 @@ export interface GraphQuestionResponse {
   title: string;
   description: string;
   difficulty: string;
+  status: string;
   seed_cypher: string;
   created_by: number;
   created_at: string;
   tasks: GraphTaskView[];
+}
+
+export interface GraphDraftCreate {
+  title: string;
+  description: string;
+  difficulty: Difficulty;
+  seed_cypher: string;
 }
 
 // Shape the SqlLabSolver needs, derived from a question (lab + standalone use the same).

@@ -31,4 +31,5 @@ export interface ProblemQueryParams {
   difficulty?: ProblemDifficulty;
   search?: string;
   author?: ProblemAuthorFilter;
+  status?: 'draft' | 'ready';
 }

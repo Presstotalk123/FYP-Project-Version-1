@@ -97,7 +97,7 @@ class ERDiagramQuestionListItem(BaseModel):
     problem_statement: str = Field(..., max_length=200)
     difficulty_label: DifficultyLabel
     created_by: int
-    created_by_role: Literal["student", "staff"]
+    created_by_role: Literal["student", "staff", "admin"]
     created_at: datetime
 
     class Config:

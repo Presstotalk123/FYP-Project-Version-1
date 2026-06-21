@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 ProblemType = Literal["sql", "erd", "sqllab", "graph"]
 ProblemDifficulty = Literal["easy", "medium", "hard"]
-CreatorRole = Literal["student", "staff"]
+CreatorRole = Literal["student", "staff", "admin"]
 
 
 class ProblemListItem(BaseModel):

@@ -887,6 +887,8 @@ def list_er_questions(
     items: list[ERDiagramQuestionListItem] = []
     for question, creator_role in question_rows:
         role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
+        if role_value == "admin":
+            role_value = "staff"  # admin authors surface as staff (matches the problems author filter)
         if role_value not in {"student", "staff"}:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

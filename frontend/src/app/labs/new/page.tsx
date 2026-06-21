@@ -6,7 +6,7 @@ import { LabBuilder } from '@/components/lab/LabBuilder';
 
 export default function NewLabPage() {
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <LabBuilder />
     </ProtectedRoute>
   );

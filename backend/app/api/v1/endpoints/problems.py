@@ -50,7 +50,7 @@ def list_problems(
                 (Question.title.ilike(term)) | (Question.description.ilike(term))
             )
         if author_norm == "staff":
-            sql_query = sql_query.filter(User.role == UserRole.STAFF)
+            sql_query = sql_query.filter(User.role.in_([UserRole.STAFF, UserRole.ADMIN]))
         elif author_norm == "students":
             sql_query = sql_query.filter(User.role == UserRole.STUDENT)
         for question, role in sql_query.all():
@@ -84,7 +84,7 @@ def list_problems(
                 | (ERDiagramQuestion.problem_statement.ilike(term))
             )
         if author_norm == "staff":
-            erd_query = erd_query.filter(User.role == UserRole.STAFF)
+            erd_query = erd_query.filter(User.role.in_([UserRole.STAFF, UserRole.ADMIN]))
         elif author_norm == "students":
             erd_query = erd_query.filter(User.role == UserRole.STUDENT)
         for question, role in erd_query.all():
@@ -115,7 +115,7 @@ def list_problems(
                 (SqlLabQuestion.title.ilike(term)) | (SqlLabQuestion.description.ilike(term))
             )
         if author_norm == "staff":
-            slq = slq.filter(User.role == UserRole.STAFF)
+            slq = slq.filter(User.role.in_([UserRole.STAFF, UserRole.ADMIN]))
         elif author_norm == "students":
             slq = slq.filter(User.role == UserRole.STUDENT)
         for question, role in slq.all():
@@ -146,7 +146,7 @@ def list_problems(
                 (GraphQuestion.title.ilike(term)) | (GraphQuestion.description.ilike(term))
             )
         if author_norm == "staff":
-            gq = gq.filter(User.role == UserRole.STAFF)
+            gq = gq.filter(User.role.in_([UserRole.STAFF, UserRole.ADMIN]))
         elif author_norm == "students":
             gq = gq.filter(User.role == UserRole.STUDENT)
         for question, role in gq.all():

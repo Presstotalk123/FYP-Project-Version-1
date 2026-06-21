@@ -120,7 +120,7 @@ function StudentsView({ labId }: { labId: number }) {
 export default function LabStudentsPage() {
   const params = useParams<{ id: string }>();
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <StudentsView labId={Number(params.id)} />
     </ProtectedRoute>
   );

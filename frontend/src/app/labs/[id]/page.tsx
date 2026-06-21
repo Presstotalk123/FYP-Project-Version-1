@@ -231,7 +231,7 @@ function ManageLabView({ labId }: { labId: number }) {
 export default function LabManagePage() {
   const params = useParams<{ id: string }>();
   return (
-    <ProtectedRoute requiredRole={UserRole.STAFF}>
+    <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <ManageLabView labId={Number(params.id)} />
     </ProtectedRoute>
   );

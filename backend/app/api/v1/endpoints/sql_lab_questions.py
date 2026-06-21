@@ -20,7 +20,7 @@ from app.utils.sqllab_db_manager import (
 from app.utils.lab_db_manager import LabDatabaseError
 from app.core.lab_query_executor import execute_lab_query
 from app.core.answer_validator import hash_run_result
-from app.services.lab_refs import labs_referencing
+from app.services.lab_refs import running_labs_referencing
 
 router = APIRouter(prefix="/sql-lab-questions", tags=["sql-lab-questions"])
 
@@ -116,9 +116,9 @@ def get_sql_lab_question(qid: int, db: Session = Depends(get_db), current_user: 
 def delete_sql_lab_question(qid: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = _load_or_404(db, qid)
     ensure_owner_or_staff(current_user, q.created_by)
-    refs = labs_referencing(db, "sqllab", qid)
+    refs = running_labs_referencing(db, "sqllab", qid)
     if refs:
-        raise HTTPException(status_code=409, detail=f"In use by lab(s): {', '.join(refs)}")
+        raise HTTPException(status_code=409, detail=f"In use by running lab(s): {', '.join(refs)}")
     q.is_deleted = 1
     for t in db.query(SqlLabTask).filter(SqlLabTask.sql_lab_question_id == qid).all():
         t.is_deleted = 1

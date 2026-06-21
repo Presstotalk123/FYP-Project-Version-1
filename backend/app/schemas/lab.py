@@ -301,7 +301,7 @@ class LabProgressResponse(BaseModel):
 
 
 class SubmissionOverrideRequest(BaseModel):
-    score_earned: float
+    score_earned: float = Field(..., ge=0)
     score_total: float = Field(..., gt=0)
     reason: Optional[str] = None
 

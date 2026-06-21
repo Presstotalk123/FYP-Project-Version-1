@@ -47,10 +47,15 @@ function ManageLabView({ labId }: { labId: number }) {
   }, [refresh]);
 
   const addFromPool = async (picks: { kind: LabItemKind; ref_id: number }[]) => {
-    for (const p of picks) {
-      await unifiedLabService.addItem(labId, p.kind, p.ref_id);
+    try {
+      for (const p of picks) {
+        await unifiedLabService.addItem(labId, p.kind, p.ref_id);
+      }
+      await refresh();
+    } catch (e) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      notifications.show({ color: 'red', message: err.response?.data?.detail || err.message || 'Failed to add items' });
     }
-    await refresh();
   };
 
   const removeItem = async (itemId: number) => {

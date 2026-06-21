@@ -672,7 +672,7 @@ def submit_erd_item(
     session = db.query(LabSession).filter(
         LabSession.lab_id == lab_id, LabSession.user_id == current_user.id, LabSession.is_active == 1
     ).first()
-    if not session and current_user.role.value != "staff":
+    if not session and current_user.role.value not in ("staff", "admin"):
         raise HTTPException(status_code=400, detail="No active session")
 
     from app.models.er_diagram_question import ERDiagramQuestion
@@ -707,6 +707,8 @@ def override_submission(submission_id: int, body: SubmissionOverrideRequest,
     sub = db.query(LabSubmission).filter(LabSubmission.id == submission_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Submission not found")
+    if body.score_earned > body.score_total:
+        raise HTTPException(status_code=400, detail="score_earned cannot exceed score_total")
     sub.override_score_earned = body.score_earned
     sub.override_score_total = body.score_total
     sub.override_reason = body.reason

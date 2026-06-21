@@ -20,7 +20,7 @@ from app.utils.graph_db_manager import (
 from app.utils.lab_db_manager import LabDatabaseError
 from app.core.graph_query_executor import execute_graph_query
 from app.core.answer_validator import hash_run_result
-from app.services.lab_refs import labs_referencing
+from app.services.lab_refs import running_labs_referencing
 
 router = APIRouter(prefix="/graph-questions", tags=["graph-questions"])
 
@@ -116,9 +116,9 @@ def get_graph_question(qid: int, db: Session = Depends(get_db), current_user: Us
 def delete_graph_question(qid: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = _load_or_404(db, qid)
     ensure_owner_or_staff(current_user, q.created_by)
-    refs = labs_referencing(db, "graph", qid)
+    refs = running_labs_referencing(db, "graph", qid)
     if refs:
-        raise HTTPException(status_code=409, detail=f"In use by lab(s): {', '.join(refs)}")
+        raise HTTPException(status_code=409, detail=f"In use by running lab(s): {', '.join(refs)}")
     q.is_deleted = 1
     for t in db.query(GraphTask).filter(GraphTask.graph_question_id == qid).all():
         t.is_deleted = 1

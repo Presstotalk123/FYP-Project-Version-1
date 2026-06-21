@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import {
-  Badge, Box, Button, Code, Divider, Group, Loader, ScrollArea, Select, Stack, Table, Tabs, Text, Title,
+  Badge, Box, Button, Code, Divider, Group, Loader, ScrollArea, Select, Stack, Tabs, Text, Title,
 } from '@mantine/core';
 import { IconCheck, IconPlayerPlay, IconRefresh } from '@tabler/icons-react';
 import Editor from '@monaco-editor/react';
 import { notifications } from '@mantine/notifications';
 import { DatabaseState, ItemGradeResult, SqlLabRunResult } from '@/types/unified-lab.types';
 import { SqlLabSolverQuestion } from '@/types/sql-lab-question.types';
+import { ResultsGrid } from '@/components/question/ResultsGrid';
 
 // A main-style 3-panel SQL-lab workspace, driven entirely by injected actions so the SAME
 // component renders both inside a lab and standalone (Problems tab) — just wired to different endpoints.
@@ -31,17 +32,6 @@ interface HistoryEntry {
   at: string;
 }
 
-function ResultsGrid({ columns, rows }: { columns: string[]; rows: Array<Record<string, unknown>> }) {
-  if (columns.length === 0) return null;
-  return (
-    <Table withTableBorder striped>
-      <Table.Thead><Table.Tr>{columns.map((c) => <Table.Th key={c}>{c}</Table.Th>)}</Table.Tr></Table.Thead>
-      <Table.Tbody>{rows.slice(0, 50).map((row, i) => (
-        <Table.Tr key={i}>{columns.map((c) => <Table.Td key={c}>{String(row[c] ?? '')}</Table.Td>)}</Table.Tr>
-      ))}</Table.Tbody>
-    </Table>
-  );
-}
 
 export function SqlLabSolver({ loadQuestion, run, submit, getDatabase, reset, onGraded, editorLanguage = 'sql' }: SqlLabSolverProps) {
   const [question, setQuestion] = useState<SqlLabSolverQuestion | null>(null);

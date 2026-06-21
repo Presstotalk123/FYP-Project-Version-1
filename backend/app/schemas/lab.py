@@ -190,7 +190,7 @@ class LabStudentAttemptsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 from typing import Literal
 
-LabItemKind = Literal["sql", "erd", "sqllab"]
+LabItemKind = Literal["sql", "erd", "sqllab", "graph"]
 
 
 class UnifiedLabCreate(BaseModel):

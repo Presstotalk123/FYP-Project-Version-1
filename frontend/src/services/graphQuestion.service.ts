@@ -20,7 +20,25 @@ export const graphQuestionService = {
     return (await api.post<ItemGradeResult>(API_ENDPOINTS.GRAPH_QUESTIONS.SUBMIT(id), { query, task_id: taskId })).data;
   },
   async database(id: number): Promise<DatabaseState> {
-    return (await api.get<DatabaseState>(API_ENDPOINTS.GRAPH_QUESTIONS.DATABASE(id))).data;
+    // The graph /database endpoint returns the richer get_graph_schema_info shape
+    // (node labels + relationship types as "tables", each with sample_data.rows).
+    // Adapt it to the lean DatabaseState the solver renders (columns + sample_rows).
+    const raw = (await api.get<{
+      tables?: Array<{
+        name: string;
+        columns?: Array<{ name: string; type: string }>;
+        row_count: number;
+        sample_data?: { rows?: Array<Record<string, unknown>> };
+      }>;
+    }>(API_ENDPOINTS.GRAPH_QUESTIONS.DATABASE(id))).data;
+    return {
+      tables: (raw.tables ?? []).map((t) => ({
+        name: t.name,
+        columns: (t.columns ?? []).map((c) => ({ name: c.name, type: c.type })),
+        row_count: t.row_count,
+        sample_rows: t.sample_data?.rows ?? [],
+      })),
+    };
   },
   async reset(id: number): Promise<void> {
     await api.post(API_ENDPOINTS.GRAPH_QUESTIONS.RESET(id));

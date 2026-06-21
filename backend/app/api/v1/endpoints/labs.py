@@ -42,6 +42,8 @@ from app.utils.lab_cleanup import terminate_all_lab_sessions
 from app.core.lab_query_executor import execute_lab_query
 from app.core.answer_validator import generate_hash
 from app.utils.sqllab_db_manager import ensure_sqllab_session, reset_sqllab_session, introspect_db
+from app.utils.graph_db_manager import ensure_graph_session, reset_graph_session, get_graph_schema_info
+from app.core.graph_query_executor import execute_graph_query
 from app.schemas.lab import SqlLabRunRequest, SqlLabRunResult, DatabaseState
 
 router = APIRouter(prefix="/labs", tags=["labs"])
@@ -149,7 +151,7 @@ def add_lab_item(lab_id: int, body: LabItemCreate, db: Session = Depends(get_db)
     lab = _staff_lab_or_404(db, lab_id, current_user)
     if lab.is_running:
         raise HTTPException(status_code=400, detail="Cannot edit a running lab")
-    if body.kind in ("sql", "erd", "sqllab"):
+    if body.kind in ("sql", "erd", "sqllab", "graph"):
         if body.ref_id is None:
             raise HTTPException(status_code=400, detail="ref_id is required")
         try:
@@ -464,7 +466,7 @@ def start_session(lab_id: int, body: JoinLabRequest, db: Session = Depends(get_d
     lab = db.query(Lab).filter(Lab.id == lab_id, Lab.is_deleted == 0).first()
     if not lab:
         raise HTTPException(status_code=404, detail="Lab not found")
-    is_staff = current_user.role.value == "staff"
+    is_staff = current_user.role.value in ("staff", "admin")
     if not is_staff and not (lab.is_published and lab.is_running):
         raise HTTPException(status_code=400, detail="Lab is not open")
 
@@ -556,13 +558,29 @@ def submit_item(lab_id: int, item_id: int, body: SqlItemSubmit, db: Session = De
 
 
 def _sqllab_item_or_404(db, lab_id, item_id):
+    """A lab item solved in a query workspace — SQL-lab or graph (Cypher)."""
     item = db.query(LabItem).filter(LabItem.id == item_id, LabItem.lab_id == lab_id,
                                     LabItem.is_deleted == 0).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if item.kind != "sqllab":
-        raise HTTPException(status_code=400, detail="Not a SQL-lab item")
+    if item.kind not in ("sqllab", "graph"):
+        raise HTTPException(status_code=400, detail="Not a runnable workspace item")
     return item
+
+
+def _graph_database_state(db_path: str) -> DatabaseState:
+    """Adapt the rich graph schema (node labels + relationship types as tables) to the
+    lean DatabaseState the workspace renders."""
+    info = get_graph_schema_info(db_path)
+    return DatabaseState(tables=[
+        {
+            "name": t["name"],
+            "columns": [{"name": c["name"], "type": c["type"]} for c in t["columns"]],
+            "row_count": t["row_count"],
+            "sample_rows": (t.get("sample_data") or {}).get("rows", []),
+        }
+        for t in info["tables"]
+    ])
 
 
 def _sqllab_item_active_session(db, lab_id, current_user):
@@ -580,6 +598,9 @@ def sqllab_item_run(lab_id: int, item_id: int, body: SqlLabRunRequest, db: Sessi
     item = _sqllab_item_or_404(db, lab_id, item_id)
     session = _sqllab_item_active_session(db, lab_id, current_user)
     try:
+        if item.kind == "graph":
+            db_path = ensure_graph_session(item.ref_id, session.id, item.id)
+            return SqlLabRunResult.from_executor(execute_graph_query(db_path, body.query, timeout=15))
         db_path = ensure_sqllab_session(item.ref_id, session.id, item.id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -592,6 +613,9 @@ def sqllab_item_database(lab_id: int, item_id: int, db: Session = Depends(get_db
     item = _sqllab_item_or_404(db, lab_id, item_id)
     session = _sqllab_item_active_session(db, lab_id, current_user)
     try:
+        if item.kind == "graph":
+            db_path = ensure_graph_session(item.ref_id, session.id, item.id)
+            return _graph_database_state(db_path)
         db_path = ensure_sqllab_session(item.ref_id, session.id, item.id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -604,7 +628,10 @@ def sqllab_item_reset(lab_id: int, item_id: int, db: Session = Depends(get_db),
     item = _sqllab_item_or_404(db, lab_id, item_id)
     session = _sqllab_item_active_session(db, lab_id, current_user)
     try:
-        reset_sqllab_session(session.id, item.id)
+        if item.kind == "graph":
+            reset_graph_session(session.id, item.id)
+        else:
+            reset_sqllab_session(session.id, item.id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     return None
@@ -929,14 +956,16 @@ def reset_session(
 
     from app.utils.lab_cleanup import delete_session_file_with_retry
     from app.utils.sqllab_db_manager import get_sqllab_session_path
+    from app.utils.graph_db_manager import get_graph_session_path
 
     items = db.query(LabItem).filter(
-        LabItem.lab_id == lab_id, LabItem.kind == "sqllab", LabItem.is_deleted == 0
+        LabItem.lab_id == lab_id, LabItem.kind.in_(("sqllab", "graph")), LabItem.is_deleted == 0
     ).all()
     for it in items:
-        path = get_sqllab_session_path(session.id, it.id)
+        path = (get_graph_session_path(session.id, it.id) if it.kind == "graph"
+                else get_sqllab_session_path(session.id, it.id))
         if not delete_session_file_with_retry(path):
-            logger.warning(f"Could not delete sql-lab session file during reset: {path}")
+            logger.warning(f"Could not delete {it.kind} session file during reset: {path}")
 
     return {"message": "Session databases reset successfully"}
 
@@ -1522,7 +1551,7 @@ def lab_students(lab_id: int, db: Session = Depends(get_db),
 @router.get("/{lab_id}/submissions", response_model=List[LabSubmissionView])
 def lab_submissions(lab_id: int, student_id: Optional[int] = None, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
-    is_staff = current_user.role.value == "staff"
+    is_staff = current_user.role.value in ("staff", "admin")
     if not is_staff and student_id is not None and student_id != current_user.id:
         raise HTTPException(status_code=403, detail="Students can only view their own submissions")
     target = student_id if (is_staff and student_id) else current_user.id

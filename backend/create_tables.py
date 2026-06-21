@@ -14,9 +14,6 @@ from app.models.attempt import Attempt
 from app.models.progress import UserProgress
 from app.models.lab import Lab
 from app.models.lab_session import LabSession
-from app.models.lab_attempt import LabAttempt
-from app.models.lab_task import LabTask
-from app.models.lab_task_submission import LabTaskSubmission
 from app.models.lab_item import LabItem
 from app.models.lab_submission import LabSubmission
 from app.models.sql_lab_question import SqlLabQuestion, SqlLabTask

@@ -110,12 +110,12 @@ def create_graph_template(lab_id: int, schema_cypher: str, seed_cypher: str) -> 
 def get_graph_schema_info(db_path: str) -> Dict[str, List[Dict]]:
     """
     Return schema + sample data for a graphqlite database in the same shape as
-    the SQL get_schema_info() / get_session_database_state() output so the
-    frontend DatabaseTab and SchemaPreview render without changes.
+    the SQL get_schema_info() output so the frontend DatabaseTab renders
+    without changes.
 
     Node labels map to "tables". Relationship types are appended after nodes.
 
-    Returns a dict compatible with both SchemaPreview and DatabaseStateResponse:
+    Returns a dict compatible with DatabaseStateResponse:
         {
             "tables": [
                 {

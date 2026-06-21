@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
+
+LabItemKind = Literal["sql", "erd", "sqllab", "graph"]
 
 
 # Lab schemas
@@ -41,13 +43,6 @@ class LabResponse(BaseModel):
 
 
 # Session schemas
-class SessionStart(BaseModel):
-    """Schema for starting a session response"""
-    session_id: int
-    lab_id: int
-    started_at: datetime
-
-
 class SessionResponse(BaseModel):
     """Schema for session information"""
     id: int
@@ -62,23 +57,6 @@ class SessionResponse(BaseModel):
 
 
 # Query execution schemas
-class LabExecuteRequest(BaseModel):
-    """Schema for lab query execution request"""
-    query: str = Field(..., min_length=1)
-    is_review_mode: Optional[bool] = False
-
-
-class LabExecuteResponse(BaseModel):
-    """Schema for lab query execution response"""
-    success: bool
-    columns: List[str]
-    results: List[dict]
-    execution_time_ms: float
-    row_count: int
-    error_message: Optional[str] = None
-
-
-# Preview schemas
 class ColumnInfo(BaseModel):
     """Schema for column information"""
     name: str
@@ -88,19 +66,6 @@ class ColumnInfo(BaseModel):
     pk: bool
 
 
-class TableInfo(BaseModel):
-    """Schema for table information"""
-    name: str
-    columns: List[ColumnInfo]
-    create_sql: str
-
-
-class SchemaPreview(BaseModel):
-    """Schema for database schema preview"""
-    tables: List[TableInfo]
-
-
-# State management schemas
 class StopLabResponse(BaseModel):
     """Schema for stop lab response"""
     message: str
@@ -108,41 +73,6 @@ class StopLabResponse(BaseModel):
 
 
 # Attempt schemas
-class LabAttemptResponse(BaseModel):
-    """Schema for lab attempt history"""
-    id: int
-    query: str
-    success: bool
-    execution_time_ms: float
-    row_count: int
-    error_message: Optional[str] = None
-    submitted_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class LabQueryHistoryResponse(BaseModel):
-    """Schema for comprehensive lab query history across sessions"""
-    id: int
-    lab_id: int
-    lab_title: str
-    session_id: int
-    session_started_at: datetime
-    session_ended_at: Optional[datetime] = None
-    query: str
-    success: bool
-    execution_time_ms: float
-    row_count: int
-    error_message: Optional[str] = None
-    submitted_at: datetime
-    student_email: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
-# Database state schemas
 class TableSampleData(BaseModel):
     """Schema for table sample data"""
     columns: List[str]
@@ -164,35 +94,6 @@ class DatabaseStateResponse(BaseModel):
 
 
 # Student attempts schemas
-class StudentAttemptSummary(BaseModel):
-    """Summary of a student's task attempts for a lab"""
-    user_id: int
-    email: str
-    correct_count: int
-    not_solved_count: int
-    total_tasks: int
-    last_submission_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
-
-class LabStudentAttemptsResponse(BaseModel):
-    """Response containing all student attempt summaries for a lab"""
-    lab_id: int
-    lab_title: str
-    total_tasks: int
-    students: List[StudentAttemptSummary]
-
-
-# ---------------------------------------------------------------------------
-# Unified lab schemas (Tasks 2+)
-# ---------------------------------------------------------------------------
-from typing import Literal
-
-LabItemKind = Literal["sql", "erd", "sqllab", "graph"]
-
-
 class UnifiedLabCreate(BaseModel):
     """Create a unified lab (pool items only; no manual shared-DB section)."""
     title: str = Field(..., min_length=1, max_length=255)

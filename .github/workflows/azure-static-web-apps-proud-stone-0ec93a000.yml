@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - assessment_beta
-  pull_request:
+  pull_request: 
     types: [opened, synchronize, reopened, closed]
     branches:
       - assessment_beta

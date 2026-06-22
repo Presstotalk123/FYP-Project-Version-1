@@ -32,8 +32,12 @@ with engine.connect() as _conn:
     _conn.execute(text("DROP INDEX IF EXISTS uq_active_session_per_user_lab"))
     _conn.commit()
 
-# Auto-create tables on startup (safe for SQLite; for PostgreSQL use create_tables.py)
-Base.metadata.create_all(bind=engine)
+# Auto-create tables on startup for SQLite (local dev) only.
+# For PostgreSQL, tables must be pre-created via create_tables.py to avoid
+# a race condition where multiple gunicorn workers simultaneously try to create
+# the same table and its implicit composite type, causing UniqueViolation.
+if "sqlite" in settings.DATABASE_URL:
+    Base.metadata.create_all(bind=engine)
 
 # Add lab_type column if it doesn't exist (handles existing local SQLite databases)
 with engine.connect() as _conn:

@@ -1,0 +1,95 @@
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (typeof window !== 'undefined' && window.location.hostname === 'proud-stone-0ec93a000.2.azurestaticapps.net'
+    ? 'https://aidb-backend.azurewebsites.net/api/v1'
+    : 'http://localhost:8000/api/v1');
+
+export const API_ENDPOINTS = {
+  AUTH: {
+    GOOGLE: '/auth/google',
+    ME: '/auth/me',
+  },
+  QUESTIONS: {
+    BASE: '/questions',
+    DETAIL: (id: number) => `/questions/${id}`,
+  },
+  EXECUTE: {
+    BASE: '/execute',
+  },
+  ATTEMPTS: {
+    BASE: '/attempts',
+    HISTORY: '/attempts/history',
+    PROGRESS: '/attempts/progress',
+    BY_QUESTION: (id: number) => `/attempts/question/${id}`,
+  },
+  ER_DIAGRAM: {
+    GENERATE_RUBRIC: '/er-diagram/rubric/generate',
+    QUESTIONS: '/er-diagram/questions',
+    QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
+    SUBMISSION: '/er-diagram/submission',
+  },
+  CHATBOT: {
+    SEND: '/chatbot/send',
+  },
+  LABS: {
+    BASE: '/labs',
+    DETAIL: (id: number) => `/labs/${id}`,
+    PUBLISH: (id: number) => `/labs/${id}/publish`,
+    UNPUBLISH: (id: number) => `/labs/${id}/unpublish`,
+    START: (id: number) => `/labs/${id}/start`,
+    STOP: (id: number) => `/labs/${id}/stop`,
+    SESSION_START: (id: number) => `/labs/${id}/session/start`,
+    SESSION_GET: (id: number) => `/labs/${id}/session`,
+    SESSION_EXECUTE: (sessionId: number) => `/labs/session/${sessionId}/execute`,
+    SESSION_ATTEMPTS: (sessionId: number) => `/labs/session/${sessionId}/attempts`,
+    SESSION_DATABASE: (sessionId: number) => `/labs/session/${sessionId}/database`,
+    SESSION_RESET: (id: number) => `/labs/${id}/session/reset`,
+    SESSION_EXIT: (id: number) => `/labs/${id}/session/exit`,
+    LAB_HISTORY: (labId: number) => `/labs/${labId}/history`,
+    ALL_HISTORY: '/labs/history',
+    PREVIEW: (id: number) => `/labs/${id}/preview/schema`,
+    TASKS: (labId: number) => `/labs/${labId}/tasks`,
+    TASK_DETAIL: (labId: number, taskId: number) => `/labs/${labId}/tasks/${taskId}`,
+    TASK_ASSIGN: (labId: number, taskId: number) => `/labs/${labId}/tasks/${taskId}/assign`,
+    TASK_VALIDATE: '/labs/tasks/validate',
+    TASK_SUBMIT: '/labs/tasks/submit',
+    TASK_PROGRESS: (labId: number) => `/labs/${labId}/progress`,
+    STUDENT_ATTEMPTS: (labId: number) => `/labs/${labId}/student-attempts`,
+    STUDENT_QUERY_HISTORY: (labId: number, studentId: number) => `/labs/${labId}/students/${studentId}/history`,
+  },
+  ASSESSMENTS: {
+    BASE: '/assessments',
+    DETAIL: (id: number) => `/assessments/${id}`,
+    PUBLISH: (id: number) => `/assessments/${id}/publish`,
+    UNPUBLISH: (id: number) => `/assessments/${id}/unpublish`,
+    START: (id: number) => `/assessments/${id}/start`,
+    STOP: (id: number) => `/assessments/${id}/stop`,
+    STUDENTS: (id: number) => `/assessments/${id}/students`,
+    STUDENT_SCORES: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/component-scores`,
+  },
+  STUDENT_ASSESSMENTS: {
+    BASE: '/student-assessments',
+    DETAIL: (id: number) => `/student-assessments/${id}`,
+    JOIN: (id: number) => `/student-assessments/${id}/join`,
+    SESSION: (id: number) => `/student-assessments/${id}/session`,
+    VISIT_ITEM: (id: number, itemId: number) => `/student-assessments/${id}/session/visit-item/${itemId}`,
+    SUBMIT: (id: number) => `/student-assessments/${id}/session/submit`,
+  },
+  ER_LABS: {
+    BASE: '/er-labs',
+    DETAIL: (id: number) => `/er-labs/${id}`,
+    PUBLISH: (id: number) => `/er-labs/${id}/publish`,
+    UNPUBLISH: (id: number) => `/er-labs/${id}/unpublish`,
+    START: (id: number) => `/er-labs/${id}/start`,
+    STOP: (id: number) => `/er-labs/${id}/stop`,
+    QUESTIONS: (id: number) => `/er-labs/${id}/questions`,
+    QUESTION_DETAIL: (id: number, qid: number) => `/er-labs/${id}/questions/${qid}`,
+    SESSION_START: (id: number) => `/er-labs/${id}/session/start`,
+    SESSION_GET: (id: number) => `/er-labs/${id}/session`,
+    SESSION_EXIT: (id: number) => `/er-labs/${id}/session/exit`,
+    MY_SUBMISSIONS: (id: number) => `/er-labs/${id}/my-submissions`,
+    MY_SCORES: (id: number) => `/er-labs/${id}/my-scores`,
+    STUDENTS: (id: number) => `/er-labs/${id}/students`,
+    SUBMISSION_OVERRIDE: (subId: number) => `/er-lab-submissions/${subId}/override`,
+  },
+};

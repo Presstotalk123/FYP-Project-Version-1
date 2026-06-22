@@ -343,7 +343,7 @@ export function AssessmentForm({ mode, initial }: Props) {
 
           {poolLoading && <Group justify="center" py="md"><Loader size="sm" /></Group>}
           {poolError && (
-            <Alert icon={<IconAlertCircle size={14} />} color="red" title="Error" size="xs">
+            <Alert icon={<IconAlertCircle size={14} />} color="red" title="Error">
               {poolError}
             </Alert>
           )}

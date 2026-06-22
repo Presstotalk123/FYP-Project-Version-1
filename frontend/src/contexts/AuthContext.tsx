@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         googleLogin,
         logout,
         isAuthenticated: !!user,
-        isStaff: user?.role === UserRole.STAFF,
+        isStaff: user?.role === UserRole.STAFF || user?.role === UserRole.ADMIN,
         isAdmin: user?.role === UserRole.ADMIN,
       }}
     >

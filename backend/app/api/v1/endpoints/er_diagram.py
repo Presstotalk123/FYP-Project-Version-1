@@ -1009,7 +1009,7 @@ def submit_er_diagram(
     if not lab:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab not found")
 
-    is_staff = current_user.role.value == "staff"
+    is_staff = current_user.role.value in {"staff", "admin"}
     if not is_staff and lab.is_running == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Lab is not running")
@@ -1098,7 +1098,7 @@ def delete_er_question(
 
     if not question:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-    if current_user.role != UserRole.STAFF and question.created_by != current_user.id:
+    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN} and question.created_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the question owner or staff can delete this question",

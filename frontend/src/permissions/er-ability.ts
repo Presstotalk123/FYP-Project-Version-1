@@ -20,7 +20,7 @@ export function defineERAbility(user: User | null): ERAbility {
     can("read", "ERQuestion");
     can("create", "ERQuestion");
 
-    if (user.role === UserRole.STAFF) {
+    if (user.role === UserRole.STAFF || user.role === UserRole.ADMIN) {
       can("delete", "ERQuestion");
     } else {
       can("delete", "ERQuestion", { created_by: user.id });

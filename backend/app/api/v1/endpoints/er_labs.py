@@ -489,7 +489,7 @@ def start_er_lab_session(
     if not lab:
         raise HTTPException(status_code=404, detail="Lab not found")
 
-    is_staff = current_user.role.value == "staff"
+    is_staff = current_user.role.value in {"staff", "admin"}
     if not is_staff:
         if not lab.is_published or not lab.is_running:
             raise HTTPException(status_code=400, detail="Lab is not available for sessions")
@@ -577,7 +577,7 @@ def _submission_to_response(sub: ErLabSubmission) -> ErLabSubmissionResponse:
 
 def _resolve_target_user(student_id: Optional[int], current_user: User) -> int:
     if student_id is not None:
-        if current_user.role.value != "staff":
+        if current_user.role.value not in {"staff", "admin"}:
             raise HTTPException(status_code=403, detail="Staff only")
         return student_id
     return current_user.id

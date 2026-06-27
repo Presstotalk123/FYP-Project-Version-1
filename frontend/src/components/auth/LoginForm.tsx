@@ -59,7 +59,6 @@ export default function LoginForm() {
           <GoogleLogin
             onSuccess={handleGoogleSuccess}
             onError={() => setError('Google sign-in failed. Please try again.')}
-            useOneTap
           />
         </Stack>
       </Card>

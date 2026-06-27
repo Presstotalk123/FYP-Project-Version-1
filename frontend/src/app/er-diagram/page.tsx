@@ -30,7 +30,7 @@ import type { ErLabResponse } from "@/types/er-lab.types";
 
 type ERQuestionCardData = QuestionCardData & {
   created_by: number;
-  created_by_role: "student" | "staff";
+  created_by_role: "student" | "staff" | "admin";
 };
 
 export default function ERDiagramPage() {
@@ -49,7 +49,7 @@ export default function ERDiagramPage() {
     [questions]
   );
   const staffCreatedQuestions = useMemo(
-    () => questions.filter((question) => question.created_by_role === "staff"),
+    () => questions.filter((question) => question.created_by_role === "staff" || question.created_by_role === "admin"),
     [questions]
   );
 

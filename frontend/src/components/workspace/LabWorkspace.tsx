@@ -27,6 +27,8 @@ interface LabWorkspaceProps {
   isStaffMode?: boolean;
   reviewMode?: boolean;
   reviewStudentId?: number;
+  backUrl?: string;
+  inAssessment?: boolean;
 }
 
 export function LabWorkspace({
@@ -34,6 +36,8 @@ export function LabWorkspace({
   isStaffMode = false,
   reviewMode = false,
   reviewStudentId,
+  backUrl,
+  inAssessment = false,
 }: LabWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -84,8 +88,8 @@ export function LabWorkspace({
         if (controller.signal.aborted) return;
         setLab(labData);
 
-        // Check if lab is running (students only - staff can access any lab for testing)
-        if (!isStaffMode && !labData.is_running) {
+        // Check if lab is running (students only - staff and assessment context bypass this)
+        if (!isStaffMode && !inAssessment && !labData.is_running) {
           setError('This lab is not currently running');
           return;
         }
@@ -480,7 +484,7 @@ export function LabWorkspace({
         message: 'Your lab session has been terminated',
         color: 'blue',
       });
-      router.push(isStaffMode ? '/admin/labs' : '/student/labs');
+      router.push(isStaffMode ? '/admin/labs' : (backUrl ?? '/student/labs'));
     } catch (err) {
       const error = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -657,7 +661,7 @@ export function LabWorkspace({
         <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
           {error || 'Lab not found'}
         </Alert>
-        <Button mt="md" variant="light" onClick={() => router.push(isStaffMode ? '/admin/labs' : '/student/labs')}>
+        <Button mt="md" variant="light" onClick={() => router.push(isStaffMode ? '/admin/labs' : (backUrl ?? '/student/labs'))}>
           Back to Labs
         </Button>
       </Container>

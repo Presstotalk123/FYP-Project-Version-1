@@ -26,6 +26,9 @@ from app.schemas.lab_task import (
     LabTaskSubmitRequest, LabTaskSubmitResponse, LabTaskProgress, LabTaskProgressResponse
 )
 from app.dependencies import get_current_user, require_staff_role
+from app.models.assessment import Assessment
+from app.models.assessment_item import AssessmentItem
+from app.models.assessment_session import AssessmentSession
 from app.utils.lab_db_manager import (
     create_lab_template, copy_template_to_session, delete_session_database,
     delete_lab_template, get_lab_template_path, get_schema_info, LabDatabaseError
@@ -141,6 +144,24 @@ def list_labs(
     ]
 
 
+def _lab_accessible_via_assessment(lab_id: int, user_id: int, db: Session) -> bool:
+    """Return True if the student has an active session in a running assessment that contains this lab."""
+    result = (
+        db.query(AssessmentSession)
+        .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
+        .join(AssessmentItem, AssessmentItem.assessment_id == Assessment.id)
+        .filter(
+            AssessmentSession.user_id == user_id,
+            AssessmentSession.is_active == 1,
+            Assessment.is_running == 1,
+            AssessmentItem.item_id == lab_id,
+            AssessmentItem.item_type.in_(["sql_lab", "graph_lab"]),
+        )
+        .first()
+    )
+    return result is not None
+
+
 @router.get("/{lab_id}", response_model=LabDetail)
 def get_lab(
     lab_id: int,
@@ -165,10 +186,11 @@ def get_lab(
 
     # Check permissions for students
     if current_user.role.value == "student" and not lab.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
+        if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lab not found"
+            )
 
     return LabDetail(
         id=lab.id,
@@ -501,10 +523,11 @@ def start_session(
     # Check if lab is published and running (students only - staff can test any lab)
     if current_user.role.value == "student":
         if not lab.is_published or not lab.is_running:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Lab is not available for sessions"
-            )
+            if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Lab is not available for sessions"
+                )
 
     # Check for existing active session (idempotent)
     existing_session = db.query(LabSession).filter(
@@ -652,13 +675,14 @@ def execute_query(
         )
 
     if current_user.role.value == "student" and not lab.is_running:
-        # Auto-terminate session if lab stopped (students only)
-        from app.utils.lab_cleanup import terminate_session
-        terminate_session(session, db)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Lab is no longer running"
-        )
+        if not _lab_accessible_via_assessment(session.lab_id, current_user.id, db):
+            # Auto-terminate session if lab stopped (students only)
+            from app.utils.lab_cleanup import terminate_session
+            terminate_session(session, db)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lab is no longer running"
+            )
 
     # Execute query on student's database (dispatch on lab_type)
     if lab.lab_type == "graph":
@@ -1060,10 +1084,11 @@ def preview_schema(
 
     # Check permissions for students
     if current_user.role.value == "student" and not lab.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
+        if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lab not found"
+            )
 
     # Get schema info from template database (dispatch on lab_type)
     template_path = get_lab_template_path(lab_id)
@@ -1161,10 +1186,11 @@ def list_lab_tasks(
 
     # Check permissions for students
     if current_user.role.value == "student" and not lab.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
-        )
+        if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lab not found"
+            )
 
     # Get tasks
     tasks = db.query(LabTask).filter(
@@ -1562,7 +1588,7 @@ def get_lab_task_progress(
     For staff: Can optionally pass student_id to fetch a specific student's progress.
     """
     # If fetching for a specific student, require staff role
-    if student_id and current_user.role != "staff":
+    if student_id and current_user.role not in ("staff", "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Staff only"

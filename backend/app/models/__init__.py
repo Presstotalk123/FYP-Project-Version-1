@@ -8,5 +8,7 @@ from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
+from app.models.assessment import Assessment
+from app.models.assessment_item import AssessmentItem
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem"]

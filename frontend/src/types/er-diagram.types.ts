@@ -91,7 +91,7 @@ export interface ERDiagramQuestionListItem {
   problem_statement: string;
   difficulty_label: ERDifficultyLabel;
   created_by: number;
-  created_by_role: "student" | "staff";
+  created_by_role: "student" | "staff" | "admin";
   created_at: string;
 }
 

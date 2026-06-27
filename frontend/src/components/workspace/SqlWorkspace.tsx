@@ -26,9 +26,10 @@ import { ResultsPanel } from './ResultsPanel';
 
 interface SqlWorkspaceProps {
   questionId: number;
+  backUrl?: string;
 }
 
-export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
+export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -182,7 +183,7 @@ export function SqlWorkspace({ questionId }: SqlWorkspaceProps) {
         {/* Header */}
         <Group align="baseline" gap="sm">
           <ActionIcon
-            onClick={() => router.push('/student')}
+            onClick={() => router.push(backUrl ?? '/student')}
             variant="subtle"
             size="sm"
             aria-label="Back to dashboard"

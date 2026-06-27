@@ -18,7 +18,7 @@ class Question(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
-    difficulty = Column(SQLEnum(Difficulty), nullable=False)
+    difficulty = Column(SQLEnum(Difficulty, values_callable=lambda obj: [e.value for e in obj]), nullable=False)
 
     # SQLite database file path
     db_file_path = Column(String(500), nullable=False)

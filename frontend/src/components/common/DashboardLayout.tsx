@@ -1,7 +1,7 @@
 'use client';
 
 import { Box, NavLink } from '@mantine/core';
-import { IconLayoutDashboard, IconCode, IconDatabase, IconUsers } from '@tabler/icons-react';
+import { IconLayoutDashboard, IconCode, IconDatabase, IconUsers, IconListDetails, IconClipboardList } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -33,6 +33,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               onClick={() => router.push('/admin')}
             />
             <NavLink
+              label="Problems"
+              leftSection={<IconListDetails size={16} />}
+              active={pathname === '/admin/problems' || pathname.startsWith('/admin/problems/')}
+              onClick={() => router.push('/admin/problems')}
+            />
+            <NavLink
               label="Manage Questions"
               leftSection={<IconCode size={16} />}
               active={pathname === '/admin/questions'}
@@ -43,6 +49,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               leftSection={<IconDatabase size={16} />}
               active={pathname === '/admin/labs'}
               onClick={() => router.push('/admin/labs')}
+            />
+            <NavLink
+              label="Assessments"
+              leftSection={<IconClipboardList size={16} />}
+              active={pathname === '/admin/assessments' || pathname.startsWith('/admin/assessments/')}
+              onClick={() => router.push('/admin/assessments')}
             />
             {isAdmin && (
               <NavLink
@@ -66,6 +78,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               leftSection={<IconDatabase size={16} />}
               active={pathname === '/student/labs'}
               onClick={() => router.push('/student/labs')}
+            />
+            <NavLink
+              label="Assessments"
+              leftSection={<IconClipboardList size={16} />}
+              active={pathname === '/student/assessments' || pathname.startsWith('/student/assessments/')}
+              onClick={() => router.push('/student/assessments')}
             />
           </>
         )}

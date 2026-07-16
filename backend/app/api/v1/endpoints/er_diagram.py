@@ -1044,6 +1044,7 @@ def _erd_conversation_payload(db: Session, conversation) -> dict[str, Any]:
         "ibl_stage": conversation.ibl_stage,
         "hint_level": conversation.hint_level,
         "last_submit_score": _json(conversation.last_submit_score),
+        "last_submit_report": _json(conversation.last_submit_report),
         "messages": [
             {
                 "id": m.id,

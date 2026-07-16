@@ -194,5 +194,6 @@ export interface ErdTutorConversationResponse {
   ibl_stage: string | null;
   hint_level: number | null;
   last_submit_score: { percent?: number; label?: string } | null;
+  last_submit_report?: ERSubmissionStructuredOutput | Record<string, unknown> | null;
   messages: ErdTutorTranscriptMessage[];
 }

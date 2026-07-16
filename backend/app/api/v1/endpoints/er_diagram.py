@@ -35,6 +35,7 @@ from app.services.er_grading import (
     _upload_file_to_dify,
     stream_er_submission_grading,
 )
+from app.services.erd_rubric import runner as erd_rubric_runner
 from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
@@ -700,6 +701,54 @@ def _to_response(question: ERDiagramQuestion, *, hide_rubric_when_disabled: bool
     )
 
 
+def _generate_rubric_payload(
+    *,
+    mode,
+    notation: str,
+    problem_statement: str,
+    refinement_instruction,
+    rubric_previous,
+    instruction_history,
+    model_answer,
+) -> dict:
+    """Dispatch rubric generation on settings.ERD_RUBRIC_ENGINE. Returns the
+    {difficulty, rubric_json, rubric_md, diff_summary} dict from either engine."""
+    if settings.ERD_RUBRIC_ENGINE == "langgraph":
+        image_bytes = None
+        if model_answer is not None:
+            try:
+                model_answer.file.seek(0)
+            except Exception:
+                pass
+            image_bytes = model_answer.file.read()
+        try:
+            return erd_rubric_runner.generate_rubric(
+                mode=mode,
+                notation=notation,
+                problem_statement=problem_statement,
+                refinement_instruction=refinement_instruction,
+                rubric_previous=rubric_previous,
+                instruction_history=instruction_history,
+                image_bytes=image_bytes,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # parity with the Dify path's 502 contract
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Rubric generation failed: {exc}",
+            ) from exc
+    return _call_dify_generate_rubric(
+        mode=mode,
+        notation=notation,
+        problem_statement=problem_statement,
+        refinement_instruction=refinement_instruction,
+        rubric_previous=rubric_previous,
+        instruction_history=instruction_history,
+        model_answer=model_answer,
+    )
+
+
 @router.post("/rubric/generate", response_model=GenerateRubricResponse)
 def generate_er_rubric(
     mode: GenerateRubricMode = Form(...),
@@ -774,7 +823,7 @@ def generate_er_rubric(
             detail="model_answer must be an image file",
         )
 
-    dify_payload = _call_dify_generate_rubric(
+    rubric_payload = _generate_rubric_payload(
         mode=mode,
         notation=notation,
         problem_statement=statement,
@@ -784,7 +833,7 @@ def generate_er_rubric(
         model_answer=model_answer,
     )
 
-    return GenerateRubricResponse(**dify_payload)
+    return GenerateRubricResponse(**rubric_payload)
 
 
 @router.post("/questions", response_model=ERDiagramQuestionResponse, status_code=status.HTTP_201_CREATED)

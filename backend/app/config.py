@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # ERD tutor engine selector: "dify" (legacy) | "langgraph" (new)
     ERD_TUTOR_ENGINE: str = "dify"
 
+    # ERD rubric-generation engine selector: "dify" (legacy) | "langgraph" (new)
+    ERD_RUBRIC_ENGINE: str = "dify"
+
     # Azure OpenAI (for the LangGraph ERD tutor)
     AZURE_OPENAI_ENDPOINT: Optional[str] = None
     AZURE_OPENAI_API_KEY: Optional[str] = None

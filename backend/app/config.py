@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     ER_AZURE_ACCOUNT_URL: Optional[str] = None
     ER_AZURE_ACCOUNT_KEY: Optional[str] = None
 
+    # ERD tutor engine selector: "dify" (legacy) | "langgraph" (new)
+    ERD_TUTOR_ENGINE: str = "dify"
+
+    # Azure OpenAI (for the LangGraph ERD tutor)
+    AZURE_OPENAI_ENDPOINT: Optional[str] = None
+    AZURE_OPENAI_API_KEY: Optional[str] = None
+    AZURE_OPENAI_API_VERSION: str = "2024-10-21"
+    AZURE_OPENAI_VISION_DEPLOYMENT: str = "gpt-5.4"
+    AZURE_OPENAI_GRADE_DEPLOYMENT: str = "gpt-5.4-mini"
+    AZURE_OPENAI_TUTOR_DEPLOYMENT: str = "gpt-5.4-nano"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

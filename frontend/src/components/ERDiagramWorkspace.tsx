@@ -20,7 +20,7 @@ import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
-import { ChatPanel } from "@/components/ChatPanel";
+import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import {
@@ -160,6 +160,39 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
   const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [initialDrawioXml] = useState(() => readDraftFromSessionStorage(question.id, labContext));
+  const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
+
+  // Restore the persisted tutor transcript (LangGraph engine) so the chat log
+  // survives reloads. Best-effort: no conversation yet / Dify engine / errors
+  // all leave the chat empty, exactly as before.
+  useEffect(() => {
+    let cancelled = false;
+    const ref = labContext
+      ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
+      : { question_id: question.id };
+    erDiagramService
+      .getConversation(ref)
+      .then((conversation) => {
+        if (cancelled || !conversation.exists) return;
+        const restored = conversation.messages
+          .filter((m) => typeof m.content === "string" && m.content.trim().length > 0)
+          .map((m) => ({
+            id: String(m.id),
+            role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+            content: (m.content as string).replace(/\\n/g, "\n"),
+          }));
+        if (restored.length > 0) setChatHistory(restored);
+      })
+      .catch(() => {
+        // Transcript restore is a nicety — never block the workspace on it.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Depend on primitives, not the labContext object identity, so a parent
+    // re-render can't retrigger the fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.id, labContext?.er_lab_id, labContext?.er_lab_question_id]);
   const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id" | "er_lab_id" | "er_lab_question_id"> =>
     labContext
       ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
@@ -437,6 +470,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
       injectedAssistantMessage={latestStudentMessage}
       disabled={submitLoading}
       onSendingChange={setChatSending}
+      historyMessages={chatHistory}
     />
   );
 

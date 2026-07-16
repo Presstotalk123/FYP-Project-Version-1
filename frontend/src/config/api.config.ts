@@ -28,6 +28,7 @@ export const API_ENDPOINTS = {
     QUESTIONS: '/er-diagram/questions',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
     SUBMISSION: '/er-diagram/submission',
+    CONVERSATION: '/er-diagram/conversation',
   },
   CHATBOT: {
     SEND: '/chatbot/send',

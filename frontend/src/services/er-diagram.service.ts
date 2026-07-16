@@ -6,6 +6,7 @@ import {
   ERSubmissionRequest,
   ERSubmissionResponse,
   ERSubmissionStreamEvent,
+  ErdTutorConversationResponse,
   GenerateRubricRequest,
   GenerateRubricResponse,
   SaveERQuestionRequest,
@@ -149,6 +150,16 @@ export const erDiagramService = {
 
   async deleteQuestion(id: number): Promise<void> {
     await api.delete(API_ENDPOINTS.ER_DIAGRAM.QUESTION_DETAIL(id));
+  },
+
+  async getConversation(
+    ref: { question_id: number } | { er_lab_id: number; er_lab_question_id: number },
+  ): Promise<ErdTutorConversationResponse> {
+    const response = await api.get<ErdTutorConversationResponse>(
+      API_ENDPOINTS.ER_DIAGRAM.CONVERSATION,
+      { params: ref },
+    );
+    return response.data;
   },
 
   async *submitStream(payload: ERSubmissionRequest): AsyncGenerator<ERSubmissionStreamEvent> {

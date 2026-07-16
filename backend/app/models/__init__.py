@@ -10,5 +10,7 @@ from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
+from app.models.erd_tutor_conversation import ErdTutorConversation
+from app.models.erd_tutor_message import ErdTutorMessage
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage"]

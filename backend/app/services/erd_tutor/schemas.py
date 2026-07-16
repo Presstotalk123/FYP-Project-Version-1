@@ -37,7 +37,7 @@ class SubmitResult(BaseModel):
     progress: dict
     ibl: dict
     student_message: str
-    checks: str  # JSON string of the final checks (matches DSL output)
+    checks: List[JudgeCheck]  # array of final checks, matching the Dify SSE contract
 
 # ---- Query state update — DSL node "Query State Updater" ----
 class QueryStateUpdate(BaseModel):

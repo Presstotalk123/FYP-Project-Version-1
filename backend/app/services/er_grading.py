@@ -25,6 +25,7 @@ from starlette.datastructures import Headers
 
 from app.config import settings
 from app.schemas.er_diagram import ERSubmissionStructuredOutput
+from app.services.erd_tutor import runner as erd_runner
 
 logger = logging.getLogger(__name__)
 
@@ -406,6 +407,77 @@ def _wrap_bytes_as_upload_file(
 
 
 def stream_er_submission_grading(
+    *,
+    question_id: int,
+    problem_statement: str,
+    difficulty_label: str,
+    rubric_json: str,
+    submission_xml_text: Optional[str],
+    student_query: Optional[str] = None,
+    erd_img: Optional[UploadFile] = None,
+    image_bytes: Optional[bytes] = None,
+    ibl_stage: str = "orientation",
+    hint_level: int = 1,
+    last_submit_report: Optional[dict[str, Any]] = None,
+) -> Iterator[str]:
+    """Stream Submit-mode grading as SSE, dispatching on the configured engine.
+
+    This is the canonical public entrypoint shared by the ER-diagram bank and
+    ER-lab submission paths. It selects the grading engine via
+    ``settings.ERD_TUTOR_ENGINE``:
+
+    * ``"langgraph"`` -> the local LangGraph engine
+      (``app.services.erd_tutor.runner.stream_er_submission_grading``). The
+      conversation-state kwargs ``ibl_stage`` / ``hint_level`` /
+      ``last_submit_report`` are forwarded to the runner.
+    * anything else (default ``"dify"``) -> the legacy hosted Dify path
+      (``_stream_er_submission_grading_dify``). The conversation-state kwargs
+      are accepted for signature compatibility but ignored, so existing callers
+      that don't supply them keep the exact legacy behavior.
+
+    The SSE event sequence (``start`` / ``structured_output`` / ``done`` /
+    ``error``) and the ``done`` payload shape are identical across engines so
+    downstream consumers (e.g. ``er_lab_submission_persistence``) work
+    unchanged.
+    """
+    if settings.ERD_TUTOR_ENGINE == "langgraph":
+        # The LangGraph runner consumes raw bytes, not UploadFile. Bank-mode
+        # callers pass only erd_img, so materialize the bytes here — otherwise
+        # the vision stage runs imageless and grades an empty diagram.
+        if image_bytes is None and erd_img is not None:
+            try:
+                erd_img.file.seek(0)
+            except Exception:
+                pass
+            image_bytes = erd_img.file.read()
+        return erd_runner.stream_er_submission_grading(
+            question_id=question_id,
+            problem_statement=problem_statement,
+            difficulty_label=difficulty_label,
+            rubric_json=rubric_json,
+            submission_xml_text=submission_xml_text,
+            student_query=student_query,
+            erd_img=erd_img,
+            image_bytes=image_bytes,
+            ibl_stage=ibl_stage,
+            hint_level=hint_level,
+            last_submit_report=last_submit_report,
+        )
+
+    # Legacy Dify path — ignores the conversation-state kwargs.
+    return _stream_er_submission_grading_dify(
+        question_id=question_id,
+        problem_statement=problem_statement,
+        difficulty_label=difficulty_label,
+        rubric_json=rubric_json,
+        submission_xml_text=submission_xml_text,
+        student_query=student_query,
+        erd_img=erd_img,
+        image_bytes=image_bytes,
+    )
+
+
+def _stream_er_submission_grading_dify(
     *,
     question_id: int,
     problem_statement: str,

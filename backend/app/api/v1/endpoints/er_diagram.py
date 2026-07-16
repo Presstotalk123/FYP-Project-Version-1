@@ -926,6 +926,194 @@ def get_er_question(
     return _to_response(question)
 
 
+def _stream_with_erd_tutor_state(
+    *,
+    stream,
+    db: Session,
+    conversation,
+    mode: str,
+    student_query: Optional[str] = None,
+):
+    """Wrap a LangGraph submit/query stream and, on the ``done`` event, persist
+    the updated ERD-tutor conversation state + transcript messages.
+
+    This is only used when ``ERD_TUTOR_ENGINE == "langgraph"``. It is a no-op
+    overlay on the SSE bytes (every chunk is forwarded verbatim, exactly like
+    ``stream_with_lab_persistence``); the persistence happens as a side effect
+    after the terminal event is observed. The legacy Dify path never reaches
+    here, so its behavior is unchanged.
+    """
+    from app.services.erd_tutor import persistence as erd_persistence
+
+    buffer = ""
+    done_payload: Optional[dict[str, Any]] = None
+    for chunk in stream:
+        yield chunk
+        buffer += chunk
+        while "\n\n" in buffer:
+            block, buffer = buffer.split("\n\n", 1)
+            event_name: Optional[str] = None
+            data_lines: list[str] = []
+            for line in block.splitlines():
+                if line.startswith("event:"):
+                    event_name = line.split(":", 1)[1].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line.split(":", 1)[1].strip())
+            if event_name == "done" and data_lines:
+                try:
+                    done_payload = json.loads("\n".join(data_lines))
+                except (json.JSONDecodeError, ValueError):
+                    done_payload = None
+
+    if done_payload is None:
+        # error / partial stream — leave conversation state untouched.
+        return
+
+    structured = done_payload.get("structured_output") or {}
+    try:
+        if mode == "Query":
+            upd = structured.get("state_update") or {}
+            next_stage = upd.get("next_ibl_stage") or conversation.ibl_stage
+            next_hint = upd.get("next_hint_level")
+            if not isinstance(next_hint, int):
+                next_hint = conversation.hint_level
+            erd_persistence.save_state(
+                db,
+                conversation,
+                ibl_stage=next_stage,
+                hint_level=next_hint,
+                misconceptions=upd.get("misconceptions") or [],
+                last_student_goal=str(upd.get("last_student_goal") or ""),
+                last_query_summary=str(upd.get("query_summary") or ""),
+            )
+            if student_query:
+                erd_persistence.append_message(
+                    db, conversation, role="user", mode="query", content=student_query,
+                )
+            erd_persistence.append_message(
+                db,
+                conversation,
+                role="assistant",
+                mode="query",
+                content=str(done_payload.get("text") or ""),
+            )
+        else:
+            ibl = structured.get("ibl") or {}
+            next_stage = ibl.get("next_stage") or conversation.ibl_stage
+            next_hint = ibl.get("next_hint_level")
+            if not isinstance(next_hint, int):
+                next_hint = conversation.hint_level
+            save_fields = dict(
+                ibl_stage=next_stage,
+                hint_level=next_hint,
+                last_submit_report=structured,
+                last_submit_score=structured.get("score") or {},
+            )
+            # Keep the canonical ERD for the query tutor. Only overwrite when the
+            # pipeline actually extracted something, so a failed parse doesn't
+            # clobber the last good model.
+            canonical = done_payload.get("canonical_erd") or {}
+            if canonical.get("entities") or canonical.get("relationships"):
+                save_fields["current_erd_model"] = canonical
+            erd_persistence.save_state(db, conversation, **save_fields)
+            erd_persistence.append_message(
+                db,
+                conversation,
+                role="submission",
+                mode="submit",
+                content=str(done_payload.get("text") or ""),
+            )
+    except Exception:  # never let persistence break the already-delivered stream
+        logger.exception("erd_tutor: failed to persist conversation state after %s", mode)
+
+
+def _erd_conversation_payload(db: Session, conversation) -> dict[str, Any]:
+    """Serialize an ERD-tutor conversation + transcript for the GET endpoint."""
+    from app.services.erd_tutor import persistence as erd_persistence
+
+    def _json(s):
+        try:
+            return json.loads(s) if s else None
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+    return {
+        "exists": True,
+        "conversation_id": conversation.id,
+        "context_type": conversation.context_type,
+        "ibl_stage": conversation.ibl_stage,
+        "hint_level": conversation.hint_level,
+        "last_submit_score": _json(conversation.last_submit_score),
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "mode": m.mode,
+                "content": m.content,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in erd_persistence.transcript(db, conversation)
+        ],
+    }
+
+
+_EMPTY_CONVERSATION: dict[str, Any] = {
+    "exists": False, "conversation_id": None, "context_type": None,
+    "ibl_stage": None, "hint_level": None, "last_submit_score": None, "messages": [],
+}
+
+
+@router.get("/conversation")
+def get_erd_tutor_conversation(
+    question_id: Optional[int] = None,
+    er_lab_id: Optional[int] = None,
+    er_lab_question_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch the current user's ERD-tutor transcript for a question.
+
+    Bank questions: pass ``question_id``. Lab questions: pass ``er_lab_id`` +
+    ``er_lab_question_id`` (uses the caller's active lab session). Read-only —
+    never creates a conversation. Returns ``exists: false`` with an empty
+    transcript when there is nothing yet (including on the Dify engine, which
+    records no conversations).
+    """
+    bank = question_id is not None
+    lab = er_lab_id is not None and er_lab_question_id is not None
+    if bank == lab:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Supply either question_id (bank) OR er_lab_id+er_lab_question_id (lab), not both.",
+        )
+
+    from app.services.erd_tutor import persistence as erd_persistence
+
+    if bank:
+        conv = erd_persistence.find_conversation(
+            db, user_id=current_user.id, context_type="standalone",
+            er_diagram_question_id=question_id,
+        )
+    else:
+        from app.models.er_lab_session import ErLabSession
+
+        session = db.query(ErLabSession).filter(
+            ErLabSession.er_lab_id == er_lab_id,
+            ErLabSession.user_id == current_user.id,
+            ErLabSession.is_active == 1,
+        ).first()
+        conv = None
+        if session is not None:
+            conv = erd_persistence.find_conversation(
+                db, user_id=current_user.id, context_type="lab",
+                er_lab_question_id=er_lab_question_id, session_id=session.id,
+            )
+
+    if conv is None:
+        return _EMPTY_CONVERSATION
+    return _erd_conversation_payload(db, conv)
+
+
 @router.post("/submission")
 def submit_er_diagram(
     question_id: Optional[int] = Form(None),
@@ -975,7 +1163,7 @@ def submit_er_diagram(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="erd_img must be an image file")
 
-    # ----- Bank mode: unchanged from today -----
+    # ----- Bank mode (Dify default unchanged; langgraph adds standalone state) -----
     if bank_mode:
         question = (
             db.query(ERDiagramQuestion)
@@ -984,13 +1172,76 @@ def submit_er_diagram(
         )
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        stream = _call_dify_er_submission(
-            question=question,
-            mode=mode,
-            student_query=query_text or None,
-            submission_xml_text=xml_text or None,
-            erd_img=erd_img,
-        )
+
+        # LangGraph engine: per-user standalone conversation so submits feed the
+        # query tutor (canonical ERD + last report) and stage/hint carry across turns.
+        erd_conversation = None
+        erd_ibl_stage, erd_hint_level = "orientation", 1
+        erd_last_submit_report: Optional[dict] = None
+        erd_current_erd_model: Optional[dict] = None
+        if settings.ERD_TUTOR_ENGINE == "langgraph":
+            from app.services.erd_tutor import persistence as erd_persistence
+
+            erd_conversation = erd_persistence.get_or_create_conversation(
+                db,
+                user_id=current_user.id,
+                context_type="standalone",
+                er_diagram_question_id=question.id,
+            )
+            _loaded = erd_persistence.loaded_state(erd_conversation)
+            erd_ibl_stage = _loaded["ibl_stage"]
+            erd_hint_level = _loaded["hint_level"]
+            erd_last_submit_report = _loaded["last_submit_report"]
+            erd_current_erd_model = _loaded["current_erd_model"]
+
+        if erd_conversation is not None and mode == "Query":
+            from app.services.erd_tutor import runner as erd_runner
+
+            image_bytes_q: Optional[bytes] = None
+            if erd_img is not None and erd_img.filename:
+                image_bytes_q = erd_img.file.read()
+            stream = erd_runner.stream_er_query(
+                question_id=question.id,
+                problem_statement=question.problem_statement,
+                difficulty_label=question.difficulty_label,
+                rubric_json=question.rubric_json,
+                student_query=query_text or "",
+                image_bytes=image_bytes_q,
+                ibl_stage=erd_ibl_stage,
+                hint_level=erd_hint_level,
+                current_erd_model=erd_current_erd_model,
+                last_submit_report=erd_last_submit_report,
+            )
+        elif erd_conversation is not None:  # Submit on langgraph, with carried state
+            stream = stream_er_submission_grading(
+                question_id=question.id,
+                problem_statement=question.problem_statement,
+                difficulty_label=question.difficulty_label,
+                rubric_json=question.rubric_json,
+                submission_xml_text=xml_text or None,
+                student_query=query_text or None,
+                erd_img=erd_img,
+                ibl_stage=erd_ibl_stage,
+                hint_level=erd_hint_level,
+                last_submit_report=erd_last_submit_report,
+            )
+        else:
+            stream = _call_dify_er_submission(
+                question=question,
+                mode=mode,
+                student_query=query_text or None,
+                submission_xml_text=xml_text or None,
+                erd_img=erd_img,
+            )
+
+        if erd_conversation is not None:
+            stream = _stream_with_erd_tutor_state(
+                stream=stream,
+                db=db,
+                conversation=erd_conversation,
+                mode=mode,
+                student_query=query_text or "",
+            )
         return StreamingResponse(
             stream,
             media_type="text/event-stream",
@@ -1003,7 +1254,10 @@ def submit_er_diagram(
     from app.models.er_lab_session import ErLabSession
     from app.services.er_lab_submission_persistence import stream_with_lab_persistence
     from app.utils.er_storage import get_er_storage_provider
-    from app.services.er_grading import stream_er_submission_grading, _wrap_bytes_as_upload_file
+    # NOTE: stream_er_submission_grading is the module-level import — do NOT
+    # re-import it locally here: a function-local import makes the name local to
+    # the whole function and breaks the bank branch above (UnboundLocalError).
+    from app.services.er_grading import _wrap_bytes_as_upload_file
 
     lab = db.query(ErLab).filter(ErLab.id == er_lab_id, ErLab.is_deleted == 0).first()
     if not lab:
@@ -1033,11 +1287,37 @@ def submit_er_diagram(
 
     image_key: Optional[str] = None
     image_bytes: Optional[bytes] = None
-    if mode == "Submit" and erd_img is not None and erd_img.filename:
+    if erd_img is not None and erd_img.filename:
         image_bytes = erd_img.file.read()
-        provider = get_er_storage_provider()
-        wrapped_for_save = _wrap_bytes_as_upload_file(image_bytes, filename=(erd_img.filename or "submission.png"))
-        image_key, _path = provider.save(wrapped_for_save)
+        if mode == "Submit":
+            provider = get_er_storage_provider()
+            wrapped_for_save = _wrap_bytes_as_upload_file(image_bytes, filename=(erd_img.filename or "submission.png"))
+            image_key, _path = provider.save(wrapped_for_save)
+
+    # ERD-tutor conversation state (LangGraph engine only). On the default Dify
+    # engine this stays None so the legacy flow is byte-for-byte unchanged: no
+    # erd_tutor_conversations row is created and the carried-state kwargs keep
+    # their defaults (which the Dify adapter ignores).
+    erd_conversation = None
+    erd_ibl_stage = "orientation"
+    erd_hint_level = 1
+    erd_last_submit_report: Optional[dict] = None
+    erd_current_erd_model: Optional[dict] = None
+    if session is not None and settings.ERD_TUTOR_ENGINE == "langgraph":
+        from app.services.erd_tutor import persistence as erd_persistence
+
+        erd_conversation = erd_persistence.get_or_create_conversation(
+            db,
+            user_id=current_user.id,
+            context_type="lab",
+            er_lab_question_id=er_lab_question_id,
+            session_id=session.id,
+        )
+        _loaded = erd_persistence.loaded_state(erd_conversation)
+        erd_ibl_stage = _loaded["ibl_stage"]
+        erd_hint_level = _loaded["hint_level"]
+        erd_last_submit_report = _loaded["last_submit_report"]
+        erd_current_erd_model = _loaded["current_erd_model"]
 
     if mode == "Submit":
         grading_stream = stream_er_submission_grading(
@@ -1049,6 +1329,27 @@ def submit_er_diagram(
             student_query=query_text or None,
             erd_img=None,
             image_bytes=image_bytes,
+            ibl_stage=erd_ibl_stage,
+            hint_level=erd_hint_level,
+            last_submit_report=erd_last_submit_report,
+        )
+    elif erd_conversation is not None:
+        # Query mode on the LangGraph engine: run the local tutor graph with the
+        # carried conversation state (Dify never saw this state — it was called
+        # one-shot, so every query ran at orientation/1).
+        from app.services.erd_tutor import runner as erd_runner
+
+        grading_stream = erd_runner.stream_er_query(
+            question_id=er_lab_question.id,
+            problem_statement=er_lab_question.problem_statement,
+            difficulty_label=er_lab_question.difficulty_label,
+            rubric_json=er_lab_question.rubric_json,
+            student_query=query_text or "",
+            image_bytes=image_bytes,
+            ibl_stage=erd_ibl_stage,
+            hint_level=erd_hint_level,
+            current_erd_model=erd_current_erd_model,
+            last_submit_report=erd_last_submit_report,
         )
     else:
         # Query mode in lab — reuse the existing er_diagram.py helper which handles both modes.
@@ -1073,9 +1374,28 @@ def submit_er_diagram(
             submitted_xml=xml_text or None,
             submitted_image_storage_key=image_key,
         )
+        # LangGraph engine only: overlay conversation-state persistence on top of
+        # the (unchanged) er_lab_submissions persistence. Both run lazily inside
+        # the StreamingResponse using the request-scoped db session.
+        if erd_conversation is not None:
+            wrapped_stream = _stream_with_erd_tutor_state(
+                stream=wrapped_stream,
+                db=db,
+                conversation=erd_conversation,
+                mode=mode,
+            )
     else:
-        # Query mode (no persistence) or staff with no session (still no persistence)
+        # Query mode or staff with no session. On the LangGraph engine, query
+        # turns still persist conversation state (stage/hint/misconceptions).
         wrapped_stream = grading_stream
+        if erd_conversation is not None and mode == "Query":
+            wrapped_stream = _stream_with_erd_tutor_state(
+                stream=wrapped_stream,
+                db=db,
+                conversation=erd_conversation,
+                mode=mode,
+                student_query=query_text or "",
+            )
 
     return StreamingResponse(
         wrapped_stream,

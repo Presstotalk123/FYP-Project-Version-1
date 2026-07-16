@@ -178,3 +178,21 @@ export type ERSubmissionStreamEvent =
   | ERSubmissionStreamStructuredOutputEvent
   | ERSubmissionStreamDoneEvent
   | ERSubmissionStreamErrorEvent;
+
+export interface ErdTutorTranscriptMessage {
+  id: number;
+  role: "user" | "assistant" | "submission";
+  mode: "query" | "submit";
+  content: string | null;
+  created_at: string | null;
+}
+
+export interface ErdTutorConversationResponse {
+  exists: boolean;
+  conversation_id: number | null;
+  context_type: "standalone" | "lab" | null;
+  ibl_stage: string | null;
+  hint_level: number | null;
+  last_submit_score: { percent?: number; label?: string } | null;
+  messages: ErdTutorTranscriptMessage[];
+}

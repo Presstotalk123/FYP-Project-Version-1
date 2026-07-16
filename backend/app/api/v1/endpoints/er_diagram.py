@@ -40,6 +40,7 @@ from app.utils.er_storage import get_er_storage_provider
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
 MAX_ER_XML_CHARS = 500_000
+MAX_ER_DESC_CHARS = 5_000
 RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
 SHOW_RUBRIC_ON_ATTEMPT_KEY = "show_rubric_on_attempt"
 
@@ -933,6 +934,7 @@ def _stream_with_erd_tutor_state(
     conversation,
     mode: str,
     student_query: Optional[str] = None,
+    submission_description: Optional[str] = None,
 ):
     """Wrap a LangGraph submit/query stream and, on the ``done`` event, persist
     the updated ERD-tutor conversation state + transcript messages.
@@ -1016,6 +1018,14 @@ def _stream_with_erd_tutor_state(
             if canonical.get("entities") or canonical.get("relationships"):
                 save_fields["current_erd_model"] = canonical
             erd_persistence.save_state(db, conversation, **save_fields)
+            if (submission_description or "").strip():
+                erd_persistence.append_message(
+                    db,
+                    conversation,
+                    role="user",
+                    mode="submit",
+                    content=submission_description.strip(),
+                )
             erd_persistence.append_message(
                 db,
                 conversation,
@@ -1121,6 +1131,7 @@ def submit_er_diagram(
     mode: ERSubmissionMode = Form(...),
     student_query: Optional[str] = Form(None),
     submission_xml_text: Optional[str] = Form(None),
+    submission_description: Optional[str] = Form(None),
     erd_img: Optional[UploadFile] = File(None),
     er_lab_id: Optional[int] = Form(None),
     er_lab_question_id: Optional[int] = Form(None),
@@ -1148,6 +1159,12 @@ def submit_er_diagram(
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"submission_xml_text exceeds maximum length of {MAX_ER_XML_CHARS} characters",
+        )
+    desc_text = submission_description.strip() if isinstance(submission_description, str) else ""
+    if len(desc_text) > MAX_ER_DESC_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"submission_description exceeds maximum length of {MAX_ER_DESC_CHARS} characters",
         )
     if mode == "Query":
         if not query_text:
@@ -1225,6 +1242,7 @@ def submit_er_diagram(
                 ibl_stage=erd_ibl_stage,
                 hint_level=erd_hint_level,
                 last_submit_report=erd_last_submit_report,
+                submission_description=desc_text or None,
             )
         else:
             stream = _call_dify_er_submission(
@@ -1242,6 +1260,7 @@ def submit_er_diagram(
                 conversation=erd_conversation,
                 mode=mode,
                 student_query=query_text or "",
+                submission_description=desc_text or None,
             )
         return StreamingResponse(
             stream,
@@ -1333,6 +1352,7 @@ def submit_er_diagram(
             ibl_stage=erd_ibl_stage,
             hint_level=erd_hint_level,
             last_submit_report=erd_last_submit_report,
+            submission_description=desc_text or None,
         )
     elif erd_conversation is not None:
         # Query mode on the LangGraph engine: run the local tutor graph with the
@@ -1384,6 +1404,7 @@ def submit_er_diagram(
                 db=db,
                 conversation=erd_conversation,
                 mode=mode,
+                submission_description=desc_text or None,
             )
     else:
         # Query mode or staff with no session. On the LangGraph engine, query

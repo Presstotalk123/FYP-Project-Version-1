@@ -126,6 +126,7 @@ export interface ERSubmissionRequest {
   mode: ERSubmissionMode;
   student_query?: string | null;
   submission_xml_text?: string | null;
+  submission_description?: string | null;
   erd_img?: File | null;
   er_lab_id?: number;
   er_lab_question_id?: number;

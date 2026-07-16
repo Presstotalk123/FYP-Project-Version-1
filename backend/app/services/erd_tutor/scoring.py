@@ -75,5 +75,9 @@ def compute_grade(judge_result: dict, rubric: dict, prev: dict) -> dict:
         "top_issues": top_issues, "failed_must_checks": failed_must,
         "progress": {"improvements": improvements[:5], "regressions": regressions[:5]},
         "ibl": judge.get("ibl", {}), "student_message": judge.get("student_message", ""),
-        "checks": json.dumps(final_checks, separators=(",", ":")),
+        # checks is an ARRAY, matching the Dify engine's over-the-wire contract
+        # (app.schemas.er_diagram.ERSubmissionStructuredOutput.checks: list[...])
+        # and the frontend rubric matcher. Emitting a JSON string here made the
+        # frontend iterate characters, so every rubric item showed "Not evaluated".
+        "checks": final_checks,
     }

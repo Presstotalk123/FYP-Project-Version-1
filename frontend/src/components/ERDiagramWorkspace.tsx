@@ -182,6 +182,14 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
             content: (m.content as string).replace(/\\n/g, "\n"),
           }));
         if (restored.length > 0) setChatHistory(restored);
+        const restoredResult = extractSubmissionPayload(conversation.last_submit_report);
+        if (restoredResult) {
+          setLatestStructuredOutput(restoredResult);
+          setHasSubmittedAttempt(true);
+          if (restoredResult.student_message?.trim()) {
+            setLatestStudentMessage(restoredResult.student_message.trim());
+          }
+        }
       })
       .catch(() => {
         // Transcript restore is a nicety — never block the workspace on it.

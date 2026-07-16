@@ -180,6 +180,9 @@ export const erDiagramService = {
     if (payload.submission_xml_text?.trim()) {
       formData.append("submission_xml_text", payload.submission_xml_text.trim());
     }
+    if (payload.submission_description?.trim()) {
+      formData.append("submission_description", payload.submission_description.trim());
+    }
     if (payload.erd_img) {
       formData.append("erd_img", payload.erd_img);
     }

@@ -30,6 +30,10 @@ def _image_block(image_b64):
 
 def observe_node(state: dict) -> dict:
     user = [{"type": "text", "text": prompts.OBSERVE_USER.format(problem_statement=state["problem_statement"])}]
+    description = (state.get("submission_description") or "").strip()
+    if description:
+        user.append({"type": "text",
+                     "text": prompts.OBSERVE_DESCRIPTION_BLOCK.format(submission_description=description)})
     if state.get("image_b64"):
         user.append(_image_block(state["image_b64"]))
     llm = make_llm("observe").with_structured_output(ObservationJSON)

@@ -419,6 +419,7 @@ def stream_er_submission_grading(
     ibl_stage: str = "orientation",
     hint_level: int = 1,
     last_submit_report: Optional[dict[str, Any]] = None,
+    submission_description: Optional[str] = None,
 ) -> Iterator[str]:
     """Stream Submit-mode grading as SSE, dispatching on the configured engine.
 
@@ -462,6 +463,7 @@ def stream_er_submission_grading(
             ibl_stage=ibl_stage,
             hint_level=hint_level,
             last_submit_report=last_submit_report,
+            submission_description=submission_description,
         )
 
     # Legacy Dify path — ignores the conversation-state kwargs.

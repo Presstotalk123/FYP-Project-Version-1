@@ -40,6 +40,7 @@ Your role is observation only.
 INPUTS
 - Problem_Statement: provided in the user message
 - Student ER diagram image: attached to the user message
+- Student_Description (optional): the student's own words describing the submission, provided in the user message only when present. It is disambiguation support only and never overrides what is visibly drawn.
 
 GOAL
 Produce a structured observation JSON that records:
@@ -361,6 +362,23 @@ Problem statement:
 {problem_statement}
 
 Return only valid JSON in the required final schema."""
+
+
+# Supplementary, appended to the OBSERVE user message only when the student
+# provided a description. Kept separate from OBSERVE_USER (a verbatim DSL port)
+# to avoid reformatting the ported prompt.
+OBSERVE_DESCRIPTION_BLOCK = """Student_Description (supplementary, optional):
+The student's own words describing what they drew. Use this ONLY to disambiguate
+marks that are visibly present in the image but ambiguous (which line is a
+relationship, which attribute is a key, cardinality or participation direction).
+The image remains the sole source of truth. Do NOT add, upgrade, or infer any
+entity, relationship, attribute, cardinality, or participation that is not
+visibly drawn, no matter what the description claims. If the description
+conflicts with the image, trust the image and record the discrepancy in
+uncertain_items.
+
+Student_Description:
+{submission_description}"""
 
 
 # ============================================================================

@@ -21,6 +21,9 @@ import json
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.services.erd_tutor.llm import make_llm
 from app.services.erd_tutor import prompts
+# Only tutor_system and grade_system are admin-editable (see
+# prompt_store.PROMPT_REGISTRY); the other nodes use prompts.* directly.
+from app.services.erd_tutor.prompt_store import get_prompt
 from app.services.erd_tutor.schemas import ObservationJSON, CanonicalERD, JudgeResult, QueryStateUpdate
 
 
@@ -56,7 +59,7 @@ def grade_node(state: dict) -> dict:
         last_submit_report=json.dumps(state.get("last_submit_report", {}), ensure_ascii=False),
         ibl_stage=state["ibl_stage"], hint_level=state["hint_level"])
     llm = make_llm("grade").with_structured_output(JudgeResult)
-    judge = llm.invoke([SystemMessage(prompts.GRADE_SYSTEM), HumanMessage(msg)])
+    judge = llm.invoke([SystemMessage(get_prompt("grade_system")), HumanMessage(msg)])
     return {"judge": judge.model_dump()}
 
 
@@ -75,7 +78,7 @@ def tutor_node(state: dict) -> dict:
         ibl_stage=state["ibl_stage"], hint_level=state["hint_level"])}]
     if state.get("image_b64"):
         user.append(_image_block(state["image_b64"]))
-    resp = make_llm("tutor").invoke([SystemMessage(prompts.TUTOR_SYSTEM), HumanMessage(content=user)])
+    resp = make_llm("tutor").invoke([SystemMessage(get_prompt("tutor_system")), HumanMessage(content=user)])
     return {"tutor_text": resp.content}
 
 

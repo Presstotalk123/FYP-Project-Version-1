@@ -12,5 +12,6 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
+from app.models.erd_prompt_version import ErdPromptVersion
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion"]

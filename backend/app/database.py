@@ -17,7 +17,7 @@ else:
     # SQLite configuration
     engine = create_engine(
         settings.DATABASE_URL,
-        connect_args={"check_same_thread": False}
+        connect_args={"check_same_thread": False, "timeout": 15}
     )
 
 # Create SessionLocal class

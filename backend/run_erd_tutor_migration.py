@@ -11,13 +11,14 @@ from app.config import settings
 from app.database import Base
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
+from app.models.erd_prompt_version import ErdPromptVersion
 
 
 def main():
     engine = create_engine(settings.DATABASE_URL)
     Base.metadata.create_all(
         engine,
-        tables=[ErdTutorConversation.__table__, ErdTutorMessage.__table__],
+        tables=[ErdTutorConversation.__table__, ErdTutorMessage.__table__, ErdPromptVersion.__table__],
     )
     print("erd_tutor migration applied to", settings.DATABASE_URL)
 

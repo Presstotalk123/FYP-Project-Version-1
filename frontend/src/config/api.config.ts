@@ -30,6 +30,13 @@ export const API_ENDPOINTS = {
     SUBMISSION: '/er-diagram/submission',
     CONVERSATION: '/er-diagram/conversation',
   },
+  ERD_PROMPTS: {
+    LIST: '/erd-prompts',
+    DETAIL: (key: string) => `/erd-prompts/${key}`,
+    VERSIONS: (key: string) => `/erd-prompts/${key}/versions`,
+    ACTIVATE: (key: string, versionNo: number) => `/erd-prompts/${key}/versions/${versionNo}/activate`,
+    OVERRIDE: (key: string) => `/erd-prompts/${key}/override`,
+  },
   CHATBOT: {
     SEND: '/chatbot/send',
     QUERY_REVIEW: '/chatbot/query-review',

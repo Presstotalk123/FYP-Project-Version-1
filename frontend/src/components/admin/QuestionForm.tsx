@@ -75,9 +75,8 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         difficulty: difficulty as Difficulty,
         schema_sql: schemaSql,
         sample_data_sql: sampleDataSql,
+        correct_answer_query: correctAnswerQuery,
       };
-
-      payload.correct_answer_query = correctAnswerQuery;
 
       if (isEdit && question) {
         // Update existing question

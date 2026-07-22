@@ -111,6 +111,7 @@ export function LabResultsPanel({
     : false;
 
   const tasksWithAnswers = tasks.filter(task => task.has_answer);
+  const hasVisibleResultRows = result?.success === true && result.results.length > 0;
 
   const tabs = [
     { id: 'results', label: 'Results' },
@@ -158,15 +159,16 @@ export function LabResultsPanel({
 
               {/* Assign to Task (Staff) */}
               {isStaffMode && !reviewMode && result.success && (
-                <div className="card" style={{ padding: 12, background: 'var(--surface-brand)' }}>
-                  <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Assign to Task
-                  </p>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <p style={{ margin: 0, fontSize: 12, color: 'var(--brand-charcoal)' }}>
-                      Assign this query result as the correct answer for a task
+                hasVisibleResultRows ? (
+                  <div className="card" style={{ padding: 12, background: 'var(--surface-brand)' }}>
+                    <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Assign to Task
                     </p>
-                    {tasks.length === 0 ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <p style={{ margin: 0, fontSize: 12, color: 'var(--brand-charcoal)' }}>
+                        Assign this query result as the correct answer for a task
+                      </p>
+                      {tasks.length === 0 ? (
                       <div className="da-alert alert-info" style={{ fontSize: 12 }}>
                         No tasks exist yet. Create a task in the Tasks tab first.
                       </div>
@@ -200,9 +202,16 @@ export function LabResultsPanel({
                           {isAssigning ? 'Assigning…' : selectedTaskHasAnswer ? 'Update Answer' : 'Assign Answer'}
                         </button>
                       </>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="card" style={{ padding: 12, background: 'var(--surface-brand)' }}>
+                    <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                      This query must return at least one visible row before it can be assigned to a Task.
+                    </div>
+                  </div>
+                )
               )}
 
               {/* Submit to Task (Student) */}

@@ -24,6 +24,15 @@ from app.core.answer_validator import generate_hash
 router = APIRouter(prefix="/questions", tags=["questions"])
 
 
+def _require_answer_rows(results) -> None:
+    """Reject model-answer queries that do not produce any rows."""
+    if not results:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The correct answer query must return at least one row."
+        )
+
+
 @router.post("", response_model=QuestionResponse, status_code=status.HTTP_201_CREATED)
 def create_question(
     question_data: QuestionCreate,
@@ -58,6 +67,11 @@ def create_question(
             db_path,
             question_data.correct_answer_query
         )
+        try:
+            _require_answer_rows(results)
+        except HTTPException:
+            delete_question_database(db_filename)
+            raise
 
         # Generate hash from correct answer
         correct_hash = generate_hash(results, columns)
@@ -81,6 +95,9 @@ def create_question(
 
         return new_question
 
+    except HTTPException:
+        db.rollback()
+        raise
     except SQLValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -239,9 +256,6 @@ def update_question(
                     detail="A correct answer query is required when regenerating a legacy question."
                 )
 
-            # Delete old database file
-            delete_question_database(question.db_file_path)
-
             # Generate new SQLite database
             db_filename, db_path = create_sqlite_from_sql(
                 schema_sql,
@@ -251,7 +265,15 @@ def update_question(
 
             # Execute correct answer query to generate new hash
             columns, results = execute_query_on_database(db_path, correct_answer_query)
+            try:
+                _require_answer_rows(results)
+            except HTTPException:
+                delete_question_database(db_filename)
+                raise
             correct_hash = generate_hash(results, columns)
+
+            # Only replace the existing database after the new answer has been validated.
+            delete_question_database(question.db_file_path)
 
             # Update database-related fields
             question.schema_sql = schema_sql

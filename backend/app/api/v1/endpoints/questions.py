@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.question import Question, Difficulty
 from app.schemas.question import (
     QuestionCreate,
@@ -69,6 +69,7 @@ def create_question(
             difficulty=question_data.difficulty,
             schema_sql=question_data.schema_sql,
             sample_data_sql=question_data.sample_data_sql,
+            correct_answer_query=question_data.correct_answer_query,
             db_file_path=db_filename,
             correct_answer_hash=correct_hash,
             created_by=current_user.id
@@ -172,7 +173,12 @@ def get_question(
             detail="Question not found"
         )
 
-    return question
+    # Students need the database setup, but must never receive the model answer.
+    question_detail = QuestionDetail.model_validate(question)
+    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN}:
+        question_detail.correct_answer_query = None
+
+    return question_detail
 
 
 @router.put("/{question_id}", response_model=QuestionResponse)
@@ -219,9 +225,19 @@ def update_question(
 
         if sql_changed:
             # Use existing values if not provided
-            schema_sql = question_data.schema_sql or question.schema_sql
-            sample_data_sql = question_data.sample_data_sql or question.sample_data_sql
-            correct_answer_query = question_data.correct_answer_query or question.correct_answer_query
+            schema_sql = question_data.schema_sql if question_data.schema_sql is not None else question.schema_sql
+            sample_data_sql = question_data.sample_data_sql if question_data.sample_data_sql is not None else question.sample_data_sql
+            correct_answer_query = (
+                question_data.correct_answer_query
+                if question_data.correct_answer_query is not None
+                else question.correct_answer_query
+            )
+
+            if not correct_answer_query:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A correct answer query is required when regenerating a legacy question."
+                )
 
             # Delete old database file
             delete_question_database(question.db_file_path)
@@ -240,6 +256,7 @@ def update_question(
             # Update database-related fields
             question.schema_sql = schema_sql
             question.sample_data_sql = sample_data_sql
+            question.correct_answer_query = correct_answer_query
             question.db_file_path = db_filename
             question.correct_answer_hash = correct_hash
 
@@ -268,6 +285,9 @@ def update_question(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Database generation error: {str(e)}"
         )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(

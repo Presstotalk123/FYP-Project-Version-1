@@ -18,6 +18,7 @@ export interface QuestionDetail extends Question {
   schema_sql: string;
   sample_data_sql: string;
   db_file_path: string;
+  correct_answer_query?: string | null;
 }
 
 export interface QuestionCreate {

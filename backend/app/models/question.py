@@ -26,6 +26,10 @@ class Question(Base):
     # Hash of the correct answer
     correct_answer_hash = Column(String(64), nullable=False)
 
+    # Original answer query, retained so staff can review and edit it later.
+    # Nullable for questions created before this field was introduced.
+    correct_answer_query = Column(Text, nullable=True)
+
     # SQL statements for reference and editing
     schema_sql = Column(Text, nullable=False)
     sample_data_sql = Column(Text, nullable=False)

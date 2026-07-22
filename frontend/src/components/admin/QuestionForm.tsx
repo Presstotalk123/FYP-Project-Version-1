@@ -35,7 +35,7 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
   const [difficulty, setDifficulty] = useState<string>(question?.difficulty || 'easy');
   const [schemaSql, setSchemaSql] = useState(question?.schema_sql || '');
   const [sampleDataSql, setSampleDataSql] = useState(question?.sample_data_sql || '');
-  const [correctAnswerQuery, setCorrectAnswerQuery] = useState('');
+  const [correctAnswerQuery, setCorrectAnswerQuery] = useState(question?.correct_answer_query || '');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +60,8 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
       setError('Sample Data SQL is required');
       return;
     }
-    if (!isEdit && !correctAnswerQuery.trim()) {
-      setError('Correct Answer Query is required for new questions');
+    if (!correctAnswerQuery.trim()) {
+      setError('Correct Answer Query is required');
       return;
     }
 
@@ -69,7 +69,7 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
     setError(null);
 
     try {
-      const payload: any = {
+      const payload = {
         title,
         description,
         difficulty: difficulty as Difficulty,
@@ -77,10 +77,7 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         sample_data_sql: sampleDataSql,
       };
 
-      // Only include correct_answer_query for new questions
-      if (!isEdit) {
-        payload.correct_answer_query = correctAnswerQuery;
-      }
+      payload.correct_answer_query = correctAnswerQuery;
 
       if (isEdit && question) {
         // Update existing question
@@ -195,26 +192,24 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
           </div>
         </div>
 
-        {!isEdit && (
-          <div>
-            <Title order={5} mb="xs">Correct Answer Query</Title>
-            <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
-              <Editor
-                height="150px"
-                language="sql"
-                theme="vs-dark"
-                value={correctAnswerQuery}
-                onChange={(value) => setCorrectAnswerQuery(value || '')}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  lineNumbers: 'on',
-                  scrollBeyondLastLine: false,
-                }}
-              />
-            </div>
+        <div>
+          <Title order={5} mb="xs">Correct Answer Query</Title>
+          <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
+            <Editor
+              height="150px"
+              language="sql"
+              theme="vs-dark"
+              value={correctAnswerQuery}
+              onChange={(value) => setCorrectAnswerQuery(value || '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+              }}
+            />
           </div>
-        )}
+        </div>
 
         <Group justify="flex-end" mt="md">
           <Button

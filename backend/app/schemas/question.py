@@ -25,7 +25,7 @@ class QuestionUpdate(BaseModel):
     difficulty: Optional[Difficulty] = None
     schema_sql: Optional[str] = None
     sample_data_sql: Optional[str] = None
-    correct_answer_query: Optional[str] = None
+    correct_answer_query: Optional[str] = Field(None, min_length=1)
 
 
 class QuestionResponse(QuestionBase):
@@ -44,6 +44,8 @@ class QuestionDetail(QuestionResponse):
     schema_sql: str
     sample_data_sql: str
     db_file_path: str
+    # Only supplied to staff/admin users by the detail endpoint.
+    correct_answer_query: Optional[str] = None
 
     class Config:
         from_attributes = True

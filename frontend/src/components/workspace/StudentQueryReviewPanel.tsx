@@ -1,24 +1,23 @@
 'use client';
 
-import {
-  Stack,
-  Button,
-  Card,
-  Text,
-  Badge,
-  Group,
-  ScrollArea,
-  Alert,
-  Code,
-  Loader,
-} from '@mantine/core';
-import {
-  IconPlayerPlay,
-  IconCheck,
-  IconAlertCircle,
-  IconInfoCircle,
-} from '@tabler/icons-react';
 import { LabQueryHistoryResponse } from '@/types/lab.types';
+
+/* ── SVG icons ── */
+const IconPlay = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polygon points="5 3 19 12 5 21 5 3"/>
+  </svg>
+);
+const IconCheck = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const IconInfo = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+);
 
 interface StudentQueryReviewPanelProps {
   queries: LabQueryHistoryResponse[];
@@ -41,150 +40,117 @@ export function StudentQueryReviewPanel({
 }: StudentQueryReviewPanelProps) {
   if (isLoading) {
     return (
-      <Stack align="center" justify="center" p="md" style={{ minHeight: '200px' }}>
-        <Loader size="sm" />
-        <Text c="dimmed">Loading student query history...</Text>
-      </Stack>
+      <div className="loading-center" style={{ minHeight: 200 }}>
+        <div className="spinner" style={{ width: 20, height: 20 }} />
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading student query history…</span>
+      </div>
     );
   }
 
   if (queries.length === 0) {
     return (
-      <Alert color="blue" icon={<IconAlertCircle size={16} />} m="md">
-        This student has no query history for this lab.
-      </Alert>
+      <div style={{ padding: 16 }}>
+        <div className="da-alert alert-info">
+          <strong>No History</strong>
+          <span>This student has no query history for this lab.</span>
+        </div>
+      </div>
     );
   }
 
   const hasNextQuery = currentIndex < queries.length;
 
   return (
-    <Stack gap="md" p="md" style={{ height: '100%' }}>
-      {/* Header with Execute Next button */}
-      <Card withBorder padding="md" style={{ backgroundColor: 'var(--mantine-color-violet-0)' }}>
-        <Stack gap="sm">
-          <Group justify="space-between">
-            <Text fw={500}>Query History Review</Text>
-            <Badge>{queries.length} queries total</Badge>
-          </Group>
-          <Button
-            leftSection={<IconPlayerPlay size={16} />}
-            onClick={onExecuteNext}
-            disabled={!hasNextQuery}
-            fullWidth
-            color="violet"
-          >
-            Execute Next Query ({currentIndex + 1}/{queries.length})
-          </Button>
-          <Alert icon={<IconInfoCircle size={14} />} color="violet" p="xs">
-            <Text size="xs">
-              Queries are executed sequentially to recreate the student&apos;s database
-              progression. Click a query to view it, or use &quot;Execute Next&quot; to
-              step through chronologically.
-            </Text>
-          </Alert>
-        </Stack>
-      </Card>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, gap: 10 }}>
+      {/* Header card */}
+      <div className="card" style={{ padding: 12, background: 'var(--surface-brand)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Query History Review</span>
+          <span className="badge brand-badge">{queries.length} queries total</span>
+        </div>
 
-      {/* Query List */}
-      <ScrollArea style={{ flex: 1 }} type="auto">
-        <Stack gap="sm">
-          {queries.map((query, index) => {
-            const isExecuted = executedIndices.has(index);
-            const isCurrent = index === currentIndex;
-            const isPending = index > currentIndex;
+        <button
+          className="btn btn-brand"
+          style={{ width: '100%', justifyContent: 'center', minHeight: 34, opacity: !hasNextQuery ? 0.5 : 1 }}
+          onClick={onExecuteNext}
+          disabled={!hasNextQuery}
+        >
+          <IconPlay />
+          Execute Next Query ({currentIndex + 1}/{queries.length})
+        </button>
 
-            return (
-              <Card
-                key={query.id}
-                withBorder
-                padding="sm"
-                radius="md"
-                style={{
-                  cursor: 'pointer',
-                  borderColor: isCurrent
-                    ? 'var(--mantine-color-violet-6)'
-                    : undefined,
-                  borderWidth: isCurrent ? 2 : 1,
-                  opacity: isPending ? 0.6 : 1,
-                  transition: 'all 0.2s ease',
-                }}
-                onClick={() => onSelectQuery(index)}
-              >
-                <Stack gap="xs">
-                  <Group justify="space-between" wrap="nowrap">
-                    <Group gap="xs">
-                      <Badge size="sm" variant="light" color="gray">
-                        #{index + 1}
-                      </Badge>
-                      {isExecuted && (
-                        <Badge
-                          color="green"
-                          size="sm"
-                          leftSection={<IconCheck size={12} />}
-                        >
-                          Reviewed
-                        </Badge>
-                      )}
-                      {isCurrent && !isExecuted && (
-                        <Badge color="violet" size="sm">
-                          Current
-                        </Badge>
-                      )}
-                      {isPending && (
-                        <Badge color="gray" size="sm" variant="outline">
-                          Pending
-                        </Badge>
-                      )}
-                    </Group>
-                    <Badge color={query.success ? 'green' : 'red'} size="xs">
-                      {query.success ? 'Success' : 'Failed'}
-                    </Badge>
-                  </Group>
+        <div className="da-alert alert-info" style={{ marginTop: 8, fontSize: 12 }}>
+          <strong style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <IconInfo /> Instructions
+          </strong>
+          <span>
+            Queries are executed sequentially to recreate the student&apos;s database progression. Click a query to view it, or use &quot;Execute Next&quot; to step through chronologically.
+          </span>
+        </div>
+      </div>
 
-                  <Text size="xs" c="dimmed">
-                    {new Date(query.submitted_at).toLocaleString()}
-                  </Text>
+      {/* Query list */}
+      <div style={{ flex: 1, overflow: 'auto', display: 'grid', gap: 8, alignContent: 'start' }}>
+        {queries.map((query, index) => {
+          const isExecuted = executedIndices.has(index);
+          const isCurrent = index === currentIndex;
+          const isPending = index > currentIndex;
 
-                  <Code
-                    block
-                    style={{
-                      fontSize: '11px',
-                      maxHeight: '100px',
-                      overflow: 'auto',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {query.query.length > 200
-                      ? `${query.query.substring(0, 200)}...`
-                      : query.query}
-                  </Code>
+          return (
+            <div
+              key={query.id}
+              className="card"
+              style={{
+                padding: '10px 12px',
+                cursor: 'pointer',
+                borderColor: isCurrent ? 'var(--brand-lilac)' : undefined,
+                borderWidth: isCurrent ? 2 : 1,
+                opacity: isPending ? 0.6 : 1,
+                transition: 'all 0.15s ease',
+              }}
+              onClick={() => onSelectQuery(index)}
+            >
+              {/* Badge row */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  <span className="badge neutral">#{index + 1}</span>
+                  {isExecuted && <span className="badge badge-success"><IconCheck /> Reviewed</span>}
+                  {isCurrent && !isExecuted && <span className="badge brand-badge">Current</span>}
+                  {isPending && <span className="badge neutral">Pending</span>}
+                </div>
+                <span className={`badge ${query.success ? 'badge-success' : 'badge-danger'}`}>
+                  {query.success ? 'Success' : 'Failed'}
+                </span>
+              </div>
 
-                  {!query.success && query.error_message && (
-                    <Alert color="red" p="xs" style={{ fontSize: '11px' }}>
-                      {query.error_message}
-                    </Alert>
-                  )}
+              <p style={{ margin: '0 0 4px', fontSize: 11, color: 'var(--text-muted)' }}>
+                {new Date(query.submitted_at).toLocaleString()}
+              </p>
 
-                  {query.success && (
-                    <Group gap="xs">
-                      <Text size="xs" c="dimmed">
-                        {query.row_count} rows
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        •
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        {query.execution_time_ms.toFixed(2)}ms
-                      </Text>
-                    </Group>
-                  )}
-                </Stack>
-              </Card>
-            );
-          })}
-        </Stack>
-      </ScrollArea>
-    </Stack>
+              <pre style={{
+                margin: 0, fontSize: 11, lineHeight: 1.5, maxHeight: 100, overflow: 'auto',
+                background: '#1e1e1e', color: '#d4d4d4',
+                padding: '6px 8px', borderRadius: 'var(--radius)',
+                fontFamily: 'var(--font-geist-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              }}>
+                {query.query.length > 200 ? `${query.query.substring(0, 200)}...` : query.query}
+              </pre>
+
+              {!query.success && query.error_message && (
+                <div className="da-alert alert-error" style={{ marginTop: 6, fontSize: 11 }}>
+                  {query.error_message}
+                </div>
+              )}
+
+              {query.success && (
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+                  {query.row_count} rows · {query.execution_time_ms.toFixed(2)}ms
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

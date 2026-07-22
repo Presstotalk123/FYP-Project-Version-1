@@ -2,26 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Title,
-  Button,
-  Stack,
-  Group,
-  Table,
-  Badge,
-  ActionIcon,
-  Loader,
-  Alert,
-  Text,
-  Modal,
-  ScrollArea,
-} from '@mantine/core';
-import {
-  IconPlus,
-  IconEdit,
-  IconTrash,
-  IconAlertCircle,
-} from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -31,15 +11,35 @@ import { questionService } from '@/services/question.service';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 
-const difficultyColors: Record<string, string> = {
-  easy: 'green',
-  medium: 'yellow',
-  hard: 'red',
+const difficultyClass: Record<string, string> = {
+  easy: 'easy',
+  medium: 'medium',
+  hard: 'hard',
 };
+
+/* ─── SVG icons ─── */
+const IconPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconEdit = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+const IconTrash = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6"/><path d="M14 11v6"/>
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
 
 export default function AdminQuestionsPage() {
   const router = useRouter();
-
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +47,7 @@ export default function AdminQuestionsPage() {
   const [questionToDelete, setQuestionToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    fetchQuestions();
-  }, []);
+  useEffect(() => { fetchQuestions(); }, []);
 
   const fetchQuestions = async () => {
     try {
@@ -58,8 +56,8 @@ export default function AdminQuestionsPage() {
       const data = await questionService.getQuestions();
       setQuestions(data);
     } catch (err) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Failed to load questions');
+      const e = err as { response?: { data?: { detail?: string } } };
+      setError(e.response?.data?.detail || 'Failed to load questions');
     } finally {
       setLoading(false);
     }
@@ -67,25 +65,16 @@ export default function AdminQuestionsPage() {
 
   const handleDelete = async () => {
     if (!questionToDelete) return;
-
     setDeleting(true);
     try {
       await api.delete(API_ENDPOINTS.QUESTIONS.DETAIL(questionToDelete));
-      notifications.show({
-        title: 'Success',
-        message: 'Question deleted successfully',
-        color: 'green',
-      });
+      notifications.show({ title: 'Success', message: 'Question deleted successfully', color: 'green' });
       setDeleteModalOpen(false);
       setQuestionToDelete(null);
       fetchQuestions();
     } catch (err) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      notifications.show({
-        title: 'Error',
-        message: error.response?.data?.detail || 'Failed to delete question',
-        color: 'red',
-      });
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to delete question', color: 'red' });
     } finally {
       setDeleting(false);
     }
@@ -99,129 +88,120 @@ export default function AdminQuestionsPage() {
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <Stack gap="lg">
-          {/* Header */}
-          <Group justify="space-between">
-            <div>
-              <Title order={2}>Manage Questions</Title>
-              <Text mt="xs" c="dimmed">
-                Create, edit, and manage SQL practice questions
-              </Text>
+        {/* Header */}
+        <div className="page-head">
+          <div>
+            <h2>Manage Questions</h2>
+            <p>Create, edit, and manage SQL practice questions</p>
+          </div>
+          <button
+            className="btn btn-brand"
+            onClick={() => router.push('/admin/questions/new')}
+          >
+            <IconPlus />
+            Create Question
+          </button>
+        </div>
+
+        {/* Loading */}
+        {loading && (
+          <div className="loading-center">
+            <div className="spinner" />
+            <span>Loading questions…</span>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="da-alert alert-error" role="alert">
+            <strong>Error</strong>
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Questions table */}
+        {!loading && !error && (
+          questions.length === 0 ? (
+            <div className="da-alert alert-info">
+              <strong>No questions yet</strong>
+              <span>Click &quot;Create Question&quot; to add the first one.</span>
             </div>
-            <Button
-              leftSection={<IconPlus size={16} />}
-              onClick={() => router.push('/admin/questions/new')}
-            >
-              Create Question
-            </Button>
-          </Group>
-
-          {/* Loading state */}
-          {loading && (
-            <Stack align="center" justify="center" style={{ minHeight: '300px' }}>
-              <Loader size="lg" />
-              <Text c="dimmed">Loading questions...</Text>
-            </Stack>
-          )}
-
-          {/* Error state */}
-          {error && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-              {error}
-            </Alert>
-          )}
-
-          {/* Questions table */}
-          {!loading && !error && (
-            <>
-              {questions.length === 0 ? (
-                <Text c="dimmed" ta="center" mt="xl">
-                  No questions created yet. Click "Create Question" to add one.
-                </Text>
-              ) : (
-                <ScrollArea>
-                  <Table striped highlightOnHover withTableBorder>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>ID</Table.Th>
-                        <Table.Th>Title</Table.Th>
-                        <Table.Th>Difficulty</Table.Th>
-                        <Table.Th>Created At</Table.Th>
-                        <Table.Th style={{ width: 120 }}>Actions</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {questions.map((question) => (
-                        <Table.Tr key={question.id}>
-                          <Table.Td>{question.id}</Table.Td>
-                          <Table.Td>{question.title}</Table.Td>
-                          <Table.Td>
-                            <Badge
-                              color={difficultyColors[question.difficulty]}
-                              variant="light"
-                            >
-                              {question.difficulty.charAt(0).toUpperCase() +
-                                question.difficulty.slice(1)}
-                            </Badge>
-                          </Table.Td>
-                          <Table.Td>
-                            {new Date(question.created_at).toLocaleDateString()}
-                          </Table.Td>
-                          <Table.Td>
-                            <Group gap="xs">
-                              <ActionIcon
-                                variant="subtle"
-                                color="blue"
-                                onClick={() =>
-                                  router.push(`/admin/questions/${question.id}`)
-                                }
-                              >
-                                <IconEdit size={16} />
-                              </ActionIcon>
-                              <ActionIcon
-                                variant="subtle"
-                                color="red"
-                                onClick={() => openDeleteModal(question.id)}
-                              >
-                                <IconTrash size={16} />
-                              </ActionIcon>
-                            </Group>
-                          </Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                </ScrollArea>
-              )}
-            </>
-          )}
-        </Stack>
+          ) : (
+            <div className="table-wrap">
+              <table className="da-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 60 }}>ID</th>
+                    <th>Title</th>
+                    <th style={{ width: 120 }}>Difficulty</th>
+                    <th style={{ width: 130 }}>Created At</th>
+                    <th style={{ width: 90 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {questions.map((q) => (
+                    <tr key={q.id}>
+                      <td>{q.id}</td>
+                      <td>{q.title}</td>
+                      <td>
+                        <span className={`badge ${difficultyClass[q.difficulty] || 'neutral'}`}>
+                          {q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1)}
+                        </span>
+                      </td>
+                      <td>{new Date(q.created_at).toLocaleDateString()}</td>
+                      <td>
+                        <div className="actions">
+                          <button
+                            className="icon-btn"
+                            title="Edit"
+                            onClick={() => router.push(`/admin/questions/${q.id}`)}
+                            style={{ color: '#2563eb' }}
+                          >
+                            <IconEdit />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Delete"
+                            onClick={() => openDeleteModal(q.id)}
+                            style={{ color: '#ef4444' }}
+                          >
+                            <IconTrash />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
 
         {/* Delete confirmation modal */}
-        <Modal
-          opened={deleteModalOpen}
-          onClose={() => setDeleteModalOpen(false)}
-          title="Delete Question"
-        >
-          <Stack gap="md">
-            <Text>
-              Are you sure you want to delete this question? This action cannot be
-              undone.
-            </Text>
-            <Group justify="flex-end">
-              <Button
-                variant="default"
-                onClick={() => setDeleteModalOpen(false)}
-                disabled={deleting}
-              >
-                Cancel
-              </Button>
-              <Button color="red" onClick={handleDelete} loading={deleting}>
-                Delete
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
+        {deleteModalOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+            <div className="modal">
+              <h3 id="delete-modal-title">Delete Question</h3>
+              <p>Are you sure you want to delete this question? This action cannot be undone.</p>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setDeleteModalOpen(false)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

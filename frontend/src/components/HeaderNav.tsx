@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Anchor, Box, Button, Container, Group, Text } from "@mantine/core";
 import { useAuth } from "@/contexts/AuthContext";
-import { UserRole } from "@/types/user.types";
 
 export function HeaderNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, isAuthenticated, isStaff } = useAuth();
+
+  // Hide global header on the home page — the home page renders its own header
+  if (pathname === "/") return null;
 
   // Dynamic SQL link based on user role
   const sqlLink = isAuthenticated
@@ -30,53 +31,49 @@ export function HeaderNav() {
   };
 
   return (
-    <Box
-      component="header"
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 100,
-        background: "var(--mantine-color-body)",
-        borderBottom: "1px solid var(--mantine-color-gray-3)",
-      }}
-    >
-      <Container size="lg" py="sm">
-        <Group justify="space-between">
-          <Text fw={600}>Database Assist</Text>
-          <Group gap="md">
-            {links.map((link) => {
-              const isActive = pathname === link.href;
-              return (
-                <Anchor
-                  key={link.href}
-                  component={Link}
-                  href={link.href}
-                  fw={isActive ? 600 : 500}
-                  c={isActive ? "blue" : "dimmed"}
-                >
-                  {link.label}
-                </Anchor>
-              );
-            })}
-          </Group>
-          <Group gap="sm">
-            {isAuthenticated ? (
-              <>
-                <Text size="sm" c="dimmed">
-                  {user?.email}
-                </Text>
-                <Button size="xs" variant="subtle" color="red" onClick={handleLogout}>
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <Anchor component={Link} href="/login" fw={500} c="blue">
-                Login
-              </Anchor>
-            )}
-          </Group>
-        </Group>
-      </Container>
-    </Box>
+    <header className="topbar">
+      <Link href="/" className="brand">
+        <span className="brand-mark" aria-hidden="true" />
+        <span>Database Assist</span>
+      </Link>
+
+      <nav className="app-nav" aria-label="Main navigation">
+        {links.map((link) => {
+          const isActive =
+            link.href === "/"
+              ? pathname === "/"
+              : pathname === link.href || pathname.startsWith(link.href + "/");
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={isActive ? "active-link" : undefined}
+              aria-current={isActive ? "page" : undefined}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="user-tools">
+        {isAuthenticated ? (
+          <>
+            <span>{user?.email}</span>
+            <button
+              className="btn btn-ghost"
+              onClick={handleLogout}
+              style={{ minHeight: 36, padding: "0 12px", fontSize: 13 }}
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <Link href="/login" className="active-link" style={{ fontWeight: 600 }}>
+            Login
+          </Link>
+        )}
+      </div>
+    </header>
   );
 }

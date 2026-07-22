@@ -2,23 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Button,
-  Container,
-  Group,
-  Loader,
-  Menu,
-  SimpleGrid,
-  Stack,
-  Table,
-  Tabs,
-  Text,
-  Title,
-} from "@mantine/core";
-import { IconAlertCircle, IconDots, IconPlus } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { QuestionCard, QuestionCardData } from "@/components/QuestionCard";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,6 +16,12 @@ type ERQuestionCardData = QuestionCardData & {
   created_by_role: "student" | "staff" | "admin";
 };
 
+const IconPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+
 export default function ERDiagramPage() {
   const router = useRouter();
   const ability = useERAbility();
@@ -42,14 +31,14 @@ export default function ERDiagramPage() {
   const [loading, setLoading] = useState(true);
   const [deletingQuestionId, setDeletingQuestionId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string | null>("student-created");
+  const [activeTab, setActiveTab] = useState<string>("student-created");
 
   const studentCreatedQuestions = useMemo(
-    () => questions.filter((question) => question.created_by_role === "student"),
+    () => questions.filter((q) => q.created_by_role === "student"),
     [questions]
   );
   const staffCreatedQuestions = useMemo(
-    () => questions.filter((question) => question.created_by_role === "staff" || question.created_by_role === "admin"),
+    () => questions.filter((q) => q.created_by_role === "staff" || q.created_by_role === "admin"),
     [questions]
   );
 
@@ -58,11 +47,8 @@ export default function ERDiagramPage() {
       const ls = await erLabsService.list();
       setLabs(ls);
     } catch (err) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      notifications.show({
-        color: "red",
-        message: axiosErr.response?.data?.detail || axiosErr.message || "Failed to load ER labs",
-      });
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed to load ER labs" });
     }
   };
 
@@ -84,35 +70,30 @@ export default function ERDiagramPage() {
           }))
         );
       } catch (err) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        setError(axiosErr.response?.data?.detail || axiosErr.message || "Failed to load ER questions");
+        const e = err as { response?: { data?: { detail?: string } }; message?: string };
+        setError(e.response?.data?.detail || e.message || "Failed to load ER questions");
       } finally {
         setLoading(false);
       }
-      // Lab fetch is isolated so a lab-API failure doesn't kill the question view.
       refreshLabs();
     };
-
     fetchAll();
   }, []);
 
   const handleDeleteQuestion = async (questionId: number) => {
     const shouldDelete = window.confirm(`Delete ER question #${questionId}?`);
-    if (!shouldDelete) {
-      return;
-    }
-
+    if (!shouldDelete) return;
     try {
       setDeletingQuestionId(questionId);
       setError(null);
       await erDiagramService.deleteQuestion(questionId);
       setQuestions((prev) => prev.filter((item) => item.id !== questionId));
     } catch (err) {
-      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
-      if (axiosErr.response?.status === 403) {
-        setError(axiosErr.response?.data?.detail || "Only the question owner or staff can delete this question");
+      const e = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
+      if (e.response?.status === 403) {
+        setError(e.response?.data?.detail || "Only the question owner or staff can delete this question");
       } else {
-        setError(axiosErr.response?.data?.detail || axiosErr.message || "Failed to delete ER question");
+        setError(e.response?.data?.detail || e.message || "Failed to delete ER question");
       }
     } finally {
       setDeletingQuestionId(null);
@@ -121,11 +102,10 @@ export default function ERDiagramPage() {
 
   const renderQuestions = (questionList: ERQuestionCardData[], emptyMessage: string) => {
     if (questionList.length === 0) {
-      return <Text c="dimmed">{emptyMessage}</Text>;
+      return <p style={{ color: "var(--text-muted)" }}>{emptyMessage}</p>;
     }
-
     return (
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+      <div className="grid-3">
         {questionList.map((question) => (
           <QuestionCard
             key={question.id}
@@ -135,7 +115,7 @@ export default function ERDiagramPage() {
             onDelete={handleDeleteQuestion}
           />
         ))}
-      </SimpleGrid>
+      </div>
     );
   };
 
@@ -145,8 +125,8 @@ export default function ERDiagramPage() {
       else await erLabsService.publish(lab.id);
       refreshLabs();
     } catch (err) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      notifications.show({ color: "red", message: axiosErr.response?.data?.detail || axiosErr.message || "Failed" });
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed" });
     }
   };
 
@@ -156,8 +136,8 @@ export default function ERDiagramPage() {
       else await erLabsService.start(lab.id);
       refreshLabs();
     } catch (err) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      notifications.show({ color: "red", message: axiosErr.response?.data?.detail || axiosErr.message || "Failed" });
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed" });
     }
   };
 
@@ -167,184 +147,196 @@ export default function ERDiagramPage() {
       await erLabsService.remove(lab.id);
       refreshLabs();
     } catch (err) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      notifications.show({ color: "red", message: axiosErr.response?.data?.detail || axiosErr.message || "Failed" });
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed" });
     }
   };
 
   const renderStaffLabTable = () => {
-    if (labs.length === 0) return <Text c="dimmed">No labs yet. Click &quot;New ER Lab&quot; to create one.</Text>;
+    if (labs.length === 0)
+      return <p style={{ color: "var(--text-muted)" }}>No labs yet. Click &quot;New ER Lab&quot; to create one.</p>;
     return (
-      <Table>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Title</Table.Th>
-            <Table.Th>Status</Table.Th>
-            <Table.Th>Updated</Table.Th>
-            <Table.Th></Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {labs.map((lab) => (
-            <Table.Tr key={lab.id}>
-              <Table.Td>
-                <a
-                  onClick={() => router.push(`/er-diagram/lab/${lab.id}`)}
-                  style={{ cursor: "pointer", textDecoration: "underline" }}
-                >
-                  {lab.title}
-                </a>
-              </Table.Td>
-              <Table.Td>
-                <Group gap={4}>
-                  <Badge color={lab.is_published ? "green" : "gray"}>
-                    {lab.is_published ? "Published" : "Unpublished"}
-                  </Badge>
-                  <Badge color={lab.is_running ? "blue" : "gray"}>
-                    {lab.is_running ? "Running" : "Stopped"}
-                  </Badge>
-                </Group>
-              </Table.Td>
-              <Table.Td>{new Date(lab.updated_at).toLocaleString()}</Table.Td>
-              <Table.Td>
-                <Menu>
-                  <Menu.Target>
-                    <ActionIcon variant="subtle">
-                      <IconDots />
-                    </ActionIcon>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item onClick={() => router.push(`/er-diagram/lab/${lab.id}`)}>
-                      Manage questions
-                    </Menu.Item>
-                    <Menu.Item onClick={() => router.push(`/er-diagram/lab/${lab.id}/students`)}>
-                      View students
-                    </Menu.Item>
-                    <Menu.Item onClick={() => onLabPublishToggle(lab)}>
+      <div className="table-wrap">
+        <table className="da-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {labs.map((lab) => (
+              <tr key={lab.id}>
+                <td>
+                  <a
+                    onClick={() => router.push(`/er-diagram/lab/${lab.id}`)}
+                    style={{ cursor: "pointer", color: "var(--brand-lilac)", fontWeight: 600 }}
+                  >
+                    {lab.title}
+                  </a>
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <span className={`badge ${lab.is_published ? "badge-success" : "neutral"}`}>
+                      {lab.is_published ? "Published" : "Unpublished"}
+                    </span>
+                    <span className={`badge ${lab.is_running ? "badge-info" : "neutral"}`}>
+                      {lab.is_running ? "Running" : "Stopped"}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                  {new Date(lab.updated_at).toLocaleString()}
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="btn btn-secondary" style={{ minHeight: 32, padding: "0 10px", fontSize: 12 }}
+                      onClick={() => router.push(`/er-diagram/lab/${lab.id}`)}>
+                      Manage
+                    </button>
+                    <button className="btn btn-secondary" style={{ minHeight: 32, padding: "0 10px", fontSize: 12 }}
+                      onClick={() => router.push(`/er-diagram/lab/${lab.id}/students`)}>
+                      Students
+                    </button>
+                    <button className="btn btn-secondary" style={{ minHeight: 32, padding: "0 10px", fontSize: 12 }}
+                      onClick={() => onLabPublishToggle(lab)}>
                       {lab.is_published ? "Unpublish" : "Publish"}
-                    </Menu.Item>
-                    <Menu.Item onClick={() => onLabRunToggle(lab)} disabled={!lab.is_published}>
+                    </button>
+                    <button className="btn btn-secondary" style={{ minHeight: 32, padding: "0 10px", fontSize: 12 }}
+                      disabled={!lab.is_published}
+                      onClick={() => onLabRunToggle(lab)}>
                       {lab.is_running ? "Stop" : "Start"}
-                    </Menu.Item>
-                    <Menu.Item color="red" onClick={() => onLabDelete(lab)}>
+                    </button>
+                    <button className="btn btn-danger" style={{ minHeight: 32, padding: "0 10px", fontSize: 12 }}
+                      onClick={() => onLabDelete(lab)}>
                       Delete
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   };
 
   const renderStudentLabTable = () => {
-    if (labs.length === 0) return <Text c="dimmed">No labs available right now.</Text>;
+    if (labs.length === 0)
+      return <p style={{ color: "var(--text-muted)" }}>No labs available right now.</p>;
     return (
-      <Table>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Title</Table.Th>
-            <Table.Th>Status</Table.Th>
-            <Table.Th></Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {labs.map((lab) => (
-            <Table.Tr key={lab.id}>
-              <Table.Td>{lab.title}</Table.Td>
-              <Table.Td>
-                <Badge color={lab.is_running ? "blue" : "gray"}>
-                  {lab.is_running ? "Running" : "Closed"}
-                </Badge>
-              </Table.Td>
-              <Table.Td>
-                {lab.is_running ? (
-                  <Button size="xs" onClick={() => router.push(`/er-diagram/lab/${lab.id}/join`)}>
-                    Join
-                  </Button>
-                ) : (
-                  <Button
-                    size="xs"
-                    variant="default"
-                    onClick={() => router.push(`/er-diagram/lab/${lab.id}/history`)}
-                  >
-                    View history
-                  </Button>
-                )}
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+      <div className="table-wrap">
+        <table className="da-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {labs.map((lab) => (
+              <tr key={lab.id}>
+                <td style={{ fontWeight: 600 }}>{lab.title}</td>
+                <td>
+                  <span className={`badge ${lab.is_running ? "badge-info" : "neutral"}`}>
+                    {lab.is_running ? "Running" : "Closed"}
+                  </span>
+                </td>
+                <td>
+                  {lab.is_running ? (
+                    <button className="btn btn-brand" style={{ minHeight: 32, padding: "0 12px", fontSize: 13 }}
+                      onClick={() => router.push(`/er-diagram/lab/${lab.id}/join`)}>
+                      Join
+                    </button>
+                  ) : (
+                    <button className="btn btn-secondary" style={{ minHeight: 32, padding: "0 12px", fontSize: 13 }}
+                      onClick={() => router.push(`/er-diagram/lab/${lab.id}/history`)}>
+                      View history
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   };
 
   return (
-    <Container size="lg" py="xl">
-      <Stack gap="md">
-        <Group justify="space-between" align="flex-start">
-          <div>
-            <Title order={2}>ER Diagram Practice</Title>
-            <Text c="dimmed" mt={6}>
-              Pick a question and sketch the entities, relationships, and keys.
-            </Text>
+    <div className="er-page-container">
+      {/* Page head */}
+      <div className="page-head">
+        <div>
+          <h2 style={{ fontSize: 28, marginBottom: 6 }}>ER Diagram Practice</h2>
+          <p style={{ color: "var(--text-muted)" }}>
+            Pick a question and sketch the entities, relationships, and keys.
+          </p>
+        </div>
+        {activeTab === "lab" ? (
+          isStaff && (
+            <a href="/er-diagram/lab/new" className="btn btn-brand">
+              <IconPlus />
+              New ER Lab
+            </a>
+          )
+        ) : (
+          <a href="/er-diagram/add" className="btn btn-secondary">
+            <IconPlus />
+            Add Question
+          </a>
+        )}
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="loading-center">
+          <div className="spinner" />
+          <span>Loading…</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="da-alert alert-error" role="alert">
+          <strong>Error</strong>
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Tabs + content */}
+      {!loading && !error && (
+        <>
+          <div className="tabs" role="tablist">
+            {["student-created", "staff-created", "lab"].map((tab) => (
+              <button
+                key={tab}
+                role="tab"
+                className={`tab${activeTab === tab ? " active" : ""}`}
+                aria-selected={activeTab === tab}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab === "student-created"
+                  ? "Student-created"
+                  : tab === "staff-created"
+                  ? "Staff-created"
+                  : "Lab"}
+              </button>
+            ))}
           </div>
-          {activeTab === "lab"
-            ? (isStaff && (
-                <Button
-                  variant="light"
-                  rightSection={<IconPlus size={16} />}
-                  component="a"
-                  href="/er-diagram/lab/new"
-                >
-                  New ER Lab
-                </Button>
-              ))
-            : (
-                <Button
-                  variant="light"
-                  rightSection={<IconPlus size={16} />}
-                  component="a"
-                  href="/er-diagram/add"
-                >
-                  Add Question
-                </Button>
-              )}
-        </Group>
 
-        {loading ? (
-          <Group justify="center" py="xl">
-            <Loader />
-          </Group>
-        ) : null}
-
-        {error ? (
-          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-            {error}
-          </Alert>
-        ) : null}
-
-        {!loading && !error ? (
-          <Tabs value={activeTab} onChange={setActiveTab}>
-            <Tabs.List>
-              <Tabs.Tab value="student-created">Student-created</Tabs.Tab>
-              <Tabs.Tab value="staff-created">Staff-created</Tabs.Tab>
-              <Tabs.Tab value="lab">Lab</Tabs.Tab>
-            </Tabs.List>
-            <Tabs.Panel value="student-created" pt="md">
-              {renderQuestions(studentCreatedQuestions, "No student-created ER questions saved yet.")}
-            </Tabs.Panel>
-            <Tabs.Panel value="staff-created" pt="md">
-              {renderQuestions(staffCreatedQuestions, "No staff-created ER questions saved yet.")}
-            </Tabs.Panel>
-            <Tabs.Panel value="lab" pt="md">
-              {isStaff ? renderStaffLabTable() : renderStudentLabTable()}
-            </Tabs.Panel>
-          </Tabs>
-        ) : null}
-      </Stack>
-    </Container>
+          <div role="tabpanel">
+            {activeTab === "student-created" &&
+              renderQuestions(studentCreatedQuestions, "No student-created ER questions saved yet.")}
+            {activeTab === "staff-created" &&
+              renderQuestions(staffCreatedQuestions, "No staff-created ER questions saved yet.")}
+            {activeTab === "lab" && (isStaff ? renderStaffLabTable() : renderStudentLabTable())}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

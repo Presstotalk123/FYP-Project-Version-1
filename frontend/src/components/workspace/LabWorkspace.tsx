@@ -3,20 +3,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ActionIcon,
   Box,
-  Container,
-  Group,
-  Loader,
-  Stack,
   Text,
-  Alert,
-  Button,
 } from '@mantine/core';
-import { IconAlertCircle, IconLogout, IconRefresh, IconInfoCircle } from '@tabler/icons-react';
+
+/* ── SVG icons ── */
+const IconLogout = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+  </svg>
+);
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+  </svg>
+);
+const IconInfoCircle = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+);
+const IconAlertCircle = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+);
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { LabDetail, LabExecuteResponse, LabAttemptResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskAssignAnswer, LabTaskProgress } from '@/types/lab.types';
+import { LabDetail, LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskProgress } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
@@ -645,96 +659,91 @@ export function LabWorkspace({
   // Loading state
   if (loading) {
     return (
-      <Container fluid px="sm" py="md">
-        <Stack align="center" justify="center" style={{ height: '50vh' }}>
-          <Loader size="lg" />
-          <Text c="dimmed">Loading lab...</Text>
-        </Stack>
-      </Container>
+      <div className="loading-center" style={{ minHeight: '50vh' }}>
+        <div className="spinner" />
+        <span>Loading lab…</span>
+      </div>
     );
   }
 
   // Error state
   if (error || !lab) {
     return (
-      <Container fluid px="sm" py="md">
-        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-          {error || 'Lab not found'}
-        </Alert>
-        <Button mt="md" variant="light" onClick={() => router.push(isStaffMode ? '/admin/labs' : (backUrl ?? '/student/labs'))}>
-          Back to Labs
-        </Button>
-      </Container>
+      <div style={{ padding: 24, display: 'grid', gap: 16, maxWidth: 600 }}>
+        <div className="da-alert alert-error" role="alert">
+          <strong>Error</strong>
+          <span>{error || 'Lab not found'}</span>
+        </div>
+        <div>
+          <button className="btn btn-secondary" onClick={() => router.push(isStaffMode ? '/admin/labs' : (backUrl ?? '/student/labs'))}>
+            Back to Labs
+          </button>
+        </div>
+      </div>
     );
   }
 
   const rightPercent = 100 - leftPercent - centerPercent;
 
   return (
-    <Container fluid px="sm" py="md">
-      <Stack gap="md">
-        {/* Header */}
-        <Group justify="space-between" align="center">
-          <Group align="baseline" gap="sm" />
-          <Group gap="sm">
-            <Button
-              leftSection={<IconRefresh size={16} />}
-              color="orange"
-              variant="light"
-              onClick={handleReset}
-              loading={isResetting}
-              size="sm"
-            >
-              Reset Database
-            </Button>
-            <Button
-              leftSection={<IconLogout size={16} />}
-              color="green"
-              variant="light"
-              onClick={handleExit}
-              size="sm"
-            >
-              Save and Exit
-            </Button>
-          </Group>
-        </Group>
+    <div style={{ padding: '12px 16px', display: 'grid', gap: 12 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
+        <button
+          className="btn btn-secondary"
+          style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
+          onClick={handleReset}
+          disabled={isResetting}
+        >
+          <IconRefresh />
+          {isResetting ? 'Resetting…' : 'Reset Database'}
+        </button>
+        <button
+          className="btn btn-brand"
+          style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
+          onClick={handleExit}
+        >
+          <IconLogout />
+          Save and Exit
+        </button>
+      </div>
 
-
-        {/* Review Mode Banner */}
-        {reviewMode && (
-          <Alert
-            icon={<IconInfoCircle size={16} />}
-            color="violet"
-            variant="light"
-            title={`Reviewing Student Activity: ${studentEmail}`}
-          >
+      {/* Review Mode Banner */}
+      {reviewMode && (
+        <div className="da-alert alert-info" role="alert">
+          <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconInfoCircle />
+            Reviewing Student Activity: {studentEmail}
+          </strong>
+          <span>
             You are reviewing this student&apos;s query history. Use &quot;Execute Next&quot; in the Student Queries tab to step through their queries sequentially. Each query builds on the previous ones to recreate the student&apos;s database progression.
-          </Alert>
-        )}
+          </span>
+        </div>
+      )}
 
-        {/* 3-Panel Layout */}
+      {/* 3-Panel Layout */}
+      <Box
+        ref={containerRef}
+        style={{
+          display: 'flex',
+          gap: 0,
+          alignItems: 'stretch',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)',
+          overflow: 'hidden',
+          width: '100%',
+          height: '70vh',
+        }}
+      >
+        {/* Left Panel - Lab Description */}
         <Box
-          ref={containerRef}
           style={{
-            display: 'flex',
-            gap: 0,
-            alignItems: 'stretch',
-            border: '1px solid var(--mantine-color-gray-3)',
-            borderRadius: 12,
+            flex: `0 0 ${leftPercent}%`,
+            minWidth: 250,
+            background: 'var(--surface)',
             overflow: 'hidden',
-            width: '100%',
-            height: '70vh',
           }}
         >
-          {/* Left Panel - Lab Description */}
-          <Box
-            style={{
-              flex: `0 0 ${leftPercent}%`,
-              minWidth: 250,
-              background: 'var(--mantine-color-body)',
-              overflow: 'hidden',
-            }}
-          >
             <LabDescriptionPanel
               lab={lab}
               sessionId={sessionId}
@@ -755,134 +764,133 @@ export function LabWorkspace({
               isLoadingStudentHistory={isLoadingStudentHistory}
               studentEmail={studentEmail}
             />
-          </Box>
-
-          {/* Left Divider */}
-          <Box
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-              setIsDraggingLeft(true);
-              updateLeftWidthFromPointer(event.clientX);
-            }}
-            onPointerMove={(event) => {
-              if (!isDraggingLeft) return;
-              updateLeftWidthFromPointer(event.clientX);
-            }}
-            onPointerUp={(event) => {
-              event.currentTarget.releasePointerCapture(event.pointerId);
-              setIsDraggingLeft(false);
-            }}
-            style={{
-              width: 8,
-              cursor: 'col-resize',
-              background: 'var(--mantine-color-gray-2)',
-              position: 'relative',
-              flex: '0 0 8px',
-              userSelect: 'none',
-              touchAction: 'none',
-            }}
-          >
-            <Box
-              style={{
-                position: 'absolute',
-                top: '25%',
-                bottom: '25%',
-                left: '50%',
-                width: 3,
-                transform: 'translateX(-50%)',
-                background: 'var(--mantine-color-gray-6)',
-                borderRadius: 2,
-              }}
-            />
-          </Box>
-
-          {/* Center Panel - Editor */}
-          <Box
-            style={{
-              flex: `0 0 ${centerPercent}%`,
-              minWidth: 300,
-              background: 'var(--mantine-color-body)',
-              overflow: 'hidden',
-            }}
-          >
-            <LabEditorPanel
-              query={query}
-              onQueryChange={setQuery}
-              onExecute={handleExecute}
-              onClear={handleClear}
-              isExecuting={isExecuting}
-              executionTime={result?.execution_time_ms || null}
-              labType={lab?.lab_type ?? 'sql'}
-            />
-          </Box>
-
-          {/* Right Divider */}
-          <Box
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-              setIsDraggingRight(true);
-              updateCenterWidthFromPointer(event.clientX);
-            }}
-            onPointerMove={(event) => {
-              if (!isDraggingRight) return;
-              updateCenterWidthFromPointer(event.clientX);
-            }}
-            onPointerUp={(event) => {
-              event.currentTarget.releasePointerCapture(event.pointerId);
-              setIsDraggingRight(false);
-            }}
-            style={{
-              width: 8,
-              cursor: 'col-resize',
-              background: 'var(--mantine-color-gray-2)',
-              position: 'relative',
-              flex: '0 0 8px',
-              userSelect: 'none',
-              touchAction: 'none',
-            }}
-          >
-            <Box
-              style={{
-                position: 'absolute',
-                top: '25%',
-                bottom: '25%',
-                left: '50%',
-                width: 3,
-                transform: 'translateX(-50%)',
-                background: 'var(--mantine-color-gray-6)',
-                borderRadius: 2,
-              }}
-            />
-          </Box>
-
-          {/* Right Panel - Results */}
-          <Box
-            style={{
-              flex: `0 0 ${rightPercent}%`,
-              minWidth: 250,
-              background: 'var(--mantine-color-body)',
-              overflow: 'hidden',
-            }}
-          >
-            <LabResultsPanel
-              result={result}
-              attempts={attempts}
-              databaseState={databaseState}
-              isLoadingDatabase={isLoadingDatabase}
-              isStaffMode={isStaffMode}
-              tasks={tasks}
-              currentQuery={query}
-              taskProgress={taskProgress}
-              onAssignToTask={handleAssignTaskAnswer}
-              onSubmitToTask={handleSubmitToTask}
-              reviewMode={reviewMode}
-              onRerunQuery={handleRerunQuery}
-              isExecuting={isExecuting}
-              onCopyQuery={handleCopyQuery}
-            />
-          </Box>
         </Box>
-      </Stack>
-    </Container>
+
+        {/* Left Divider */}
+        <Box
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setIsDraggingLeft(true);
+            updateLeftWidthFromPointer(event.clientX);
+          }}
+          onPointerMove={(event) => {
+            if (!isDraggingLeft) return;
+            updateLeftWidthFromPointer(event.clientX);
+          }}
+          onPointerUp={(event) => {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+            setIsDraggingLeft(false);
+          }}
+          style={{
+            width: 8,
+            cursor: 'col-resize',
+            background: 'var(--border)',
+            position: 'relative',
+            flex: '0 0 8px',
+            userSelect: 'none',
+            touchAction: 'none',
+          }}
+        >
+          <Box
+            style={{
+              position: 'absolute',
+              top: '25%',
+              bottom: '25%',
+              left: '50%',
+              width: 3,
+              transform: 'translateX(-50%)',
+              background: 'var(--border-strong)',
+              borderRadius: 2,
+            }}
+          />
+        </Box>
+
+        {/* Center Panel - Editor */}
+        <Box
+          style={{
+            flex: `0 0 ${centerPercent}%`,
+            minWidth: 300,
+            background: 'var(--surface)',
+            overflow: 'hidden',
+          }}
+        >
+          <LabEditorPanel
+            query={query}
+            onQueryChange={setQuery}
+            onExecute={handleExecute}
+            onClear={handleClear}
+            isExecuting={isExecuting}
+            executionTime={result?.execution_time_ms || null}
+            labType={lab?.lab_type ?? 'sql'}
+          />
+        </Box>
+
+        {/* Right Divider */}
+        <Box
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setIsDraggingRight(true);
+            updateCenterWidthFromPointer(event.clientX);
+          }}
+          onPointerMove={(event) => {
+            if (!isDraggingRight) return;
+            updateCenterWidthFromPointer(event.clientX);
+          }}
+          onPointerUp={(event) => {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+            setIsDraggingRight(false);
+          }}
+          style={{
+            width: 8,
+            cursor: 'col-resize',
+            background: 'var(--border)',
+            position: 'relative',
+            flex: '0 0 8px',
+            userSelect: 'none',
+            touchAction: 'none',
+          }}
+        >
+          <Box
+            style={{
+              position: 'absolute',
+              top: '25%',
+              bottom: '25%',
+              left: '50%',
+              width: 3,
+              transform: 'translateX(-50%)',
+              background: 'var(--border-strong)',
+              borderRadius: 2,
+            }}
+          />
+        </Box>
+
+        {/* Right Panel - Results */}
+        <Box
+          style={{
+            flex: `0 0 ${rightPercent}%`,
+            minWidth: 250,
+            background: 'var(--surface)',
+            overflow: 'hidden',
+          }}
+        >
+          <LabResultsPanel
+            result={result}
+            attempts={attempts}
+            databaseState={databaseState}
+            isLoadingDatabase={isLoadingDatabase}
+            isStaffMode={isStaffMode}
+            tasks={tasks}
+            currentQuery={query}
+            taskProgress={taskProgress}
+            onAssignToTask={handleAssignTaskAnswer}
+            onSubmitToTask={handleSubmitToTask}
+            reviewMode={reviewMode}
+            onRerunQuery={handleRerunQuery}
+            isExecuting={isExecuting}
+            onCopyQuery={handleCopyQuery}
+          />
+        </Box>
+      </Box>
+    </div>
   );
 }

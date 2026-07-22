@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Alert, Card, Title, Text, Stack, Center } from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -36,32 +34,35 @@ export default function LoginForm() {
   };
 
   return (
-    <Center style={{ minHeight: 'calc(100vh - 60px)', background: '#f0f2f5' }}>
-      <Card shadow="sm" padding="xl" radius="md" w={400}>
-        <Stack gap="lg" align="center">
-          <Stack gap="xs" style={{ textAlign: 'center' }}>
-            <Title order={2}>SQL Learning Platform</Title>
-            <Text c="dimmed">Sign in with your Google account to continue.</Text>
-          </Stack>
+    <div className="auth-screen">
+      <div className="auth-card">
+        {/* Brand mark */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <span className="brand-mark" style={{ width: 40, height: 40, borderRadius: 10 }} aria-hidden="true" />
+        </div>
 
-          {error && (
-            <Alert
-              icon={<IconAlertCircle size={16} />}
-              color="red"
-              withCloseButton
-              onClose={() => setError(null)}
-              w="100%"
-            >
-              {error}
-            </Alert>
-          )}
+        <h2>Database Assist</h2>
+        <p className="sub">Sign in with your Google account to continue&nbsp;practising SQL and ER diagrams.</p>
 
+        {error && (
+          <div
+            className="da-alert alert-error"
+            role="alert"
+            style={{ marginBottom: 16 }}
+          >
+            <strong>Error</strong>
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Google Login button */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
           <GoogleLogin
             onSuccess={handleGoogleSuccess}
             onError={() => setError('Google sign-in failed. Please try again.')}
           />
-        </Stack>
-      </Card>
-    </Center>
+        </div>
+      </div>
+    </div>
   );
 }

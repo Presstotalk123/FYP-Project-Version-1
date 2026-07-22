@@ -2,18 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Button,
-  TextInput,
-  Textarea,
-  Stack,
-  Group,
-  Title,
-  Alert,
-  Text,
-  Box,
-} from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import dynamic from 'next/dynamic';
 
@@ -108,61 +96,94 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
     }
   };
 
+  const isDisabled = loading || (isEdit && lab?.is_running);
+
   return (
-    <form onSubmit={handleSubmit}>
-      <Stack gap="md">
-        <Title order={2}>
-          {isEdit
-            ? `Edit ${labType === 'graph' ? 'Graph Lab' : 'Lab'}`
-            : `Create New ${labType === 'graph' ? 'Graph Lab' : 'Lab'}`}
-        </Title>
+    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 20 }}>
+      {/* Error alert */}
+      {error && (
+        <div className="da-alert alert-error" role="alert">
+          <strong>Error</strong>
+          <span>{error}</span>
+        </div>
+      )}
 
-        {error && (
-          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-            {error}
-          </Alert>
-        )}
+      {/* Running warning */}
+      {isEdit && lab && lab.is_running && (
+        <div className="da-alert alert-warn" role="alert">
+          <strong>Lab is Running</strong>
+          <span>This lab is currently running. Stop the lab before editing.</span>
+        </div>
+      )}
 
-        {isEdit && lab && lab.is_running && (
-          <Alert icon={<IconAlertCircle size={16} />} color="yellow" title="Lab is Running">
-            This lab is currently running. Stop the lab before editing.
-          </Alert>
-        )}
-
-        <TextInput
-          label="Title"
+      {/* Title */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label htmlFor="lab-title" style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+          Title <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <input
+          id="lab-title"
+          className="da-input"
+          style={{ width: '100%' }}
+          type="text"
           placeholder="Enter lab title"
-          required
           value={title}
-          onChange={(e) => setTitle(e.currentTarget.value)}
-          disabled={loading || (isEdit && lab?.is_running)}
-        />
-
-        <Textarea
-          label="Description"
-          placeholder="Enter lab description"
+          onChange={(e) => setTitle(e.target.value)}
+          disabled={isDisabled}
           required
-          minRows={4}
-          value={description}
-          onChange={(e) => setDescription(e.currentTarget.value)}
-          disabled={loading || (isEdit && lab?.is_running)}
         />
+      </div>
 
-        {labType === 'graph' ? (
-          <Box>
-            <Text size="sm" fw={500} mb="xs">
-              Cypher Statements (CREATE / MERGE) <span style={{ color: 'red' }}>*</span>
-            </Text>
-            <Box
-              style={{
-                border: '1px solid var(--mantine-color-gray-3)',
-                borderRadius: '8px',
-                overflow: 'hidden',
+      {/* Description */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label htmlFor="lab-description" style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+          Description <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <textarea
+          id="lab-description"
+          className="da-input"
+          style={{ width: '100%', minHeight: 100, resize: 'vertical', fontFamily: 'var(--font-geist-sans)' }}
+          placeholder="Enter lab description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          disabled={isDisabled}
+          required
+        />
+      </div>
+
+      {/* SQL / Graph editors */}
+      {labType === 'graph' ? (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+            Cypher Statements (CREATE / MERGE) <span style={{ color: 'var(--error)' }}>*</span>
+          </label>
+          <div style={{ border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+            <Editor
+              height="300px"
+              language="cypher"
+              theme="vs-dark"
+              value={schemaSql}
+              onChange={(value) => setSchemaSql(value || '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                readOnly: isDisabled ?? false,
               }}
-            >
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+              Schema SQL (CREATE TABLE statements) <span style={{ color: 'var(--error)' }}>*</span>
+            </label>
+            <div style={{ border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
               <Editor
-                height="300px"
-                language="cypher"
+                height="200px"
+                language="sql"
                 theme="vs-dark"
                 value={schemaSql}
                 onChange={(value) => setSchemaSql(value || '')}
@@ -171,84 +192,54 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
                   fontSize: 13,
                   lineNumbers: 'on',
                   scrollBeyondLastLine: false,
-                  readOnly: loading || (isEdit && lab?.is_running),
+                  readOnly: isDisabled ?? false,
                 }}
               />
-            </Box>
-          </Box>
-        ) : (
-          <>
-            <Box>
-              <Text size="sm" fw={500} mb="xs">
-                Schema SQL (CREATE TABLE statements) <span style={{ color: 'red' }}>*</span>
-              </Text>
-              <Box
-                style={{
-                  border: '1px solid var(--mantine-color-gray-3)',
-                  borderRadius: '8px',
-                  overflow: 'hidden',
-                }}
-              >
-                <Editor
-                  height="200px"
-                  language="sql"
-                  theme="vs-dark"
-                  value={schemaSql}
-                  onChange={(value) => setSchemaSql(value || '')}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                    readOnly: loading || (isEdit && lab?.is_running),
-                  }}
-                />
-              </Box>
-            </Box>
+            </div>
+          </div>
 
-            <Box>
-              <Text size="sm" fw={500} mb="xs">
-                Sample Data SQL (INSERT statements) <span style={{ color: 'red' }}>*</span>
-              </Text>
-              <Box
-                style={{
-                  border: '1px solid var(--mantine-color-gray-3)',
-                  borderRadius: '8px',
-                  overflow: 'hidden',
+          <div style={{ display: 'grid', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+              Sample Data SQL (INSERT statements) <span style={{ color: 'var(--error)' }}>*</span>
+            </label>
+            <div style={{ border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+              <Editor
+                height="200px"
+                language="sql"
+                theme="vs-dark"
+                value={sampleDataSql}
+                onChange={(value) => setSampleDataSql(value || '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  readOnly: isDisabled ?? false,
                 }}
-              >
-                <Editor
-                  height="200px"
-                  language="sql"
-                  theme="vs-dark"
-                  value={sampleDataSql}
-                  onChange={(value) => setSampleDataSql(value || '')}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                    readOnly: loading || (isEdit && lab?.is_running),
-                  }}
-                />
-              </Box>
-            </Box>
-          </>
-        )}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
-        <Group justify="flex-end" mt="md">
-          <Button variant="default" onClick={() => router.push('/admin/labs')}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            loading={loading}
-            disabled={isEdit && lab?.is_running}
-          >
-            {submitLabel ?? (isEdit ? 'Update Lab' : 'Create Lab')}
-          </Button>
-        </Group>
-      </Stack>
+      {/* Actions */}
+      <div className="button-row" style={{ justifyContent: 'flex-end', marginTop: 8 }}>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => router.push('/admin/labs')}
+          disabled={loading}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="btn btn-brand"
+          disabled={isDisabled ?? false}
+        >
+          {loading ? 'Saving…' : (submitLabel ?? (isEdit ? 'Update Lab' : 'Create Lab'))}
+        </button>
+      </div>
     </form>
   );
 }

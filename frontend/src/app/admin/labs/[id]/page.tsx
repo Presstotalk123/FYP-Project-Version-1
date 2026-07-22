@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Container, Loader, Alert, Group } from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { LabForm } from '@/components/admin/LabForm';
@@ -40,21 +38,28 @@ export default function EditLabPage() {
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <Container size="lg">
+        <div style={{ maxWidth: 900, margin: '0 auto' }}>
           {loading && (
-            <Group justify="center" py="xl">
-              <Loader size="lg" />
-            </Group>
+            <div className="loading-center">
+              <div className="spinner" />
+              <span>Loading lab…</span>
+            </div>
           )}
 
           {error && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-              {error}
-            </Alert>
+            <div className="da-alert alert-error" role="alert">
+              <strong>Error</strong>
+              <span>{error}</span>
+            </div>
           )}
 
-          {!loading && !error && lab && <LabForm lab={lab} isEdit={true} />}
-        </Container>
+          {!loading && !error && lab && (
+            <div className="card" style={{ padding: 28 }}>
+              <h3 style={{ margin: '0 0 20px', fontSize: 20 }}>Edit Lab</h3>
+              <LabForm lab={lab} isEdit={true} />
+            </div>
+          )}
+        </div>
       </DashboardLayout>
     </ProtectedRoute>
   );

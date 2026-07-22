@@ -2,37 +2,62 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Title,
-  Button,
-  Stack,
-  Group,
-  Table,
-  Badge,
-  ActionIcon,
-  Loader,
-  Alert,
-  Text,
-  Modal,
-  Tooltip,
-} from '@mantine/core';
-import {
-  IconPlus,
-  IconEdit,
-  IconTrash,
-  IconAlertCircle,
-  IconPlayerPlay,
-  IconPlayerStop,
-  IconEye,
-  IconEyeOff,
-  IconUsers,
-} from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { Assessment } from '@/types/assessment.types';
 import { assessmentService } from '@/services/assessment.service';
+
+/* ── SVG icons ── */
+const IconPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconPublish = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+  </svg>
+);
+const IconEyeOff = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
+const IconPlay = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polygon points="5 3 19 12 5 21 5 3"/>
+  </svg>
+);
+const IconStop = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+  </svg>
+);
+const IconEdit = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+const IconTrash = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6"/><path d="M14 11v6"/>
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
+const IconUsers = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
 
 export default function AdminAssessmentsPage() {
   const router = useRouter();
@@ -66,10 +91,10 @@ export default function AdminAssessmentsPage() {
     try {
       if (isPublished) {
         await assessmentService.unpublishAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment unpublished', color: 'green' });
+        notifications.show({ title: 'Success', message: 'Assessment unpublished successfully', color: 'green' });
       } else {
         await assessmentService.publishAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment published', color: 'green' });
+        notifications.show({ title: 'Success', message: 'Assessment published successfully', color: 'green' });
       }
       fetchAssessments();
     } catch (err) {
@@ -86,10 +111,10 @@ export default function AdminAssessmentsPage() {
     try {
       if (isRunning) {
         await assessmentService.stopAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment stopped', color: 'green' });
+        notifications.show({ title: 'Success', message: 'Assessment stopped successfully', color: 'green' });
       } else {
         await assessmentService.startAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment started', color: 'green' });
+        notifications.show({ title: 'Success', message: 'Assessment started successfully', color: 'green' });
       }
       fetchAssessments();
     } catch (err) {
@@ -112,7 +137,7 @@ export default function AdminAssessmentsPage() {
     setDeleting(true);
     try {
       await assessmentService.deleteAssessment(assessmentToDelete);
-      notifications.show({ title: 'Success', message: 'Assessment deleted', color: 'green' });
+      notifications.show({ title: 'Success', message: 'Assessment deleted successfully', color: 'green' });
       setDeleteModalOpen(false);
       setAssessmentToDelete(null);
       fetchAssessments();
@@ -131,152 +156,155 @@ export default function AdminAssessmentsPage() {
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <Stack gap="md">
-          <Group justify="space-between">
-            <Title order={2}>Assessments</Title>
-            <Button
-              leftSection={<IconPlus size={16} />}
-              onClick={() => router.push('/admin/assessments/new')}
-            >
+        {/* Header */}
+        <div className="page-head">
+          <div>
+            <h2>Assessments</h2>
+            <p>Create and manage student assessments.</p>
+          </div>
+          <div className="button-row">
+            <button className="btn btn-brand" onClick={() => router.push('/admin/assessments/new')}>
+              <IconPlus />
               Create Assessment
-            </Button>
-          </Group>
+            </button>
+          </div>
+        </div>
 
-          {loading && (
-            <Group justify="center" py="xl">
-              <Loader size="lg" />
-            </Group>
-          )}
+        {/* Loading */}
+        {loading && (
+          <div className="loading-center">
+            <div className="spinner" />
+            <span>Loading assessments…</span>
+          </div>
+        )}
 
-          {error && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-              {error}
-            </Alert>
-          )}
+        {/* Error */}
+        {error && (
+          <div className="da-alert alert-error" role="alert">
+            <strong>Error</strong>
+            <span>{error}</span>
+          </div>
+        )}
 
-          {!loading && !error && assessments.length === 0 && (
-            <Alert icon={<IconAlertCircle size={16} />} color="blue" title="No Assessments">
-              No assessments yet. Create your first one to get started.
-            </Alert>
-          )}
+        {/* Empty */}
+        {!loading && !error && assessments.length === 0 && (
+          <div className="da-alert alert-info">
+            <strong>No Assessments</strong>
+            <span>No assessments yet. Create your first one to get started.</span>
+          </div>
+        )}
 
-          {!loading && !error && assessments.length > 0 && (
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Title</Table.Th>
-                  <Table.Th>Description</Table.Th>
-                  <Table.Th>Items</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Created</Table.Th>
-                  <Table.Th>Actions</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
+        {/* Assessments table */}
+        {!loading && !error && assessments.length > 0 && (
+          <div className="table-wrap">
+            <table className="da-table">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Description</th>
+                  <th>Items</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
                 {assessments.map((a) => (
-                  <Table.Tr key={a.id}>
-                    <Table.Td>
-                      <Text fw={500}>{a.title}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm" lineClamp={2}>
+                  <tr key={a.id}>
+                    <td style={{ fontWeight: 600 }}>{a.title}</td>
+                    <td style={{ color: 'var(--text-muted)', maxWidth: 220 }}>
+                      <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                         {a.description || '—'}
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge variant="light" color="blue">{a.item_count}</Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Badge color={a.is_published ? 'green' : 'gray'}>
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge badge-info">{a.item_count}</span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <span className={`badge ${a.is_published ? 'badge-success' : 'neutral'}`}>
                           {a.is_published ? 'Published' : 'Unpublished'}
-                        </Badge>
+                        </span>
                         {a.is_published && (
-                          <Badge color={a.is_running ? 'blue' : 'yellow'}>
+                          <span className={`badge ${a.is_running ? 'badge-info' : 'badge-warn'}`}>
                             {a.is_running ? 'Running' : 'Stopped'}
-                          </Badge>
+                          </span>
                         )}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{new Date(a.created_at).toLocaleDateString()}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Tooltip label={a.is_published ? 'Unpublish' : 'Publish'}>
-                          <ActionIcon
-                            color={a.is_published ? 'gray' : 'green'}
-                            variant="light"
-                            onClick={() => handlePublishToggle(a.id, a.is_published)}
-                          >
-                            {a.is_published ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                          </ActionIcon>
-                        </Tooltip>
+                      </div>
+                    </td>
+                    <td>{new Date(a.created_at).toLocaleDateString()}</td>
+                    <td>
+                      <div className="actions">
+                        {/* Publish/Unpublish */}
+                        <button
+                          className="icon-btn"
+                          title={a.is_published ? 'Unpublish' : 'Publish'}
+                          onClick={() => handlePublishToggle(a.id, a.is_published)}
+                          style={{ color: a.is_published ? '#6b7280' : '#16a34a' }}
+                        >
+                          {a.is_published ? <IconEyeOff /> : <IconPublish />}
+                        </button>
+                        {/* Start/Stop */}
                         {a.is_published && (
-                          <Tooltip label={a.is_running ? 'Stop' : 'Start'}>
-                            <ActionIcon
-                              color={a.is_running ? 'red' : 'blue'}
-                              variant="light"
-                              onClick={() => handleStartStop(a.id, a.is_running)}
-                            >
-                              {a.is_running ? <IconPlayerStop size={16} /> : <IconPlayerPlay size={16} />}
-                            </ActionIcon>
-                          </Tooltip>
+                          <button
+                            className="icon-btn"
+                            title={a.is_running ? 'Stop' : 'Start'}
+                            onClick={() => handleStartStop(a.id, a.is_running)}
+                            style={{ color: a.is_running ? '#ef4444' : '#2563eb' }}
+                          >
+                            {a.is_running ? <IconStop /> : <IconPlay />}
+                          </button>
                         )}
-                        <Tooltip label="View Students">
-                          <ActionIcon
-                            color="teal"
-                            variant="light"
-                            onClick={() => router.push(`/admin/assessments/${a.id}/students`)}
-                          >
-                            <IconUsers size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Edit">
-                          <ActionIcon
-                            color="blue"
-                            variant="light"
-                            onClick={() => router.push(`/admin/assessments/${a.id}`)}
-                            disabled={a.is_running}
-                          >
-                            <IconEdit size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Delete">
-                          <ActionIcon
-                            color="red"
-                            variant="light"
-                            onClick={() => openDeleteModal(a.id)}
-                          >
-                            <IconTrash size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
+                        {/* View Students */}
+                        <button
+                          className="icon-btn"
+                          title="View Students"
+                          onClick={() => router.push(`/admin/assessments/${a.id}/students`)}
+                          style={{ color: '#0d9488' }}
+                        >
+                          <IconUsers />
+                        </button>
+                        {/* Edit */}
+                        <button
+                          className="icon-btn"
+                          title="Edit"
+                          onClick={() => router.push(`/admin/assessments/${a.id}`)}
+                          disabled={a.is_running}
+                          style={{ color: '#6366f1', opacity: a.is_running ? 0.4 : 1 }}
+                        >
+                          <IconEdit />
+                        </button>
+                        {/* Delete */}
+                        <button
+                          className="icon-btn"
+                          title="Delete"
+                          onClick={() => openDeleteModal(a.id)}
+                          style={{ color: '#ef4444' }}
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
-              </Table.Tbody>
-            </Table>
-          )}
-        </Stack>
+              </tbody>
+            </table>
+          </div>
+        )}
 
-        <Modal
-          opened={deleteModalOpen}
-          onClose={() => setDeleteModalOpen(false)}
-          title="Delete Assessment"
-        >
-          <Stack>
-            <Text>Are you sure you want to delete this assessment? This action cannot be undone.</Text>
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setDeleteModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button color="red" onClick={handleDelete} loading={deleting}>
-                Delete
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
+        {/* Delete modal */}
+        {deleteModalOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="del-assessment-title">
+            <div className="modal">
+              <h3 id="del-assessment-title">Delete Assessment</h3>
+              <p>Are you sure you want to delete this assessment? This action cannot be undone.</p>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setDeleteModalOpen(false)} disabled={deleting}>Cancel</button>
+                <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

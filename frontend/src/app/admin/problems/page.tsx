@@ -2,31 +2,6 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Title,
-  Button,
-  Stack,
-  Group,
-  Table,
-  Badge,
-  Loader,
-  Alert,
-  Text,
-  TextInput,
-  Select,
-  Menu,
-  ActionIcon,
-  Box,
-  Checkbox,
-  UnstyledButton,
-} from '@mantine/core';
-import {
-  IconPlus,
-  IconSearch,
-  IconDotsVertical,
-  IconEdit,
-  IconAlertCircle,
-} from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
@@ -49,21 +24,30 @@ interface Problem {
   editUrl: string;
 }
 
-const typeBadge: Record<ProblemType, { label: string; color: string }> = {
-  'sql-question': { label: 'SQL Question', color: 'teal' },
-  'sql-lab': { label: 'SQL Lab', color: 'cyan' },
-  'graph-lab': { label: 'Graph Lab', color: 'orange' },
-  'erd-question': { label: 'ERD', color: 'violet' },
+const typeBadge: Record<ProblemType, { label: string; className: string }> = {
+  'sql-question': { label: 'SQL Question', className: 'badge-success' },
+  'sql-lab': { label: 'SQL Lab', className: 'badge-info' },
+  'graph-lab': { label: 'Graph Lab', className: 'badge-warn' },
+  'erd-question': { label: 'ERD Question', className: 'brand-badge' },
 };
 
-const difficultyColor: Record<string, string> = {
-  easy: 'green',
-  medium: 'yellow',
-  hard: 'red',
-  Easy: 'green',
-  Medium: 'yellow',
-  Hard: 'red',
-};
+/* ── SVG icons ── */
+const IconPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconSearch = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+);
+const IconEdit = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
 
 export default function ProblemsPage() {
   const router = useRouter();
@@ -187,201 +171,182 @@ export default function ProblemsPage() {
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <Group align="flex-start" gap="xl" style={{ minHeight: '100%' }}>
-          {/* Left category sidebar */}
-          <Box style={{ width: 160, flexShrink: 0 }}>
-            <Text size="xs" fw={600} tt="uppercase" c="dimmed" mb="xs" px="xs">
+        <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start', minHeight: '100%' }}>
+          {/* Left Category Sidebar */}
+          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 650, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '4px', padding: '0 12px', letterSpacing: '0.05em' }}>
               Categories
-            </Text>
-            <Stack gap={2}>
-              {categories.map((cat) => (
-                <UnstyledButton
-                  key={cat.key}
-                  onClick={() => setCategory(cat.key)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    background:
-                      category === cat.key
-                        ? 'var(--mantine-color-blue-light)'
-                        : 'transparent',
-                    color:
-                      category === cat.key
-                        ? 'var(--mantine-color-blue-filled)'
-                        : 'inherit',
-                    fontWeight: category === cat.key ? 600 : 400,
-                    fontSize: 14,
-                    width: '100%',
-                  }}
-                >
-                  <span>{cat.label}</span>
-                  <Text
-                    size="sm"
-                    c={category === cat.key ? 'blue' : 'dimmed'}
-                    fw={category === cat.key ? 600 : 400}
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {categories.map((cat) => {
+                const active = category === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    onClick={() => setCategory(cat.key)}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius)',
+                      border: 'none',
+                      background: active ? 'var(--surface-brand)' : 'transparent',
+                      color: active ? 'var(--brand-lilac)' : 'var(--brand-charcoal)',
+                      fontWeight: active ? 750 : 650,
+                      fontSize: '14px',
+                      width: '100%',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background 140ms ease, color 140ms ease',
+                    }}
                   >
-                    {cat.count}
-                  </Text>
-                </UnstyledButton>
-              ))}
-            </Stack>
-          </Box>
+                    <span>{cat.label}</span>
+                    <span style={{ fontSize: '12px', opacity: 0.8 }}>{cat.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-          {/* Main content */}
-          <Box style={{ flex: 1, minWidth: 0 }}>
-            {/* Page header */}
-            <Group justify="space-between" mb="lg">
+          {/* Main Content */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Page Header */}
+            <div className="page-head">
               <div>
-                <Title order={2}>Problems</Title>
-                <Text c="dimmed" size="sm" mt={4}>
-                  All SQL, ER diagram, and SQL-lab questions in one place
-                </Text>
+                <h2>Problems</h2>
+                <p>All SQL, ER diagram, and SQL-lab questions in one place.</p>
               </div>
-              <Button
-                leftSection={<IconPlus size={16} />}
-                onClick={() => router.push('/admin/problems/new')}
-              >
-                Create question
-              </Button>
-            </Group>
+              <div className="button-row">
+                <button className="btn btn-brand" onClick={() => router.push('/admin/problems/new')}>
+                  <IconPlus />
+                  Create Question
+                </button>
+              </div>
+            </div>
 
             {/* Toolbar */}
-            <Group mb="md" gap="sm">
-              <TextInput
-                placeholder="Search questions..."
-                leftSection={<IconSearch size={16} />}
-                value={search}
-                onChange={(e) => setSearch(e.currentTarget.value)}
-                style={{ flex: 1, maxWidth: 320 }}
-              />
-              <Select
-                data={[
-                  { value: 'all', label: 'All difficulties' },
-                  { value: 'easy', label: 'Easy' },
-                  { value: 'medium', label: 'Medium' },
-                  { value: 'hard', label: 'Hard' },
-                ]}
+            <div className="filters" style={{ marginBottom: '18px' }}>
+              {/* Search */}
+              <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
+                <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+                  <IconSearch />
+                </span>
+                <input
+                  type="text"
+                  className="da-input"
+                  placeholder="Search questions..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ paddingLeft: '36px', width: '100%' }}
+                />
+              </div>
+
+              {/* Difficulty */}
+              <select
+                className="da-select"
                 value={difficulty ?? 'all'}
-                onChange={(v) => setDifficulty(v)}
-                style={{ width: 160 }}
-              />
-              <Select
-                data={[
-                  { value: 'all', label: 'Author: all' },
-                  { value: 'mine', label: 'Author: mine' },
-                ]}
+                onChange={(e) => setDifficulty(e.target.value)}
+                style={{ width: '160px' }}
+              >
+                <option value="all">All difficulties</option>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+
+              {/* Author Filter */}
+              <select
+                className="da-select"
                 value={authorFilter ?? 'all'}
-                onChange={(v) => setAuthorFilter(v)}
-                style={{ width: 160 }}
-              />
-            </Group>
+                onChange={(e) => setAuthorFilter(e.target.value)}
+                style={{ width: '160px' }}
+              >
+                <option value="all">Author: all</option>
+                <option value="mine">Author: mine</option>
+              </select>
+            </div>
 
             {/* Loading */}
             {loading && (
-              <Stack align="center" justify="center" style={{ minHeight: 200 }}>
-                <Loader size="lg" />
-                <Text c="dimmed">Loading problems...</Text>
-              </Stack>
+              <div className="loading-center">
+                <div className="spinner" />
+                <span>Loading problems…</span>
+              </div>
             )}
 
             {/* Error */}
             {error && (
-              <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-                {error}
-              </Alert>
+              <div className="da-alert alert-error" role="alert">
+                <strong>Error</strong>
+                <span>{error}</span>
+              </div>
             )}
 
-            {/* Table */}
+            {/* Problems table */}
             {!loading && !error && (
               <>
                 {filtered.length === 0 ? (
-                  <Text c="dimmed" ta="center" mt="xl">
-                    No problems found.
-                  </Text>
+                  <div className="da-alert alert-info">
+                    <strong>No Problems</strong>
+                    <span>No problems found matching the selected filters.</span>
+                  </div>
                 ) : (
-                  <Table highlightOnHover withTableBorder>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th style={{ width: 40 }}>#</Table.Th>
-                        <Table.Th style={{ width: 32 }}></Table.Th>
-                        <Table.Th>Title</Table.Th>
-                        <Table.Th style={{ width: 140 }}>Type</Table.Th>
-                        <Table.Th style={{ width: 100 }}>Difficulty</Table.Th>
-                        <Table.Th style={{ width: 40 }}></Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {filtered.map((problem, index) => {
-                        const badge = typeBadge[problem.problemType];
-                        const diffColor = problem.difficulty
-                          ? difficultyColor[problem.difficulty]
-                          : undefined;
-
-                        return (
-                          <Table.Tr key={problem.uid}>
-                            <Table.Td>
-                              <Text size="sm" c="dimmed">
-                                {index + 1}
-                              </Text>
-                            </Table.Td>
-                            <Table.Td>
-                              <Checkbox size="xs" />
-                            </Table.Td>
-                            <Table.Td>
-                              <Text size="sm">{problem.title}</Text>
-                            </Table.Td>
-                            <Table.Td>
-                              <Badge
-                                color={badge.color}
-                                variant="light"
-                                size="sm"
-                                style={{ maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                              >
-                                {badge.label}
-                              </Badge>
-                            </Table.Td>
-                            <Table.Td>
-                              {problem.difficulty && diffColor ? (
-                                <Badge color={diffColor} variant="light" size="sm">
-                                  {problem.difficulty.charAt(0).toUpperCase() +
-                                    problem.difficulty.slice(1).toLowerCase()}
-                                </Badge>
-                              ) : (
-                                <Text size="sm" c="dimmed">
-                                  –
-                                </Text>
-                              )}
-                            </Table.Td>
-                            <Table.Td>
-                              <Menu position="bottom-end" withinPortal>
-                                <Menu.Target>
-                                  <ActionIcon variant="subtle" color="gray" size="sm">
-                                    <IconDotsVertical size={14} />
-                                  </ActionIcon>
-                                </Menu.Target>
-                                <Menu.Dropdown>
-                                  <Menu.Item
-                                    leftSection={<IconEdit size={14} />}
+                  <div className="table-wrap">
+                    <table className="da-table">
+                      <thead>
+                        <tr>
+                          <th>Title</th>
+                          <th>Type</th>
+                          <th>Difficulty</th>
+                          <th>Created</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((problem) => {
+                          const badge = typeBadge[problem.problemType];
+                          return (
+                            <tr key={problem.uid}>
+                              <td style={{ fontWeight: 600 }}>{problem.title}</td>
+                              <td>
+                                <span className={`badge ${badge.className}`}>
+                                  {badge.label}
+                                </span>
+                              </td>
+                              <td>
+                                {problem.difficulty ? (
+                                  <span className={`badge ${problem.difficulty.toLowerCase()}`}>
+                                    {problem.difficulty.charAt(0).toUpperCase() + problem.difficulty.slice(1).toLowerCase()}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
+                              <td>{new Date(problem.created_at).toLocaleDateString()}</td>
+                              <td>
+                                <div className="actions">
+                                  <button
+                                    className="icon-btn"
+                                    title="Edit"
                                     onClick={() => router.push(problem.editUrl)}
+                                    style={{ color: '#6366f1' }}
                                   >
-                                    Edit
-                                  </Menu.Item>
-                                </Menu.Dropdown>
-                              </Menu>
-                            </Table.Td>
-                          </Table.Tr>
-                        );
-                      })}
-                    </Table.Tbody>
-                  </Table>
+                                    <IconEdit />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </>
             )}
-          </Box>
-        </Group>
+          </div>
+        </div>
       </DashboardLayout>
     </ProtectedRoute>
   );

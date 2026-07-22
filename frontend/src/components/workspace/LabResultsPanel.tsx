@@ -1,10 +1,35 @@
 'use client';
 
 import { useState } from 'react';
-import { Stack, Group, Text, Badge, Alert, Table, ScrollArea, Tabs, Card, ActionIcon, Divider, Code, Loader, Select, Button } from '@mantine/core';
-import { IconAlertCircle, IconChevronDown, IconChevronRight, IconCheck, IconPlayerPlay, IconCopy } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { LabExecuteResponse, LabAttemptResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress } from '@/types/lab.types';
+import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress } from '@/types/lab.types';
+
+/* ── SVG icons ── */
+const IconCheck = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const IconChevronDown = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="6 9 12 15 18 9"/>
+  </svg>
+);
+const IconChevronRight = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="9 18 15 12 9 6"/>
+  </svg>
+);
+const IconCopy = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+);
+const IconPlay = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polygon points="5 3 19 12 5 21 5 3"/>
+  </svg>
+);
 
 interface LabResultsPanelProps {
   result: LabExecuteResponse | null;
@@ -37,8 +62,9 @@ export function LabResultsPanel({
   reviewMode = false,
   onRerunQuery,
   isExecuting = false,
-  onCopyQuery
+  onCopyQuery,
 }: LabResultsPanelProps) {
+  const [activeTab, setActiveTab] = useState('results');
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   const [isAssigning, setIsAssigning] = useState(false);
@@ -47,24 +73,16 @@ export function LabResultsPanel({
 
   const toggleTable = (tableName: string) => {
     const newExpanded = new Set(expandedTables);
-    if (newExpanded.has(tableName)) {
-      newExpanded.delete(tableName);
-    } else {
-      newExpanded.add(tableName);
-    }
+    if (newExpanded.has(tableName)) newExpanded.delete(tableName);
+    else newExpanded.add(tableName);
     setExpandedTables(newExpanded);
   };
 
   const handleAssignAnswer = async () => {
     if (!selectedTaskId || !currentQuery.trim()) {
-      notifications.show({
-        title: 'Validation Error',
-        message: 'Please select a task',
-        color: 'yellow',
-      });
+      notifications.show({ title: 'Validation Error', message: 'Please select a task', color: 'yellow' });
       return;
     }
-
     setIsAssigning(true);
     try {
       await onAssignToTask(parseInt(selectedTaskId), currentQuery);
@@ -76,14 +94,9 @@ export function LabResultsPanel({
 
   const handleSubmitAnswer = async () => {
     if (!selectedSubmitTaskId) {
-      notifications.show({
-        title: 'Validation Error',
-        message: 'Please select a task',
-        color: 'yellow',
-      });
+      notifications.show({ title: 'Validation Error', message: 'Please select a task', color: 'yellow' });
       return;
     }
-
     setIsSubmitting(true);
     try {
       await onSubmitToTask(parseInt(selectedSubmitTaskId));
@@ -97,386 +110,359 @@ export function LabResultsPanel({
     ? tasks.find(t => t.id.toString() === selectedTaskId)?.has_answer ?? false
     : false;
 
-  // Get tasks with answers for the dropdown (students)
   const tasksWithAnswers = tasks.filter(task => task.has_answer);
 
+  const tabs = [
+    { id: 'results', label: 'Results' },
+    { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
+    { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
+  ];
+
   return (
-    <Tabs defaultValue="results" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Tabs.List>
-        <Tabs.Tab value="results">Results</Tabs.Tab>
-        <Tabs.Tab value="history">
-          History
-          {attempts.length > 0 && (
-            <Badge size="xs" ml="xs" circle>
-              {attempts.length}
-            </Badge>
-          )}
-        </Tabs.Tab>
-        <Tabs.Tab value="database">
-          Database
-          {databaseState && databaseState.tables.length > 0 && (
-            <Badge size="xs" ml="xs" circle>
-              {databaseState.tables.length}
-            </Badge>
-          )}
-        </Tabs.Tab>
-      </Tabs.List>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Tab bar */}
+      <div className="tabs" style={{ margin: 0, padding: '0 12px', flexShrink: 0 }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={`tab${activeTab === tab.id ? ' active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <Tabs.Panel value="results" style={{ flex: 1, overflow: 'auto' }}>
-        {!result ? (
-          <Stack align="center" justify="center" p="md" style={{ height: '100%' }}>
-            <Text c="dimmed">Run a query to see results</Text>
-          </Stack>
-        ) : (
-          <Stack gap="md" p="md">
-            <Group justify="space-between" wrap="nowrap">
-              <Text fw={500}>Results</Text>
-              <Group gap="xs" wrap="nowrap">
-                <Badge color={result.success ? 'green' : 'red'} size="sm">
-                  {result.success ? 'Success' : 'Failed'}
-                </Badge>
-                {result.success && (
-                  <Badge color="blue" size="sm">
-                    {result.row_count} rows
-                  </Badge>
-                )}
-                <Badge color="gray" size="sm">
-                  {result.execution_time_ms.toFixed(2)}ms
-                </Badge>
-              </Group>
-            </Group>
+      {/* Tab content */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
 
-            {/* Assign to Task Section (Staff Only - Not in Review Mode) */}
-            {isStaffMode && !reviewMode && result.success && (
-              <>
-                <Divider label="Assign to Task" labelPosition="center" />
-                <Card withBorder padding="sm" bg="cyan.0">
-                  <Stack gap="sm">
-                    <Text size="sm" fw={500}>
-                      Assign this query result as the correct answer for a task (you can also update an existing answer)
-                    </Text>
-                    {tasks.length === 0 ? (
-                      <Alert color="blue" icon={<IconAlertCircle size={16} />}>
-                        No tasks exist yet. Create a task in the Tasks tab first.
-                      </Alert>
-                    ) : (
-                      <>
-                        <Select
-                          label="Select Task"
-                          placeholder="Choose a task to assign answer"
-                          value={selectedTaskId}
-                          onChange={(value) => setSelectedTaskId(value || '')}
-                          data={tasks.map((task) => ({
-                            value: task.id.toString(),
-                            label: `${task.title}${task.has_answer ? ' ✓' : ''}`,
-                          }))}
-                        />
-                        {selectedTaskHasAnswer && (
-                          <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                            This task already has a correct answer. Proceeding will overwrite it.
-                          </Alert>
-                        )}
-                        <Button
-                          leftSection={<IconCheck size={16} />}
-                          onClick={handleAssignAnswer}
-                          loading={isAssigning}
-                          disabled={!selectedTaskId}
-                          fullWidth
-                          color="cyan"
-                        >
-                          {selectedTaskHasAnswer ? 'Update Answer' : 'Assign Answer'}
-                        </Button>
-                      </>
-                    )}
-                  </Stack>
-                </Card>
-              </>
-            )}
-
-            {/* Submit to Task Section (Student Only) */}
-            {!isStaffMode && result.success && (
-              <>
-                <Divider label="Submit to Task" labelPosition="center" />
-                <Card withBorder padding="sm" bg="blue.0">
-                  <Stack gap="sm">
-                    <Text size="sm" fw={500}>
-                      Submit this result as your answer to a task
-                    </Text>
-                    {tasksWithAnswers.length === 0 ? (
-                      <Alert color="blue" icon={<IconAlertCircle size={16} />}>
-                        No tasks available for submission yet.
-                      </Alert>
-                    ) : (
-                      <>
-                        <Select
-                          label="Select Task"
-                          placeholder="Choose a task to submit for"
-                          value={selectedSubmitTaskId}
-                          onChange={(value) => setSelectedSubmitTaskId(value || '')}
-                          data={tasksWithAnswers.map((task) => ({
-                            value: task.id.toString(),
-                            label: `${task.title}${taskProgress[task.id]?.is_completed ? ' ✓' : ''}`,
-                          }))}
-                        />
-                        {selectedSubmitTaskId && taskProgress[parseInt(selectedSubmitTaskId)]?.is_completed && (
-                          <Alert color="green" icon={<IconCheck size={16} />}>
-                            You've already solved this task! You can still resubmit.
-                          </Alert>
-                        )}
-                        <Button
-                          leftSection={<IconCheck size={16} />}
-                          onClick={handleSubmitAnswer}
-                          loading={isSubmitting}
-                          disabled={!selectedSubmitTaskId}
-                          fullWidth
-                          color="blue"
-                        >
-                          Submit Answer
-                        </Button>
-                      </>
-                    )}
-                  </Stack>
-                </Card>
-              </>
-            )}
-
-            {!result.success && result.error_message && (
-              <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                {result.error_message}
-              </Alert>
-            )}
-
-            {result.success && result.results.length > 0 && (
-              <ScrollArea>
-                <Table striped highlightOnHover withTableBorder withColumnBorders>
-                  <Table.Thead>
-                    <Table.Tr>
-                      {result.columns.map((col) => (
-                        <Table.Th key={col}>{col}</Table.Th>
-                      ))}
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {result.results.map((row, idx) => (
-                      <Table.Tr key={idx}>
-                        {result.columns.map((col) => (
-                          <Table.Td key={col}>
-                            {row[col] === null
-                              ? 'NULL'
-                              : typeof row[col] === 'object'
-                                ? JSON.stringify(row[col])
-                                : String(row[col])}
-                          </Table.Td>
-                        ))}
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea>
-            )}
-
-            {result.success && result.results.length === 0 && (
-              <Text c="dimmed">Query executed successfully. No rows returned.</Text>
-            )}
-          </Stack>
-        )}
-      </Tabs.Panel>
-
-      <Tabs.Panel value="history" style={{ flex: 1, overflow: 'auto' }}>
-        <Stack gap="md" p="md">
-          {attempts.length === 0 ? (
-            <Text c="dimmed" ta="center" py="xl">
-              No query history yet. Execute queries to see them here.
-            </Text>
+        {/* ── Results Tab ── */}
+        {activeTab === 'results' && (
+          !result ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
+              Run a query to see results
+            </div>
           ) : (
-            attempts.map((attempt) => (
-              <Card key={attempt.id} withBorder padding="sm" radius="md">
-                <Stack gap="xs">
-                  <Group justify="space-between" wrap="nowrap">
-                    <Group gap="xs" wrap="nowrap">
-                      <Badge color={attempt.success ? 'green' : 'red'} size="sm">
-                        {attempt.success ? 'Success' : 'Failed'}
-                      </Badge>
-                      {attempt.success && (
-                        <Badge color="blue" size="xs">
-                          {attempt.row_count} rows
-                        </Badge>
-                      )}
-                      <Badge color="gray" size="xs">
-                        {attempt.execution_time_ms.toFixed(2)}ms
-                      </Badge>
-                    </Group>
+            <div style={{ padding: 12, display: 'grid', gap: 12 }}>
+              {/* Result meta */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>Results</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <span className={`badge ${result.success ? 'badge-success' : 'badge-danger'}`}>
+                    {result.success ? 'Success' : 'Failed'}
+                  </span>
+                  {result.success && <span className="badge badge-info">{result.row_count} rows</span>}
+                  <span className="badge neutral">{result.execution_time_ms.toFixed(2)}ms</span>
+                </div>
+              </div>
 
-                    <Group gap="xs" wrap="nowrap">
+              {/* Assign to Task (Staff) */}
+              {isStaffMode && !reviewMode && result.success && (
+                <div className="card" style={{ padding: 12, background: 'var(--surface-brand)' }}>
+                  <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Assign to Task
+                  </p>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <p style={{ margin: 0, fontSize: 12, color: 'var(--brand-charcoal)' }}>
+                      Assign this query result as the correct answer for a task
+                    </p>
+                    {tasks.length === 0 ? (
+                      <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                        No tasks exist yet. Create a task in the Tasks tab first.
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          className="da-select"
+                          style={{ width: '100%', fontSize: 13 }}
+                          value={selectedTaskId}
+                          onChange={(e) => setSelectedTaskId(e.target.value)}
+                        >
+                          <option value="">Choose a task to assign answer</option>
+                          {tasks.map(task => (
+                            <option key={task.id} value={task.id.toString()}>
+                              {task.title}{task.has_answer ? ' ✓' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedTaskHasAnswer && (
+                          <div className="da-alert alert-warn" style={{ fontSize: 12 }}>
+                            This task already has a correct answer. Proceeding will overwrite it.
+                          </div>
+                        )}
+                        <button
+                          className="btn btn-brand"
+                          style={{ width: '100%', justifyContent: 'center', minHeight: 34 }}
+                          onClick={handleAssignAnswer}
+                          disabled={!selectedTaskId || isAssigning}
+                        >
+                          <IconCheck />
+                          {isAssigning ? 'Assigning…' : selectedTaskHasAnswer ? 'Update Answer' : 'Assign Answer'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Submit to Task (Student) */}
+              {!isStaffMode && result.success && (
+                <div className="card" style={{ padding: 12, background: '#eff6ff' }}>
+                  <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Submit to Task
+                  </p>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <p style={{ margin: 0, fontSize: 12, color: 'var(--brand-charcoal)' }}>
+                      Submit this result as your answer to a task
+                    </p>
+                    {tasksWithAnswers.length === 0 ? (
+                      <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                        No tasks available for submission yet.
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          className="da-select"
+                          style={{ width: '100%', fontSize: 13 }}
+                          value={selectedSubmitTaskId}
+                          onChange={(e) => setSelectedSubmitTaskId(e.target.value)}
+                        >
+                          <option value="">Choose a task to submit for</option>
+                          {tasksWithAnswers.map(task => (
+                            <option key={task.id} value={task.id.toString()}>
+                              {task.title}{taskProgress[task.id]?.is_completed ? ' ✓' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedSubmitTaskId && taskProgress[parseInt(selectedSubmitTaskId)]?.is_completed && (
+                          <div className="da-alert" style={{ background: '#dcfce7', borderColor: '#bbf7d0', color: '#166534', fontSize: 12 }}>
+                            You&apos;ve already solved this task! You can still resubmit.
+                          </div>
+                        )}
+                        <button
+                          className="btn btn-brand"
+                          style={{ width: '100%', justifyContent: 'center', minHeight: 34 }}
+                          onClick={handleSubmitAnswer}
+                          disabled={!selectedSubmitTaskId || isSubmitting}
+                        >
+                          <IconCheck />
+                          {isSubmitting ? 'Submitting…' : 'Submit Answer'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Error message */}
+              {!result.success && result.error_message && (
+                <div className="da-alert alert-error" role="alert">
+                  <strong>Query Error</strong>
+                  <span>{result.error_message}</span>
+                </div>
+              )}
+
+              {/* Result table */}
+              {result.success && result.results.length > 0 && (
+                <div className="table-wrap">
+                  <table className="da-table">
+                    <thead>
+                      <tr>
+                        {result.columns.map(col => <th key={col}>{col}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.results.map((row, idx) => (
+                        <tr key={idx}>
+                          {result.columns.map(col => (
+                            <td key={col}>
+                              {row[col] === null ? 'NULL' : typeof row[col] === 'object' ? JSON.stringify(row[col]) : String(row[col])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {result.success && result.results.length === 0 && (
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>
+                  Query executed successfully. No rows returned.
+                </p>
+              )}
+            </div>
+          )
+        )}
+
+        {/* ── History Tab ── */}
+        {activeTab === 'history' && (
+          <div style={{ padding: 12, display: 'grid', gap: 8 }}>
+            {attempts.length === 0 ? (
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '24px 0' }}>
+                No query history yet. Execute queries to see them here.
+              </p>
+            ) : (
+              attempts.map(attempt => (
+                <div key={attempt.id} className="card" style={{ padding: '10px 12px' }}>
+                  {/* Header row */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <span className={`badge ${attempt.success ? 'badge-success' : 'badge-danger'}`}>
+                        {attempt.success ? 'Success' : 'Failed'}
+                      </span>
+                      {attempt.success && <span className="badge badge-info">{attempt.row_count} rows</span>}
+                      <span className="badge neutral">{attempt.execution_time_ms.toFixed(2)}ms</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
                       {onCopyQuery && (
-                        <ActionIcon
-                          variant="light"
-                          color="gray"
-                          size="sm"
+                        <button
+                          className="icon-btn"
+                          style={{ color: 'var(--text-muted)' }}
+                          title="Copy query to editor"
                           onClick={() => {
                             onCopyQuery(attempt.query);
-                            notifications.show({
-                              title: 'Query Copied',
-                              message: 'Query loaded into editor',
-                              color: 'blue',
-                            });
+                            notifications.show({ title: 'Query Copied', message: 'Query loaded into editor', color: 'blue' });
                           }}
-                          title="Copy query to editor"
-                          aria-label="Copy query to editor"
                         >
-                          <IconCopy size={16} />
-                        </ActionIcon>
+                          <IconCopy />
+                        </button>
                       )}
-
                       {onRerunQuery && (
-                        <ActionIcon
-                          variant="light"
-                          color="blue"
-                          size="sm"
+                        <button
+                          className="icon-btn"
+                          style={{ color: 'var(--info)', opacity: isExecuting ? 0.5 : 1 }}
+                          title="Rerun this query"
                           onClick={() => onRerunQuery(attempt.query)}
                           disabled={isExecuting}
-                          loading={isExecuting}
-                          title="Rerun this query"
-                          aria-label="Rerun query"
                         >
-                          <IconPlayerPlay size={16} />
-                        </ActionIcon>
+                          <IconPlay />
+                        </button>
                       )}
-                    </Group>
-                  </Group>
+                    </div>
+                  </div>
 
-                  <Text size="xs" c="dimmed">
+                  <p style={{ margin: '0 0 4px', fontSize: 11, color: 'var(--text-muted)' }}>
                     {new Date(attempt.submitted_at).toLocaleString()}
-                  </Text>
+                  </p>
 
-                  <Text
-                    size="sm"
-                    style={{
-                      fontFamily: 'monospace',
-                      background: 'var(--mantine-color-gray-0)',
-                      padding: '8px',
-                      borderRadius: '4px',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    {attempt.query.length > 150
-                      ? `${attempt.query.substring(0, 150)}...`
-                      : attempt.query}
-                  </Text>
+                  <pre style={{
+                    margin: 0, fontSize: 12, lineHeight: 1.5,
+                    background: 'var(--surface-muted)', color: 'var(--text)',
+                    padding: '6px 8px', borderRadius: 'var(--radius)',
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}>
+                    {attempt.query.length > 150 ? `${attempt.query.substring(0, 150)}...` : attempt.query}
+                  </pre>
 
                   {!attempt.success && attempt.error_message && (
-                    <Alert color="red" p="xs">
-                      <Text size="xs">{attempt.error_message}</Text>
-                    </Alert>
+                    <div className="da-alert alert-error" style={{ marginTop: 6, fontSize: 12 }}>
+                      {attempt.error_message}
+                    </div>
                   )}
-                </Stack>
-              </Card>
-            ))
-          )}
-        </Stack>
-      </Tabs.Panel>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
-      <Tabs.Panel value="database" style={{ flex: 1, overflow: 'auto' }}>
-        {isLoadingDatabase ? (
-          <Stack align="center" justify="center" p="md" style={{ height: '100%' }}>
-            <Loader size="sm" />
-            <Text c="dimmed">Loading database state...</Text>
-          </Stack>
-        ) : !databaseState ? (
-          <Stack align="center" justify="center" p="md" style={{ height: '100%' }}>
-            <Text c="dimmed">No database state available</Text>
-          </Stack>
-        ) : databaseState.tables.length === 0 ? (
-          <Stack align="center" justify="center" p="md" style={{ height: '100%' }}>
-            <Text c="dimmed">No tables in database</Text>
-          </Stack>
-        ) : (
-          <Stack gap="md" p="md">
-            {databaseState.tables.map((table) => (
-              <Card key={table.name} withBorder padding="sm" radius="md">
-                <Stack gap="xs">
-                  {/* Table Header */}
-                  <Group justify="space-between" wrap="nowrap">
-                    <Group gap="xs">
-                      <ActionIcon
-                        variant="subtle"
-                        onClick={() => toggleTable(table.name)}
-                        size="sm"
-                      >
-                        {expandedTables.has(table.name) ? (
-                          <IconChevronDown size={16} />
-                        ) : (
-                          <IconChevronRight size={16} />
-                        )}
-                      </ActionIcon>
-                      <Text fw={600} size="sm">{table.name}</Text>
-                    </Group>
-                    <Badge color="blue" size="sm">{table.row_count} rows</Badge>
-                  </Group>
+        {/* ── Database Tab ── */}
+        {activeTab === 'database' && (
+          isLoadingDatabase ? (
+            <div className="loading-center" style={{ minHeight: 120 }}>
+              <div className="spinner" style={{ width: 20, height: 20 }} />
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading database state…</span>
+            </div>
+          ) : !databaseState ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
+              No database state available
+            </div>
+          ) : databaseState.tables.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
+              No tables in database
+            </div>
+          ) : (
+            <div style={{ padding: 12, display: 'grid', gap: 8 }}>
+              {databaseState.tables.map(table => (
+                <div key={table.name} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  {/* Table header - always visible */}
+                  <button
+                    style={{
+                      width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '10px 12px', textAlign: 'left',
+                    }}
+                    onClick={() => toggleTable(table.name)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {expandedTables.has(table.name) ? <IconChevronDown /> : <IconChevronRight />}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 650, color: 'var(--text)' }}>{table.name}</span>
+                    </div>
+                    <span className="badge badge-info">{table.row_count} rows</span>
+                  </button>
 
-                  {/* Collapsed View: Column Names */}
+                  {/* Collapsed: column names */}
                   {!expandedTables.has(table.name) && (
-                    <Text size="xs" c="dimmed">
+                    <p style={{ margin: 0, padding: '0 12px 10px', fontSize: 11, color: 'var(--text-muted)' }}>
                       {table.columns.map(col => col.name).join(', ')}
-                    </Text>
+                    </p>
                   )}
 
-                  {/* Expanded View: Full Schema + Data */}
+                  {/* Expanded: schema + data */}
                   {expandedTables.has(table.name) && (
-                    <>
-                      {/* Schema */}
-                      <Divider />
-                      <Text size="xs" fw={500}>Schema:</Text>
-                      <Code block style={{ fontSize: '11px' }}>
+                    <div style={{ padding: '0 12px 12px', display: 'grid', gap: 10 }}>
+                      <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+                      <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: 'var(--brand-charcoal)' }}>Schema:</p>
+                      <pre style={{
+                        margin: 0, fontSize: 11, lineHeight: 1.5,
+                        background: '#1e1e1e', color: '#d4d4d4',
+                        padding: '8px 10px', borderRadius: 'var(--radius)',
+                        overflow: 'auto', fontFamily: 'var(--font-geist-mono)',
+                      }}>
                         {table.columns.map(col =>
                           `${col.name} ${col.type}${col.pk ? ' PRIMARY KEY' : ''}${col.notnull ? ' NOT NULL' : ''}`
                         ).join('\n')}
-                      </Code>
+                      </pre>
 
-                      {/* Sample Data */}
                       {table.sample_data.rows.length > 0 && (
                         <>
-                          <Divider />
-                          <Text size="xs" fw={500}>
+                          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+                          <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
                             Data Preview ({table.sample_data.rows.length} of {table.row_count} rows):
-                          </Text>
-                          <ScrollArea>
-                            <Table striped highlightOnHover withTableBorder withColumnBorders>
-                              <Table.Thead>
-                                <Table.Tr>
-                                  {table.sample_data.columns.map((col) => (
-                                    <Table.Th key={col}>{col}</Table.Th>
-                                  ))}
-                                </Table.Tr>
-                              </Table.Thead>
-                              <Table.Tbody>
+                          </p>
+                          <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                            <table className="da-table" style={{ fontSize: 11 }}>
+                              <thead>
+                                <tr>
+                                  {table.sample_data.columns.map(col => <th key={col}>{col}</th>)}
+                                </tr>
+                              </thead>
+                              <tbody>
                                 {table.sample_data.rows.map((row, idx) => (
-                                  <Table.Tr key={idx}>
-                                    {table.sample_data.columns.map((col) => (
-                                      <Table.Td key={col}>
-                                        {row[col] === null
-                                          ? 'NULL'
-                                          : typeof row[col] === 'object'
-                                            ? JSON.stringify(row[col])
-                                            : String(row[col])}
-                                      </Table.Td>
+                                  <tr key={idx}>
+                                    {table.sample_data.columns.map(col => (
+                                      <td key={col}>
+                                        {row[col] === null ? 'NULL' : typeof row[col] === 'object' ? JSON.stringify(row[col]) : String(row[col])}
+                                      </td>
                                     ))}
-                                  </Table.Tr>
+                                  </tr>
                                 ))}
-                              </Table.Tbody>
-                            </Table>
-                          </ScrollArea>
+                              </tbody>
+                            </table>
+                          </div>
                         </>
                       )}
-                    </>
+                    </div>
                   )}
-                </Stack>
-              </Card>
-            ))}
-          </Stack>
+                </div>
+              ))}
+            </div>
+          )
         )}
-      </Tabs.Panel>
-    </Tabs>
+      </div>
+    </div>
   );
 }

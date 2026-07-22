@@ -2,35 +2,6 @@
 
 import { useState } from 'react';
 import {
-  Stack,
-  Title,
-  Text,
-  Badge,
-  Group,
-  Divider,
-  Code,
-  Tabs,
-  TextInput,
-  Textarea,
-  Button,
-  Card,
-  ActionIcon,
-  Loader,
-  Alert,
-  Modal,
-} from '@mantine/core';
-import {
-  IconPlus,
-  IconTrash,
-  IconCheck,
-  IconAlertCircle,
-  IconChecks,
-  IconX,
-  IconGripVertical,
-  IconPencil,
-} from '@tabler/icons-react';
-import { notifications } from '@mantine/notifications';
-import {
   DndContext,
   DragEndEvent,
   PointerSensor,
@@ -44,8 +15,34 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { notifications } from '@mantine/notifications';
 import { LabDetail, LabTask, LabTaskCreate, LabTaskProgress, LabQueryHistoryResponse } from '@/types/lab.types';
 import { StudentQueryReviewPanel } from './StudentQueryReviewPanel';
+
+/* ── SVG icons ── */
+const IconPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconTrash = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
+const IconPencil = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+const IconGripVertical = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
+    <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
+  </svg>
+);
 
 interface LabDescriptionPanelProps {
   lab: LabDetail | null;
@@ -87,14 +84,7 @@ function SortableTaskCard({
   onDeleteTask,
   onEditTask,
 }: SortableTaskCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -102,98 +92,77 @@ function SortableTaskCard({
     opacity: isDragging ? 0.4 : 1,
   };
 
+  const progress = taskProgress[task.id];
+
+  const getTaskBadge = () => {
+    if (reviewMode) {
+      if (progress?.is_completed) return <span className="badge badge-success">✓ Correct</span>;
+      if (progress?.attempt_count > 0) return <span className="badge badge-danger">✗ Incorrect ({progress.attempt_count})</span>;
+      return <span className="badge badge-warn">Incomplete</span>;
+    }
+    if (!isStaffMode && progress) {
+      if (progress.is_completed) return <span className="badge badge-success">✓ Completed</span>;
+      if (progress.attempt_count > 0) return <span className="badge neutral">{progress.attempt_count} attempt{progress.attempt_count !== 1 ? 's' : ''}</span>;
+    }
+    if (isStaffMode && !reviewMode) {
+      if (task.has_answer) return <span className="badge badge-success">Has Answer</span>;
+      return <span className="badge badge-warn">No Answer</span>;
+    }
+    return null;
+  };
+
   return (
     <div ref={setNodeRef} style={style}>
-      <Card withBorder padding="sm" radius="md">
-        <Stack gap="xs">
-          <Group justify="space-between">
-            <Group gap="xs">
-              {isStaffMode && !reviewMode && (
-                <ActionIcon
-                  variant="transparent"
-                  size="sm"
-                  color="gray"
-                  style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-                  {...attributes}
-                  {...listeners}
-                  aria-label="Drag to reorder"
-                >
-                  <IconGripVertical size={16} />
-                </ActionIcon>
-              )}
-              <Text fw={600} size="sm">
-                {index + 1}. {task.title}
-              </Text>
-
-              {/* Review mode: Show student's task progress */}
-              {reviewMode && (
-                taskProgress[task.id]?.is_completed ? (
-                  <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
-                    Correct
-                  </Badge>
-                ) : taskProgress[task.id]?.attempt_count > 0 ? (
-                  <Badge color="red" size="xs" leftSection={<IconX size={12} />}>
-                    Incorrect ({taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''})
-                  </Badge>
-                ) : (
-                  <Badge color="yellow" size="xs">
-                    Incomplete
-                  </Badge>
-                )
-              )}
-
-              {/* Student mode: Show current student progress */}
-              {!reviewMode && !isStaffMode && taskProgress[task.id] && (
-                taskProgress[task.id].is_completed ? (
-                  <Badge color="green" size="xs" leftSection={<IconCheck size={12} />}>
-                    Completed
-                  </Badge>
-                ) : taskProgress[task.id].attempt_count > 0 ? (
-                  <Badge color="yellow" size="xs">
-                    {taskProgress[task.id].attempt_count} attempt{taskProgress[task.id].attempt_count !== 1 ? 's' : ''}
-                  </Badge>
-                ) : null
-              )}
-
-              {/* Staff testing mode: Show has_answer status */}
-              {!reviewMode && isStaffMode && (
-                task.has_answer ? (
-                  <Badge color="green" size="xs" leftSection={<IconChecks size={12} />}>
-                    Has Answer
-                  </Badge>
-                ) : (
-                  <Badge color="yellow" size="xs" leftSection={<IconAlertCircle size={12} />}>
-                    No Answer
-                  </Badge>
-                )
-              )}
-            </Group>
+      <div className="card" style={{ padding: '10px 12px', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flex: 1, minWidth: 0 }}>
             {isStaffMode && !reviewMode && (
-              <Group gap={4}>
-                <ActionIcon
-                  color="blue"
-                  variant="subtle"
-                  onClick={() => onEditTask(task.id, { title: task.title, description: task.description })}
-                  size="sm"
-                >
-                  <IconPencil size={16} />
-                </ActionIcon>
-                <ActionIcon
-                  color="red"
-                  variant="subtle"
-                  onClick={() => onDeleteTask(task.id)}
-                  size="sm"
-                >
-                  <IconTrash size={16} />
-                </ActionIcon>
-              </Group>
+              <button
+                {...attributes}
+                {...listeners}
+                style={{
+                  background: 'none', border: 'none', cursor: isDragging ? 'grabbing' : 'grab',
+                  color: 'var(--text-muted)', padding: '2px', flexShrink: 0, marginTop: 2,
+                }}
+                aria-label="Drag to reorder"
+              >
+                <IconGripVertical />
+              </button>
             )}
-          </Group>
-          <Text size="xs" c="dimmed">
-            {task.description}
-          </Text>
-        </Stack>
-      </Card>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 650, color: 'var(--text)' }}>
+                  {index + 1}. {task.title}
+                </span>
+                {getTaskBadge()}
+              </div>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {task.description}
+              </p>
+            </div>
+          </div>
+          {isStaffMode && !reviewMode && (
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button
+                className="icon-btn"
+                style={{ color: 'var(--info)' }}
+                onClick={() => onEditTask(task.id, { title: task.title, description: task.description })}
+                title="Edit task"
+              >
+                <IconPencil />
+              </button>
+              <button
+                className="icon-btn"
+                style={{ color: 'var(--error)' }}
+                onClick={() => onDeleteTask(task.id)}
+                title="Delete task"
+              >
+                <IconTrash />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -219,13 +188,11 @@ export function LabDescriptionPanel({
   studentEmail = '',
 }: LabDescriptionPanelProps) {
   const [activeTab, setActiveTab] = useState<string>(reviewMode ? 'review' : 'description');
-
-  // Task creation form state
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
 
-  // Task edit modal state
+  // Edit modal state
   const [editingTask, setEditingTask] = useState<LabTask | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -250,9 +217,7 @@ export function LabDescriptionPanel({
   };
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -263,33 +228,14 @@ export function LabDescriptionPanel({
     onReorderTasks(arrayMove(tasks, oldIndex, newIndex));
   };
 
-  if (!lab) {
-    return (
-      <Stack align="center" justify="center" p="md" style={{ height: '100%' }}>
-        <Text c="dimmed">Loading lab...</Text>
-      </Stack>
-    );
-  }
-
   const handleSubmitTask = async () => {
     if (!taskTitle.trim() || !taskDescription.trim()) {
-      notifications.show({
-        title: 'Validation Error',
-        message: 'Please fill in all fields',
-        color: 'yellow',
-      });
+      notifications.show({ title: 'Validation Error', message: 'Please fill in all fields', color: 'yellow' });
       return;
     }
-
     setIsCreatingTask(true);
     try {
-      await onCreateTask({
-        title: taskTitle,
-        description: taskDescription,
-        order_index: tasks.length,
-      });
-
-      // Reset form
+      await onCreateTask({ title: taskTitle, description: taskDescription, order_index: tasks.length });
       setTaskTitle('');
       setTaskDescription('');
     } finally {
@@ -297,171 +243,185 @@ export function LabDescriptionPanel({
     }
   };
 
+  if (!lab) {
+    return (
+      <div className="loading-center" style={{ height: '100%' }}>
+        <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading lab…</span>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { id: 'description', label: 'Description' },
+    { id: 'tasks', label: `Tasks${tasks.length > 0 ? ` (${tasks.length})` : ''}` },
+    ...(reviewMode ? [{ id: 'review', label: `Student Queries${studentQueries.length > 0 ? ` (${studentQueries.length})` : ''}` }] : []),
+  ];
+
   return (
-    <Tabs
-      value={activeTab}
-      onChange={(value) => setActiveTab(value || 'description')}
-      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-    >
-      <Tabs.List>
-        <Tabs.Tab value="description">Description</Tabs.Tab>
-        <Tabs.Tab value="tasks">
-          Tasks
-          {tasks.length > 0 && (
-            <Badge size="xs" ml="xs" circle>
-              {tasks.length}
-            </Badge>
-          )}
-        </Tabs.Tab>
-        {reviewMode && (
-          <Tabs.Tab value="review">
-            Student Queries
-            {studentQueries.length > 0 && (
-              <Badge size="xs" ml="xs" circle>
-                {studentQueries.length}
-              </Badge>
-            )}
-          </Tabs.Tab>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Tab bar */}
+      <div className="tabs" style={{ margin: 0, padding: '0 12px', flexShrink: 0 }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={`tab${activeTab === tab.id ? ' active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab panels */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {/* Description Tab */}
+        {activeTab === 'description' && (
+          <div style={{ padding: 16, display: 'grid', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{lab.title}</h3>
+              {sessionId && <span className="badge badge-success">Active Session</span>}
+            </div>
+
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+              {lab.description}
+            </p>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>Database Schema</p>
+              <pre style={{
+                margin: 0, fontSize: 11, lineHeight: 1.6,
+                background: '#1e1e1e', color: '#d4d4d4',
+                padding: 12, borderRadius: 'var(--radius)',
+                overflow: 'auto', maxHeight: 200,
+                fontFamily: 'var(--font-geist-mono)',
+              }}>
+                {lab.schema_sql}
+              </pre>
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>Sample Data</p>
+              <pre style={{
+                margin: 0, fontSize: 11, lineHeight: 1.6,
+                background: '#1e1e1e', color: '#d4d4d4',
+                padding: 12, borderRadius: 'var(--radius)',
+                overflow: 'auto', maxHeight: 200,
+                fontFamily: 'var(--font-geist-mono)',
+              }}>
+                {lab.sample_data_sql}
+              </pre>
+            </div>
+          </div>
         )}
-      </Tabs.List>
 
-      {/* Description Tab */}
-      <Tabs.Panel value="description" style={{ flex: 1, overflow: 'auto' }}>
-        <Stack gap="md" p="md">
-          <Group justify="space-between" align="flex-start">
-            <Title order={3}>{lab.title}</Title>
-            {sessionId && <Badge color="green">Active Session</Badge>}
-          </Group>
+        {/* Tasks Tab */}
+        {activeTab === 'tasks' && (
+          <div style={{ padding: 12, display: 'grid', gap: 12 }}>
+            {isLoadingTasks ? (
+              <div className="loading-center" style={{ minHeight: 120 }}>
+                <div className="spinner" style={{ width: 20, height: 20 }} />
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading tasks…</span>
+              </div>
+            ) : (
+              <>
+                {tasks.length === 0 && !isStaffMode && (
+                  <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: '24px 0' }}>
+                    No tasks available yet.
+                  </p>
+                )}
 
-          <Text size="sm" c="dimmed">
-            {lab.description}
-          </Text>
+                {isStaffMode && !reviewMode ? (
+                  <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                    <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                      {tasks.map((task, index) => (
+                        <SortableTaskCard
+                          key={task.id}
+                          task={task}
+                          index={index}
+                          isStaffMode={isStaffMode}
+                          reviewMode={reviewMode}
+                          taskProgress={taskProgress}
+                          onDeleteTask={onDeleteTask}
+                          onEditTask={handleOpenEdit}
+                        />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  tasks.map((task, index) => (
+                    <SortableTaskCard
+                      key={task.id}
+                      task={task}
+                      index={index}
+                      isStaffMode={isStaffMode}
+                      reviewMode={reviewMode}
+                      taskProgress={taskProgress}
+                      onDeleteTask={onDeleteTask}
+                      onEditTask={handleOpenEdit}
+                    />
+                  ))
+                )}
 
-          <Divider />
+                {/* Task Creation Form (Staff Only) */}
+                {isStaffMode && !reviewMode && (
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 10 }}>
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Create New Task
+                    </p>
 
-          <div>
-            <Text size="sm" fw={500} mb="xs">
-              Database Schema
-            </Text>
-            <Code block style={{ fontSize: '12px', maxHeight: '200px', overflow: 'auto' }}>
-              {lab.schema_sql}
-            </Code>
-          </div>
-
-          <Divider />
-
-          <div>
-            <Text size="sm" fw={500} mb="xs">
-              Sample Data
-            </Text>
-            <Code block style={{ fontSize: '12px', maxHeight: '200px', overflow: 'auto' }}>
-              {lab.sample_data_sql}
-            </Code>
-          </div>
-        </Stack>
-      </Tabs.Panel>
-
-      {/* Tasks Tab */}
-      <Tabs.Panel value="tasks" style={{ flex: 1, overflow: 'auto' }}>
-        <Stack gap="md" p="md">
-          {isLoadingTasks ? (
-            <Stack align="center" py="xl">
-              <Loader size="sm" />
-              <Text size="sm" c="dimmed">
-                Loading tasks...
-              </Text>
-            </Stack>
-          ) : (
-            <>
-              {/* Task List */}
-              {tasks.length === 0 && !isStaffMode && (
-                <Text size="sm" c="dimmed" ta="center" py="xl">
-                  No tasks available yet.
-                </Text>
-              )}
-
-              {isStaffMode && !reviewMode ? (
-                <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                  <SortableContext
-                    items={tasks.map(t => t.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {tasks.map((task, index) => (
-                      <SortableTaskCard
-                        key={task.id}
-                        task={task}
-                        index={index}
-                        isStaffMode={isStaffMode}
-                        reviewMode={reviewMode}
-                        taskProgress={taskProgress}
-                        onDeleteTask={onDeleteTask}
-                        onEditTask={handleOpenEdit}
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+                        Task Title <span style={{ color: 'var(--error)' }}>*</span>
+                      </label>
+                      <input
+                        className="da-input"
+                        style={{ width: '100%', fontSize: 13 }}
+                        placeholder="e.g., Find all students with grade > 80"
+                        value={taskTitle}
+                        onChange={(e) => setTaskTitle(e.target.value)}
                       />
-                    ))}
-                  </SortableContext>
-                </DndContext>
-              ) : (
-                tasks.map((task, index) => (
-                  <SortableTaskCard
-                    key={task.id}
-                    task={task}
-                    index={index}
-                    isStaffMode={isStaffMode}
-                    reviewMode={reviewMode}
-                    taskProgress={taskProgress}
-                    onDeleteTask={onDeleteTask}
-                    onEditTask={handleOpenEdit}
-                  />
-                ))
-              )}
+                    </div>
 
-              {/* Task Creation Form (Staff Only - Not in Review Mode) */}
-              {isStaffMode && !reviewMode && (
-                <>
-                  <Divider label="Create New Task" labelPosition="center" />
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+                        Task Description <span style={{ color: 'var(--error)' }}>*</span>
+                      </label>
+                      <textarea
+                        className="da-input"
+                        style={{ width: '100%', minHeight: 70, resize: 'vertical', fontSize: 13, fontFamily: 'var(--font-geist-sans)' }}
+                        placeholder="Describe what students need to accomplish..."
+                        value={taskDescription}
+                        onChange={(e) => setTaskDescription(e.target.value)}
+                        rows={3}
+                      />
+                    </div>
 
-                  <Stack gap="sm">
-                    <TextInput
-                      label="Task Title"
-                      placeholder="e.g., Find all students with grade > 80"
-                      value={taskTitle}
-                      onChange={(e) => setTaskTitle(e.target.value)}
-                      required
-                    />
+                    <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                      After creating the task, execute a query and assign its result as the correct answer from the Results panel.
+                    </div>
 
-                    <Textarea
-                      label="Task Description"
-                      placeholder="Describe what students need to accomplish..."
-                      value={taskDescription}
-                      onChange={(e) => setTaskDescription(e.target.value)}
-                      minRows={3}
-                      required
-                    />
-
-                    <Alert color="blue" icon={<IconAlertCircle size={16} />}>
-                      After creating the task, execute a query and assign its result as the
-                      correct answer from the Results panel.
-                    </Alert>
-
-                    <Button
-                      leftSection={<IconPlus size={16} />}
+                    <button
+                      className="btn btn-brand"
+                      style={{ width: '100%', justifyContent: 'center' }}
                       onClick={handleSubmitTask}
-                      loading={isCreatingTask}
-                      fullWidth
+                      disabled={isCreatingTask}
                     >
-                      Create Task
-                    </Button>
-                  </Stack>
-                </>
-              )}
-            </>
-          )}
-        </Stack>
-      </Tabs.Panel>
+                      <IconPlus />
+                      {isCreatingTask ? 'Creating…' : 'Create Task'}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
-      {/* Review Tab - Staff Review Mode */}
-      {reviewMode && (
-        <Tabs.Panel value="review" style={{ flex: 1, overflow: 'hidden' }}>
+        {/* Review Tab */}
+        {activeTab === 'review' && reviewMode && (
           <StudentQueryReviewPanel
             queries={studentQueries}
             currentIndex={currentQueryIndex}
@@ -471,39 +431,55 @@ export function LabDescriptionPanel({
             isLoading={isLoadingStudentHistory}
             studentEmail={studentEmail}
           />
-        </Tabs.Panel>
-      )}
+        )}
+      </div>
 
       {/* Edit Task Modal */}
-      <Modal
-        opened={editingTask !== null}
-        onClose={() => setEditingTask(null)}
-        title="Edit Task"
-      >
-        <Stack gap="sm">
-          <TextInput
-            label="Task Title"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.currentTarget.value)}
-            required
-          />
-          <Textarea
-            label="Task Description"
-            value={editDescription}
-            onChange={(e) => setEditDescription(e.currentTarget.value)}
-            minRows={3}
-            required
-          />
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setEditingTask(null)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveEdit} loading={isSavingEdit}>
-              Save Changes
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </Tabs>
+      {editingTask !== null && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="edit-task-title">
+          <div className="modal">
+            <h3 id="edit-task-title" style={{ margin: '0 0 16px' }}>Edit Task</h3>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+                  Task Title <span style={{ color: 'var(--error)' }}>*</span>
+                </label>
+                <input
+                  className="da-input"
+                  style={{ width: '100%' }}
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.currentTarget.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+                  Task Description <span style={{ color: 'var(--error)' }}>*</span>
+                </label>
+                <textarea
+                  className="da-input"
+                  style={{ width: '100%', minHeight: 80, resize: 'vertical', fontFamily: 'var(--font-geist-sans)' }}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.currentTarget.value)}
+                  rows={3}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="button-row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={isSavingEdit}>
+                Cancel
+              </button>
+              <button className="btn btn-brand" onClick={handleSaveEdit} disabled={isSavingEdit}>
+                {isSavingEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

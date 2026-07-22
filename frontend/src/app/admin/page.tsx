@@ -2,17 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Title,
-  Text,
-  Stack,
-  Group,
-  Card,
-  Button,
-  SimpleGrid,
-  Loader,
-} from '@mantine/core';
-import { IconBook, IconUsers, IconChecks, IconArrowRight } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
@@ -36,17 +25,14 @@ export default function AdminDashboard() {
         setLoading(true);
         const questions = await questionService.getQuestions();
 
-        // Get user count (students)
         let studentCount = 0;
         try {
           const usersResponse = await api.get('/users');
-          studentCount = usersResponse.data.filter((u: any) => u.role === 'student').length;
+          studentCount = usersResponse.data.filter((u: { role: string }) => u.role === 'student').length;
         } catch {
-          // Endpoint might not exist yet
           studentCount = 0;
         }
 
-        // Get total attempts
         let attemptCount = 0;
         try {
           const attemptsResponse = await api.get('/attempts');
@@ -73,89 +59,79 @@ export default function AdminDashboard() {
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <Stack gap="lg">
+        <div className="page-head">
           <div>
-            <Title order={2}>Admin Dashboard</Title>
-            <Text mt="sm" c="dimmed">
-              Welcome to the SQL Learning Platform administration panel
-            </Text>
+            <h2>Admin Dashboard</h2>
+            <p>Welcome to the SQL Learning Platform administration panel.</p>
           </div>
+        </div>
 
-          {loading ? (
-            <Stack align="center" justify="center" style={{ minHeight: '200px' }}>
-              <Loader size="lg" />
-            </Stack>
-          ) : (
-            <>
-              {/* Statistics Cards */}
-              <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg">
-                <Card withBorder padding="lg" radius="md">
-                  <Group justify="space-between">
-                    <div>
-                      <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                        Total Questions
-                      </Text>
-                      <Text size="xl" fw={700} mt="xs">
-                        {stats.totalQuestions}
-                      </Text>
-                    </div>
-                    <IconBook size={40} stroke={1.5} style={{ color: 'var(--mantine-color-blue-6)' }} />
-                  </Group>
-                </Card>
+        {loading ? (
+          <div className="loading-center">
+            <div className="spinner" />
+            <span>Loading stats…</span>
+          </div>
+        ) : (
+          <>
+            {/* Metric cards */}
+            <div className="grid-3" style={{ marginBottom: 18 }}>
+              <article className="card metric">
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Total Questions
+                  </span>
+                  <strong>{stats.totalQuestions}</strong>
+                </div>
+                <span className="badge brand-badge">SQL</span>
+              </article>
 
-                <Card withBorder padding="lg" radius="md">
-                  <Group justify="space-between">
-                    <div>
-                      <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                        Registered Students
-                      </Text>
-                      <Text size="xl" fw={700} mt="xs">
-                        {stats.totalStudents}
-                      </Text>
-                    </div>
-                    <IconUsers size={40} stroke={1.5} style={{ color: 'var(--mantine-color-green-6)' }} />
-                  </Group>
-                </Card>
+              <article className="card metric">
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Registered Students
+                  </span>
+                  <strong>{stats.totalStudents}</strong>
+                </div>
+                <span className="badge badge-success">Students</span>
+              </article>
 
-                <Card withBorder padding="lg" radius="md">
-                  <Group justify="space-between">
-                    <div>
-                      <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                        Total Attempts
-                      </Text>
-                      <Text size="xl" fw={700} mt="xs">
-                        {stats.totalAttempts}
-                      </Text>
-                    </div>
-                    <IconChecks size={40} stroke={1.5} style={{ color: 'var(--mantine-color-orange-6)' }} />
-                  </Group>
-                </Card>
-              </SimpleGrid>
+              <article className="card metric">
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Total Attempts
+                  </span>
+                  <strong>{stats.totalAttempts}</strong>
+                </div>
+                <span className="badge badge-warn">Attempts</span>
+              </article>
+            </div>
 
-              {/* Quick Actions */}
-              <Card withBorder padding="lg" radius="md">
-                <Stack gap="md">
-                  <Title order={3}>Quick Actions</Title>
-                  <Group>
-                    <Button
-                      rightSection={<IconArrowRight size={16} />}
-                      onClick={() => router.push('/admin/questions')}
-                    >
-                      Manage Questions
-                    </Button>
-                    <Button
-                      variant="light"
-                      rightSection={<IconArrowRight size={16} />}
-                      onClick={() => router.push('/admin/questions/new')}
-                    >
-                      Create New Question
-                    </Button>
-                  </Group>
-                </Stack>
-              </Card>
-            </>
-          )}
-        </Stack>
+            {/* Quick actions */}
+            <article className="card">
+              <h3 style={{ marginBottom: 14 }}>Quick Actions</h3>
+              <div className="button-row">
+                <button
+                  className="btn btn-primary"
+                  onClick={() => router.push('/admin/questions')}
+                >
+                  Manage Questions
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => router.push('/admin/questions/new')}
+                >
+                  Create New Question
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => router.push('/admin/labs')}
+                >
+                  Manage Labs
+                </button>
+              </div>
+            </article>
+          </>
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

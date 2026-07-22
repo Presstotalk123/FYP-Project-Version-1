@@ -2,21 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Title,
-  Text,
-  Stack,
-  Group,
-  Select,
-  TextInput,
-  Grid,
-  Card,
-  Badge,
-  Loader,
-  Alert,
-} from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconSearch, IconCheck, IconAlertCircle } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
@@ -30,73 +16,65 @@ interface QuestionWithProgress extends Question {
   attempts_count?: number;
 }
 
-const difficultyColors: Record<string, string> = {
-  easy: 'green',
-  medium: 'yellow',
-  hard: 'red',
+const difficultyClass: Record<string, string> = {
+  easy: 'easy',
+  medium: 'medium',
+  hard: 'hard',
 };
+
+const IconSearch = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+);
+const IconCheck = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
 
 export default function StudentDashboard() {
   const router = useRouter();
-
-  // State
   const [questions, setQuestions] = useState<QuestionWithProgress[]>([]);
   const [progress, setProgress] = useState<Progress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Filter state
-  const [difficulty, setDifficulty] = useState<string | null>('all');
+  const [difficulty, setDifficulty] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 500);
 
-  // Fetch data
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
-
         const params: { difficulty?: Difficulty; search?: string } = {};
-        if (difficulty && difficulty !== 'all') {
-          params.difficulty = difficulty as Difficulty;
-        }
-        if (debouncedSearch) {
-          params.search = debouncedSearch;
-        }
+        if (difficulty && difficulty !== 'all') params.difficulty = difficulty as Difficulty;
+        if (debouncedSearch) params.search = debouncedSearch;
 
         const [questionsData, progressData] = await Promise.all([
           questionService.getQuestions(params),
           attemptService.getProgress(),
         ]);
 
-        // Merge progress into questions
-        const progressMap = new Map(
-          progressData.map((p) => [p.question_id, p])
-        );
+        const progressMap = new Map(progressData.map((p) => [p.question_id, p]));
         const questionsWithProgress = questionsData.map((q) => {
           const prog = progressMap.get(q.id);
-          return {
-            ...q,
-            completed: prog?.completed || false,
-            attempts_count: prog?.attempts_count || 0,
-          };
+          return { ...q, completed: prog?.completed || false, attempts_count: prog?.attempts_count || 0 };
         });
 
         setQuestions(questionsWithProgress);
         setProgress(progressData);
       } catch (err) {
-        const error = err as { response?: { data?: { detail?: string } } };
-        setError(error.response?.data?.detail || 'Failed to load questions');
+        const e = err as { response?: { data?: { detail?: string } } };
+        setError(e.response?.data?.detail || 'Failed to load questions');
       } finally {
         setLoading(false);
       }
     };
-
     fetchData();
   }, [difficulty, debouncedSearch]);
 
-  // Handle card click
   const handleQuestionClick = (questionId: number) => {
     router.push(`/student/workspace/${questionId}`);
   };
@@ -104,111 +82,102 @@ export default function StudentDashboard() {
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
       <DashboardLayout>
-        <Stack gap="lg">
-          {/* Header */}
+        {/* Header */}
+        <div className="page-head">
           <div>
-            <Title order={2}>SQL Questions</Title>
-            <Text mt="sm" c="dimmed">
-              Select a question to start practicing your SQL skills
-            </Text>
+            <h2>SQL Questions</h2>
+            <p>Select a question to start practicing your SQL skills.</p>
           </div>
+        </div>
 
-          {/* Filters */}
-          <Group>
-            <Select
-              placeholder="Filter by difficulty"
-              data={[
-                { label: 'All Difficulties', value: 'all' },
-                { label: 'Easy', value: 'easy' },
-                { label: 'Medium', value: 'medium' },
-                { label: 'Hard', value: 'hard' },
-              ]}
-              value={difficulty}
-              onChange={setDifficulty}
-              style={{ width: 200 }}
-            />
-            <TextInput
-              placeholder="Search questions..."
-              leftSection={<IconSearch size={16} />}
+        {/* Filters */}
+        <div className="filters">
+          <select
+            className="da-select"
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value)}
+            style={{ width: 200 }}
+            aria-label="Filter by difficulty"
+          >
+            <option value="all">All Difficulties</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
+            <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}>
+              <IconSearch />
+            </span>
+            <input
+              type="text"
+              className="da-input"
+              placeholder="Search questions…"
               value={search}
-              onChange={(e) => setSearch(e.currentTarget.value)}
-              style={{ flex: 1, maxWidth: 400 }}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: '100%', paddingLeft: 34 }}
+              aria-label="Search questions"
             />
-          </Group>
+          </div>
+        </div>
 
-          {/* Loading state */}
-          {loading && (
-            <Stack align="center" justify="center" style={{ minHeight: '300px' }}>
-              <Loader size="lg" />
-              <Text c="dimmed">Loading questions...</Text>
-            </Stack>
-          )}
+        {/* Loading */}
+        {loading && (
+          <div className="loading-center">
+            <div className="spinner" />
+            <span>Loading questions…</span>
+          </div>
+        )}
 
-          {/* Error state */}
-          {error && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-              {error}
-            </Alert>
-          )}
+        {/* Error */}
+        {error && (
+          <div className="da-alert alert-error" role="alert">
+            <strong>Error</strong>
+            <span>{error}</span>
+          </div>
+        )}
 
-          {/* Questions grid */}
-          {!loading && !error && (
-            <>
-              {questions.length === 0 ? (
-                <Text c="dimmed" ta="center" mt="xl">
-                  No questions available yet.
-                </Text>
-              ) : (
-                <Grid>
-                  {questions.map((question) => (
-                    <Grid.Col key={question.id} span={{ base: 12, sm: 6, md: 4 }}>
-                      <Card
-                        withBorder
-                        radius="md"
-                        p="md"
-                        style={{ cursor: 'pointer', height: '100%' }}
-                        onClick={() => handleQuestionClick(question.id)}
-                      >
-                        <Stack gap="xs">
-                          <Group justify="space-between" align="center">
-                            <Title order={4}>Q{question.id}</Title>
-                            <Badge
-                              color={difficultyColors[question.difficulty]}
-                              variant="light"
-                            >
-                              {question.difficulty.charAt(0).toUpperCase() +
-                                question.difficulty.slice(1)}
-                            </Badge>
-                          </Group>
-
-                          <Text size="sm" lineClamp={2}>
-                            {question.title}
-                          </Text>
-
-                          {/* Completion status */}
-                          {question.completed ? (
-                            <Badge
-                              color="green"
-                              variant="filled"
-                              leftSection={<IconCheck size={12} />}
-                            >
-                              Completed
-                            </Badge>
-                          ) : (question.attempts_count || 0) > 0 ? (
-                            <Badge color="gray" variant="light">
-                              {question.attempts_count}{' '}
-                              {(question.attempts_count || 0) === 1 ? 'attempt' : 'attempts'}
-                            </Badge>
-                          ) : null}
-                        </Stack>
-                      </Card>
-                    </Grid.Col>
-                  ))}
-                </Grid>
-              )}
-            </>
-          )}
-        </Stack>
+        {/* Questions grid */}
+        {!loading && !error && (
+          questions.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: 40 }}>
+              No questions available yet.
+            </p>
+          ) : (
+            <div className="grid-3">
+              {questions.map((question) => (
+                <article
+                  key={question.id}
+                  className="card question-card"
+                  onClick={() => handleQuestionClick(question.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && handleQuestionClick(question.id)}
+                  aria-label={`Question ${question.id}: ${question.title}`}
+                >
+                  <div className="button-row" style={{ marginBottom: 8 }}>
+                    <h3 style={{ margin: 0, fontSize: 15 }}>Q{question.id}</h3>
+                    <span className={`badge ${difficultyClass[question.difficulty] || 'neutral'}`}>
+                      {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {question.title}
+                  </p>
+                  {question.completed ? (
+                    <span className="badge badge-success">
+                      <IconCheck />
+                      Completed
+                    </span>
+                  ) : (question.attempts_count || 0) > 0 ? (
+                    <span className="badge neutral">
+                      {question.attempts_count} {(question.attempts_count || 0) === 1 ? 'attempt' : 'attempts'}
+                    </span>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

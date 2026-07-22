@@ -2,35 +2,31 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Title,
-  Stack,
-  Card,
-  Text,
-  Badge,
-  Button,
-  Group,
-  Loader,
-  Alert,
-  SimpleGrid,
-} from '@mantine/core';
-import { IconAlertCircle, IconPlayerPlay, IconEye } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { Lab } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
 
+const IconPlay = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polygon points="5 3 19 12 5 21 5 3"/>
+  </svg>
+);
+const IconEye = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+
 export default function StudentLabsPage() {
   const router = useRouter();
-
   const [labs, setLabs] = useState<Lab[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchLabs();
-  }, []);
+  useEffect(() => { fetchLabs(); }, []);
 
   const fetchLabs = async () => {
     try {
@@ -39,8 +35,8 @@ export default function StudentLabsPage() {
       const data = await labService.getLabs();
       setLabs(data);
     } catch (err) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Failed to load labs');
+      const e = err as { response?: { data?: { detail?: string } } };
+      setError(e.response?.data?.detail || 'Failed to load labs');
     } finally {
       setLoading(false);
     }
@@ -48,10 +44,8 @@ export default function StudentLabsPage() {
 
   const handleLabAction = (lab: Lab) => {
     if (lab.is_running) {
-      // Start lab session
       router.push(`/student/labs/${lab.id}/workspace`);
     } else {
-      // Preview mode
       router.push(`/student/labs/${lab.id}/preview`);
     }
   };
@@ -59,71 +53,75 @@ export default function StudentLabsPage() {
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
       <DashboardLayout>
-        <Stack gap="md">
-          <Title order={2}>Database Labs</Title>
+        <div className="page-head">
+          <div>
+            <h2>Database Labs</h2>
+            <p>Join a running lab or preview the schema of an upcoming one.</p>
+          </div>
+        </div>
 
-          {loading && (
-            <Group justify="center" py="xl">
-              <Loader size="lg" />
-            </Group>
-          )}
+        {/* Loading */}
+        {loading && (
+          <div className="loading-center">
+            <div className="spinner" />
+            <span>Loading labs…</span>
+          </div>
+        )}
 
-          {error && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-              {error}
-            </Alert>
-          )}
+        {/* Error */}
+        {error && (
+          <div className="da-alert alert-error" role="alert">
+            <strong>Error</strong>
+            <span>{error}</span>
+          </div>
+        )}
 
-          {!loading && !error && labs.length === 0 && (
-            <Alert icon={<IconAlertCircle size={16} />} color="blue" title="No Labs Available">
-              No labs are currently published. Check back later!
-            </Alert>
-          )}
+        {/* Empty */}
+        {!loading && !error && labs.length === 0 && (
+          <div className="da-alert alert-info">
+            <strong>No Labs Available</strong>
+            <span>No labs are currently published. Check back later!</span>
+          </div>
+        )}
 
-          {!loading && !error && labs.length > 0 && (
-            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-              {labs.map((lab) => (
-                <Card key={lab.id} shadow="sm" padding="lg" radius="md" withBorder>
-                  <Stack gap="md">
-                    <div>
-                      <Group justify="space-between" mb="xs">
-                        <Text fw={600} size="lg">
-                          {lab.title}
-                        </Text>
-                        <Group gap="xs">
-                          <Badge color={lab.is_running ? 'green' : 'yellow'} size="sm">
-                            {lab.is_running ? 'Available' : 'Preview Only'}
-                          </Badge>
-                          {lab.lab_type === 'graph' && (
-                            <Badge color="grape" variant="light" size="sm">
-                              Graph
-                            </Badge>
-                          )}
-                        </Group>
-                      </Group>
-                      <Text size="sm" c="dimmed" lineClamp={3}>
-                        {lab.description}
-                      </Text>
+        {/* Lab cards */}
+        {!loading && !error && labs.length > 0 && (
+          <div className="grid-3">
+            {labs.map((lab) => (
+              <article key={lab.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <div className="button-row" style={{ marginBottom: 8 }}>
+                    <h3 style={{ margin: 0, fontSize: 16 }}>{lab.title}</h3>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <span className={`badge ${lab.is_running ? 'badge-success' : 'badge-warn'}`}>
+                        {lab.is_running ? 'Available' : 'Preview Only'}
+                      </span>
+                      {lab.lab_type === 'graph' && (
+                        <span className="badge brand-badge">Graph</span>
+                      )}
                     </div>
+                  </div>
+                  <p style={{ fontSize: 14, color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {lab.description}
+                  </p>
+                </div>
 
-                    <Button
-                      fullWidth
-                      leftSection={lab.is_running ? <IconPlayerPlay size={16} /> : <IconEye size={16} />}
-                      color={lab.is_running ? 'blue' : 'gray'}
-                      onClick={() => handleLabAction(lab)}
-                    >
-                      {lab.is_running ? 'Start Lab' : 'Preview Schema'}
-                    </Button>
+                <button
+                  className={`btn ${lab.is_running ? 'btn-brand' : 'btn-secondary'}`}
+                  onClick={() => handleLabAction(lab)}
+                  style={{ width: '100%', marginTop: 'auto' }}
+                >
+                  {lab.is_running ? <IconPlay /> : <IconEye />}
+                  {lab.is_running ? 'Start Lab' : 'Preview Schema'}
+                </button>
 
-                    <Text size="xs" c="dimmed">
-                      Created {new Date(lab.created_at).toLocaleDateString()}
-                    </Text>
-                  </Stack>
-                </Card>
-              ))}
-            </SimpleGrid>
-          )}
-        </Stack>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Created {new Date(lab.created_at).toLocaleDateString()}
+                </span>
+              </article>
+            ))}
+          </div>
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

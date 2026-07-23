@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.models.user import User, UserRole
-from app.schemas.user import UserResponse, UserRoleUpdate, UserAddRequest, UserAddResponse
+from app.schemas.user import UserResponse, UserRoleUpdate, UserAddRequest, UserAddResponse, UserProfileUpdate
 from app.core.security import hash_password
 from app.dependencies import require_staff_role, require_admin_role
 
@@ -77,3 +77,27 @@ def delete_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     db.delete(user)
     db.commit()
+
+
+@router.patch("/{user_id}/profile", response_model=UserResponse)
+def update_user_profile(
+    user_id: int,
+    request: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Update a user's name and/or class group. Pass null to clear a field."""
+    # Allow staff/admin to update any user, or a user to update themselves
+    if current_user.role == "student" and current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own profile"
+        )
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.name = request.name
+    user.class_group = request.class_group
+    db.commit()
+    db.refresh(user)
+    return user

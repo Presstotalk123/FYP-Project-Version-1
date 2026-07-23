@@ -1,11 +1,14 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
+from typing import Optional
 from app.models.user import UserRole
 
 
 class UserBase(BaseModel):
     """Base user schema"""
     email: EmailStr
+    name: Optional[str] = None
+    class_group: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -23,6 +26,12 @@ class UserResponse(UserBase):
 
     class Config:
         from_attributes = True
+
+
+class UserProfileUpdate(BaseModel):
+    """Schema for updating a user's optional profile fields"""
+    name: Optional[str] = None
+    class_group: Optional[str] = None
 
 
 class UserInDB(UserBase):

@@ -47,12 +47,15 @@ def google_login(
             email=email,
             hashed_password="",
             role=entry.role,
+            name=entry.name,
+            class_group=entry.class_group,
             is_active=1,
         )
         db.add(user)
 
     db.commit()
     db.refresh(user)
+
 
     access_token = create_access_token(data={"sub": user.email, "role": user.role.value})
     return {"access_token": access_token, "token_type": "bearer"}

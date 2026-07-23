@@ -19,5 +19,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(SQLEnum(UserRole, values_callable=lambda x: [e.value for e in x]), nullable=False, default=UserRole.STUDENT)
+    name = Column(String(255), nullable=True, default=None)           # Optional display name
+    class_group = Column(String(100), nullable=True, default=None)    # Optional class/tutorial group
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Integer, default=1)  # Using Integer for SQLite compatibility (0/1 for False/True)

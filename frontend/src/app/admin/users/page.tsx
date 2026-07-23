@@ -15,7 +15,7 @@ import {
   Button,
   Card,
 } from '@mantine/core';
-import { IconTrash, IconAlertCircle, IconPlus, IconCheck } from '@tabler/icons-react';
+import { IconTrash, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -26,7 +26,15 @@ interface WhitelistEntry {
   id: number;
   email: string;
   role: UserRole;
+  name: string | null;
+  class_group: string | null;
   created_at: string;
+}
+
+interface AddForm {
+  email: string;
+  name: string;
+  class_group: string;
 }
 
 type RoleSection = {
@@ -41,14 +49,16 @@ const ROLE_SECTIONS: RoleSection[] = [
   { role: UserRole.STUDENT, label: 'Student', color: 'green' },
 ];
 
+const emptyForm = (): AddForm => ({ email: '', name: '', class_group: '' });
+
 export default function ManageUsersPage() {
   const [entries, setEntries] = useState<WhitelistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [addEmail, setAddEmail] = useState<Record<UserRole, string>>({
-    [UserRole.ADMIN]: '',
-    [UserRole.STAFF]: '',
-    [UserRole.STUDENT]: '',
+  const [addForm, setAddForm] = useState<Record<UserRole, AddForm>>({
+    [UserRole.ADMIN]: emptyForm(),
+    [UserRole.STAFF]: emptyForm(),
+    [UserRole.STUDENT]: emptyForm(),
   });
   const [adding, setAdding] = useState<Record<UserRole, boolean>>({
     [UserRole.ADMIN]: false,
@@ -74,20 +84,33 @@ export default function ManageUsersPage() {
     fetchWhitelist();
   }, []);
 
+  const setField = (role: UserRole, field: keyof AddForm, value: string) => {
+    setAddForm((prev) => ({
+      ...prev,
+      [role]: { ...prev[role], [field]: value },
+    }));
+  };
+
   const handleAdd = async (role: UserRole) => {
-    const email = addEmail[role].trim();
+    const form = addForm[role];
+    const email = form.email.trim();
     if (!email) return;
 
     setAdding((prev) => ({ ...prev, [role]: true }));
     try {
-      await api.post('/whitelist', { email, role });
+      await api.post('/whitelist', {
+        email,
+        role,
+        name: form.name.trim() || null,
+        class_group: form.class_group.trim() || null,
+      });
       notifications.show({
         title: 'Whitelist updated',
         message: `${email} can now sign in as ${role}.`,
         color: 'green',
         icon: <IconCheck size={16} />,
       });
-      setAddEmail((prev) => ({ ...prev, [role]: '' }));
+      setAddForm((prev) => ({ ...prev, [role]: emptyForm() }));
       fetchWhitelist();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
@@ -153,6 +176,7 @@ export default function ManageUsersPage() {
             <Stack gap="xl">
               {ROLE_SECTIONS.map(({ role, label, color }) => {
                 const roleEntries = getEntriesByRole(role);
+                const form = addForm[role];
                 return (
                   <Card key={role} withBorder padding="lg" radius="md">
                     <Stack gap="md">
@@ -172,6 +196,8 @@ export default function ManageUsersPage() {
                           <Table.Thead>
                             <Table.Tr>
                               <Table.Th>Email</Table.Th>
+                              <Table.Th>Name</Table.Th>
+                              <Table.Th>Class Group</Table.Th>
                               <Table.Th>Added</Table.Th>
                               <Table.Th style={{ width: 60 }}></Table.Th>
                             </Table.Tr>
@@ -180,6 +206,16 @@ export default function ManageUsersPage() {
                             {roleEntries.map((entry) => (
                               <Table.Tr key={entry.id}>
                                 <Table.Td>{entry.email}</Table.Td>
+                                <Table.Td>
+                                  {entry.name ?? (
+                                    <Text c="dimmed" size="sm" fs="italic">—</Text>
+                                  )}
+                                </Table.Td>
+                                <Table.Td>
+                                  {entry.class_group ?? (
+                                    <Text c="dimmed" size="sm" fs="italic">—</Text>
+                                  )}
+                                </Table.Td>
                                 <Table.Td>
                                   {new Date(entry.created_at).toLocaleDateString()}
                                 </Table.Td>
@@ -199,23 +235,42 @@ export default function ManageUsersPage() {
                         </Table>
                       )}
 
-                      <Group gap="sm">
+                      {/* Add new entry — three inputs */}
+                      <Group gap="sm" align="flex-end">
                         <TextInput
-                          placeholder={`Add email to ${label} list`}
-                          value={addEmail[role]}
-                          onChange={(e) => {
-                            const value = e.currentTarget.value;
-                            setAddEmail((prev) => ({ ...prev, [role]: value }));
-                          }}
+                          label="Email"
+                          placeholder="user@example.com"
+                          value={form.email}
+                          onChange={(e) => setField(role, 'email', e.currentTarget.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
+                          style={{ flex: 2 }}
+                          type="email"
+                          leftSection={<IconUser size={14} />}
+                          required
+                        />
+                        <TextInput
+                          label="Name"
+                          placeholder="Full name (optional)"
+                          value={form.name}
+                          onChange={(e) => setField(role, 'name', e.currentTarget.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
+                          style={{ flex: 2 }}
+                        />
+                        <TextInput
+                          label="Class Group"
+                          placeholder="e.g. CS3 (optional)"
+                          value={form.class_group}
+                          onChange={(e) => setField(role, 'class_group', e.currentTarget.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
                           style={{ flex: 1 }}
-                          type="email"
+                          leftSection={<IconUsers size={14} />}
                         />
                         <Button
                           leftSection={<IconPlus size={16} />}
                           loading={adding[role]}
                           onClick={() => handleAdd(role)}
                           color={color}
+                          style={{ alignSelf: 'flex-end' }}
                         >
                           Add
                         </Button>

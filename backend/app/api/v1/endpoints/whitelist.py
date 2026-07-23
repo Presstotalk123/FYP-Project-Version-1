@@ -28,11 +28,18 @@ def add_to_whitelist(
     existing = db.query(WhitelistEntry).filter(WhitelistEntry.email == email).first()
     if existing:
         existing.role = request.role
+        existing.name = request.name
+        existing.class_group = request.class_group
         db.commit()
         db.refresh(existing)
         return existing
 
-    entry = WhitelistEntry(email=email, role=request.role)
+    entry = WhitelistEntry(
+        email=email,
+        role=request.role,
+        name=request.name,
+        class_group=request.class_group,
+    )
     db.add(entry)
     db.commit()
     db.refresh(entry)

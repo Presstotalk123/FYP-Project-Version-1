@@ -1685,6 +1685,7 @@ def get_student_attempts(
     student_data = db.query(
         LabTaskSubmission.user_id,
         User.email,
+        User.class_group,
         func.count(func.distinct(
             case((LabTaskSubmission.is_correct == 1, LabTaskSubmission.task_id))
         )).label('correct_count'),
@@ -1695,7 +1696,8 @@ def get_student_attempts(
         LabTaskSubmission.lab_id == lab_id
     ).group_by(
         LabTaskSubmission.user_id,
-        User.email
+        User.email,
+        User.class_group
     ).order_by(
         func.max(LabTaskSubmission.submitted_at).desc()
     ).all()
@@ -1711,6 +1713,7 @@ def get_student_attempts(
         students.append(StudentAttemptSummary(
             user_id=row.user_id,
             email=row.email,
+            class_group=row.class_group,
             correct_count=row.correct_count,
             not_solved_count=not_solved,
             total_tasks=total_tasks,

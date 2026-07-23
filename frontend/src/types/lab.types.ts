@@ -206,6 +206,7 @@ export interface LabTaskProgressResponse {
 export interface StudentAttemptSummary {
   user_id: number;
   email: string;
+  class_group?: string;
   correct_count: number;
   not_solved_count: number;
   total_tasks: number;

@@ -12,6 +12,7 @@ import {
   Group,
   Stack,
   Button,
+  Select,
 } from '@mantine/core';
 import { IconAlertCircle, IconUsers, IconPlayerPlay } from '@tabler/icons-react';
 import { labService } from '@/services/lab.service';
@@ -34,9 +35,21 @@ export function StudentAttemptsModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LabStudentAttemptsResponse | null>(null);
+  const [selectedClassGroup, setSelectedClassGroup] = useState<string | null>(null);
+
+  // Compute unique class groups for filter dropdown
+  const classGroups = data 
+    ? Array.from(new Set(data.students.map(s => s.class_group).filter((c): c is string => !!c))).sort()
+    : [];
+
+  // Filter students by selected class group
+  const filteredStudents = data
+    ? data.students.filter(s => !selectedClassGroup || s.class_group === selectedClassGroup)
+    : [];
 
   useEffect(() => {
     if (opened) {
+      setSelectedClassGroup(null); // Reset filter on open
       fetchStudentAttempts();
     }
   }, [opened, labId]);
@@ -86,9 +99,25 @@ export function StudentAttemptsModal({
 
         {!loading && !error && data && data.students.length > 0 && (
           <>
-            <Text size="md" fw={500} c="dimmed">
-              Total Tasks: {data.total_tasks} | Total Students: {data.students.length}
-            </Text>
+            <Group justify="space-between" align="flex-end">
+              <Text size="md" fw={500} c="dimmed">
+                Total Tasks: {data.total_tasks} | Total Students: {data.students.length}
+                {selectedClassGroup && ` | Filtered: ${filteredStudents.length}`}
+              </Text>
+              
+              {classGroups.length > 0 && (
+                <Select
+                  placeholder="Filter by Class Group"
+                  data={classGroups}
+                  value={selectedClassGroup}
+                  onChange={setSelectedClassGroup}
+                  clearable
+                  searchable
+                  style={{ width: 250 }}
+                />
+              )}
+            </Group>
+            
             <Table striped highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
@@ -101,7 +130,7 @@ export function StudentAttemptsModal({
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {data.students.map((student) => (
+                {filteredStudents.map((student) => (
                   <Table.Tr key={student.user_id}>
                     <Table.Td>
                       <Text size="md" fw={500}>{student.email}</Text>

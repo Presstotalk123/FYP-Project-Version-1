@@ -198,6 +198,7 @@ class StudentAttemptSummary(BaseModel):
     """Summary of a student's task attempts for a lab"""
     user_id: int
     email: str
+    class_group: Optional[str] = None
     correct_count: int
     not_solved_count: int
     total_tasks: int

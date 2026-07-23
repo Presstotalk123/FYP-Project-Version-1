@@ -30,6 +30,14 @@ def add_to_whitelist(
         existing.role = request.role
         existing.name = request.name
         existing.class_group = request.class_group
+        
+        # Sync to existing user if they have already signed in before
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            user.role = request.role
+            user.name = request.name
+            user.class_group = request.class_group
+            
         db.commit()
         db.refresh(existing)
         return existing
@@ -41,6 +49,14 @@ def add_to_whitelist(
         class_group=request.class_group,
     )
     db.add(entry)
+    
+    # Sync to existing user if they have already signed in before
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        user.role = request.role
+        user.name = request.name
+        user.class_group = request.class_group
+        
     db.commit()
     db.refresh(entry)
     return entry

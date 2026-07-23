@@ -41,6 +41,9 @@ def google_login(
     if user:
         if user.role != entry.role:
             user.role = entry.role
+        # Sync profile info from whitelist
+        user.name = entry.name
+        user.class_group = entry.class_group
         user.is_active = 1
     else:
         user = User(

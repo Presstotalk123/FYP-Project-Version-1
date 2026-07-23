@@ -1018,6 +1018,20 @@ def reset_session(
             detail=f"Failed to reset session database: {str(e)}"
         )
 
+    # Record the reset as a sentinel LabAttempt so it appears in query history
+    reset_attempt = LabAttempt(
+        session_id=session.id,
+        lab_id=lab_id,
+        user_id=current_user.id,
+        query="__SYSTEM__DATABASE_RESET__",
+        success=1,
+        execution_time_ms=0.0,
+        row_count=0,
+        error_message=None
+    )
+    db.add(reset_attempt)
+    db.commit()
+
     return {"message": "Session database reset successfully"}
 
 

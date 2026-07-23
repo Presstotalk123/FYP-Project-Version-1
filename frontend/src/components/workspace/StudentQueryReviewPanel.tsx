@@ -1,6 +1,6 @@
 'use client';
 
-import { LabQueryHistoryResponse } from '@/types/lab.types';
+import { LabQueryHistoryResponse, DB_RESET_SENTINEL } from '@/types/lab.types';
 
 /* ── SVG icons ── */
 const IconPlay = () => (
@@ -16,6 +16,16 @@ const IconCheck = () => (
 const IconInfo = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+);
+const IconRefreshSmall = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+  </svg>
+);
+const IconDatabase = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
   </svg>
 );
 
@@ -95,6 +105,7 @@ export function StudentQueryReviewPanel({
           const isExecuted = executedIndices.has(index);
           const isCurrent = index === currentIndex;
           const isPending = index > currentIndex;
+          const isReset = query.query === DB_RESET_SENTINEL;
 
           return (
             <div
@@ -103,8 +114,10 @@ export function StudentQueryReviewPanel({
               style={{
                 padding: '10px 12px',
                 cursor: 'pointer',
-                borderColor: isCurrent ? 'var(--brand-lilac)' : undefined,
-                borderWidth: isCurrent ? 2 : 1,
+                borderColor: isCurrent ? 'var(--brand-lilac)' : isReset ? '#f59e0b' : undefined,
+                borderWidth: isCurrent || isReset ? 2 : 1,
+                borderLeftWidth: isReset ? 3 : undefined,
+                background: isReset ? 'rgba(245,158,11,0.08)' : undefined,
                 opacity: isPending ? 0.6 : 1,
                 transition: 'all 0.15s ease',
               }}
@@ -112,40 +125,56 @@ export function StudentQueryReviewPanel({
             >
               {/* Badge row */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span className="badge neutral">#{index + 1}</span>
                   {isExecuted && <span className="badge badge-success"><IconCheck /> Reviewed</span>}
                   {isCurrent && !isExecuted && <span className="badge brand-badge">Current</span>}
                   {isPending && <span className="badge neutral">Pending</span>}
                 </div>
-                <span className={`badge ${query.success ? 'badge-success' : 'badge-danger'}`}>
-                  {query.success ? 'Success' : 'Failed'}
-                </span>
+                {isReset ? (
+                  <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <IconRefreshSmall /> Reset
+                  </span>
+                ) : (
+                  <span className={`badge ${query.success ? 'badge-success' : 'badge-danger'}`}>
+                    {query.success ? 'Success' : 'Failed'}
+                  </span>
+                )}
               </div>
 
               <p style={{ margin: '0 0 4px', fontSize: 11, color: 'var(--text-muted)' }}>
                 {new Date(query.submitted_at).toLocaleString()}
               </p>
 
-              <pre style={{
-                margin: 0, fontSize: 11, lineHeight: 1.5, maxHeight: 100, overflow: 'auto',
-                background: '#1e1e1e', color: '#d4d4d4',
-                padding: '6px 8px', borderRadius: 'var(--radius)',
-                fontFamily: 'var(--font-geist-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              }}>
-                {query.query.length > 200 ? `${query.query.substring(0, 200)}...` : query.query}
-              </pre>
-
-              {!query.success && query.error_message && (
-                <div className="da-alert alert-error" style={{ marginTop: 6, fontSize: 11 }}>
-                  {query.error_message}
+              {isReset ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                  <span style={{ color: '#d97706' }}><IconDatabase /></span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>Database Reset</span>
+                  <span style={{ fontSize: 11, color: '#78350f' }}>— restored to original template</span>
                 </div>
-              )}
+              ) : (
+                <>
+                  <pre style={{
+                    margin: 0, fontSize: 11, lineHeight: 1.5, maxHeight: 100, overflow: 'auto',
+                    background: '#1e1e1e', color: '#d4d4d4',
+                    padding: '6px 8px', borderRadius: 'var(--radius)',
+                    fontFamily: 'var(--font-geist-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  }}>
+                    {query.query.length > 200 ? `${query.query.substring(0, 200)}...` : query.query}
+                  </pre>
 
-              {query.success && (
-                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
-                  {query.row_count} rows · {query.execution_time_ms.toFixed(2)}ms
-                </p>
+                  {!query.success && query.error_message && (
+                    <div className="da-alert alert-error" style={{ marginTop: 6, fontSize: 11 }}>
+                      {query.error_message}
+                    </div>
+                  )}
+
+                  {query.success && (
+                    <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+                      {query.row_count} rows · {query.execution_time_ms.toFixed(2)}ms
+                    </p>
+                  )}
+                </>
               )}
             </div>
           );

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
-import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress } from '@/types/lab.types';
+import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 
 /* ── SVG icons ── */
 const IconCheck = () => (
@@ -28,6 +28,16 @@ const IconCopy = () => (
 const IconPlay = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polygon points="5 3 19 12 5 21 5 3"/>
+  </svg>
+);
+const IconDatabase = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+  </svg>
+);
+const IconRefreshSmall = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
   </svg>
 );
 
@@ -312,66 +322,101 @@ export function LabResultsPanel({
                 No query history yet. Execute queries to see them here.
               </p>
             ) : (
-              attempts.map(attempt => (
-                <div key={attempt.id} className="card" style={{ padding: '10px 12px' }}>
-                  {/* Header row */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <span className={`badge ${attempt.success ? 'badge-success' : 'badge-danger'}`}>
-                        {attempt.success ? 'Success' : 'Failed'}
-                      </span>
-                      {attempt.success && <span className="badge badge-info">{attempt.row_count} rows</span>}
-                      <span className="badge neutral">{attempt.execution_time_ms.toFixed(2)}ms</span>
+              attempts.map(attempt => {
+                /* ── Database Reset sentinel card ── */
+                if (attempt.query === DB_RESET_SENTINEL) {
+                  return (
+                    <div
+                      key={attempt.id}
+                      className="card"
+                      style={{
+                        padding: '10px 12px',
+                        borderLeft: '3px solid #f59e0b',
+                        background: 'rgba(245,158,11,0.07)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ color: '#d97706' }}><IconRefreshSmall /></span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>Database Reset</span>
+                          <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>Reset</span>
+                        </div>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#d97706' }}>
+                          <IconDatabase />
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>
+                        {new Date(attempt.submitted_at).toLocaleString()}
+                      </p>
+                      <p style={{ margin: '4px 0 0', fontSize: 12, color: '#92400e' }}>
+                        Database was restored to the original template at this point.
+                      </p>
                     </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {onCopyQuery && (
-                        <button
-                          className="icon-btn"
-                          style={{ color: 'var(--text-muted)' }}
-                          title="Copy query to editor"
-                          onClick={() => {
-                            onCopyQuery(attempt.query);
-                            notifications.show({ title: 'Query Copied', message: 'Query loaded into editor', color: 'blue' });
-                          }}
-                        >
-                          <IconCopy />
-                        </button>
-                      )}
-                      {onRerunQuery && (
-                        <button
-                          className="icon-btn"
-                          style={{ color: 'var(--info)', opacity: isExecuting ? 0.5 : 1 }}
-                          title="Rerun this query"
-                          onClick={() => onRerunQuery(attempt.query)}
-                          disabled={isExecuting}
-                        >
-                          <IconPlay />
-                        </button>
-                      )}
+                  );
+                }
+
+                /* ── Normal query card ── */
+                return (
+                  <div key={attempt.id} className="card" style={{ padding: '10px 12px' }}>
+                    {/* Header row */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <span className={`badge ${attempt.success ? 'badge-success' : 'badge-danger'}`}>
+                          {attempt.success ? 'Success' : 'Failed'}
+                        </span>
+                        {attempt.success && <span className="badge badge-info">{attempt.row_count} rows</span>}
+                        <span className="badge neutral">{attempt.execution_time_ms.toFixed(2)}ms</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {onCopyQuery && (
+                          <button
+                            className="icon-btn"
+                            style={{ color: 'var(--text-muted)' }}
+                            title="Copy query to editor"
+                            onClick={() => {
+                              onCopyQuery(attempt.query);
+                              notifications.show({ title: 'Query Copied', message: 'Query loaded into editor', color: 'blue' });
+                            }}
+                          >
+                            <IconCopy />
+                          </button>
+                        )}
+                        {onRerunQuery && (
+                          <button
+                            className="icon-btn"
+                            style={{ color: 'var(--info)', opacity: isExecuting ? 0.5 : 1 }}
+                            title="Rerun this query"
+                            onClick={() => onRerunQuery(attempt.query)}
+                            disabled={isExecuting}
+                          >
+                            <IconPlay />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    <p style={{ margin: '0 0 4px', fontSize: 11, color: 'var(--text-muted)' }}>
+                      {new Date(attempt.submitted_at).toLocaleString()}
+                    </p>
+
+                    <pre style={{
+                      margin: 0, fontSize: 12, lineHeight: 1.5,
+                      background: 'var(--surface-muted)', color: 'var(--text)',
+                      padding: '6px 8px', borderRadius: 'var(--radius)',
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      fontFamily: 'var(--font-geist-mono)',
+                    }}>
+                      {attempt.query.length > 150 ? `${attempt.query.substring(0, 150)}...` : attempt.query}
+                    </pre>
+
+                    {!attempt.success && attempt.error_message && (
+                      <div className="da-alert alert-error" style={{ marginTop: 6, fontSize: 12 }}>
+                        {attempt.error_message}
+                      </div>
+                    )}
                   </div>
-
-                  <p style={{ margin: '0 0 4px', fontSize: 11, color: 'var(--text-muted)' }}>
-                    {new Date(attempt.submitted_at).toLocaleString()}
-                  </p>
-
-                  <pre style={{
-                    margin: 0, fontSize: 12, lineHeight: 1.5,
-                    background: 'var(--surface-muted)', color: 'var(--text)',
-                    padding: '6px 8px', borderRadius: 'var(--radius)',
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    fontFamily: 'var(--font-geist-mono)',
-                  }}>
-                    {attempt.query.length > 150 ? `${attempt.query.substring(0, 150)}...` : attempt.query}
-                  </pre>
-
-                  {!attempt.success && attempt.error_message && (
-                    <div className="da-alert alert-error" style={{ marginTop: 6, fontSize: 12 }}>
-                      {attempt.error_message}
-                    </div>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

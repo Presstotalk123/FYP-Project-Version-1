@@ -30,7 +30,7 @@ const IconAlertCircle = () => (
 );
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { LabDetail, LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskProgress } from '@/types/lab.types';
+import { LabDetail, LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
@@ -389,6 +389,46 @@ export function LabWorkspace({
     if (!reviewMode || currentQueryIndex >= studentQueries.length || !sessionId) return;
 
     const nextQuery = studentQueries[currentQueryIndex];
+
+    // If this entry is a DB reset sentinel, replay the reset instead of executing SQL
+    if (nextQuery.query === DB_RESET_SENTINEL) {
+      const resetIndex = currentQueryIndex;
+      setExecutedIndices((prev) => new Set([...prev, resetIndex]));
+      setCurrentQueryIndex((prev) => prev + 1);
+
+      setIsResetting(true);
+      try {
+        await labService.resetSession(labId);
+
+        // Refresh database state to reflect the reset
+        setIsLoadingDatabase(true);
+        try {
+          const dbState = await labService.getDatabaseState(sessionId);
+          setDatabaseState(dbState);
+        } catch (err) {
+          console.error('Failed to refresh database state after review reset:', err);
+        } finally {
+          setIsLoadingDatabase(false);
+        }
+
+        notifications.show({
+          title: 'Database Reset Replayed',
+          message: 'The student reset their database at this point. Your database has been reset to match.',
+          color: 'orange',
+        });
+      } catch (err) {
+        const error = err as { response?: { data?: { detail?: string } } };
+        notifications.show({
+          title: 'Reset Failed',
+          message: error.response?.data?.detail || 'Failed to replay database reset',
+          color: 'red',
+        });
+      } finally {
+        setIsResetting(false);
+      }
+      return;
+    }
+
     setQuery(nextQuery.query);
 
     // Wait a brief moment for the query to be set in the editor

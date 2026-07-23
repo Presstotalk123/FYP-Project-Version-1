@@ -1,3 +1,6 @@
+/** Sentinel query string stored in LabAttempt when a Database Reset is performed. */
+export const DB_RESET_SENTINEL = '__SYSTEM__DATABASE_RESET__';
+
 export interface Lab {
   id: number;
   title: string;

@@ -177,7 +177,7 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
     """
     user_message = f"Review this submission:\n{json.dumps(context, indent=2)}"
 
-    async def _call():
+    def _call():
         provider = settings.AI_PROVIDER.lower()
 
         if provider in ("azure_openai", "openai"):
@@ -497,7 +497,7 @@ Your rules:
 - Reference specific table and column names from the schema when relevant
 - Keep responses concise and focused"""
 
-    async def _chat():
+    def _chat():
         provider = settings.AI_PROVIDER.lower()
 
         if provider in ("azure_openai", "openai"):

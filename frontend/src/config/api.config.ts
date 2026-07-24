@@ -30,6 +30,9 @@ export const API_ENDPOINTS = {
   },
   CHATBOT: {
     SEND: '/chatbot/send',
+    QUERY_REVIEW: '/chatbot/query-review',
+    LAB_CHAT: '/chatbot/lab-chat',
+    LAB_QUERY_REVIEW: '/chatbot/lab-query-review',
   },
   LABS: {
     BASE: '/labs',

@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
+import { LabQueryReviewResponse } from '@/services/chatbot.service';
+import { QueryReviewCard } from './QueryReviewCard';
+import { LabChatTab } from './LabChatTab';
 
 /* ── SVG icons ── */
 const IconCheck = () => (
@@ -56,6 +59,11 @@ interface LabResultsPanelProps {
   onRerunQuery?: (query: string) => Promise<void>;
   isExecuting?: boolean;
   onCopyQuery?: (query: string) => void;
+  // AI Query Review
+  lastReviewData?: LabQueryReviewResponse | null;
+  isReviewing?: boolean;
+  labId?: number;
+  sessionId?: number | null;
 }
 
 export function LabResultsPanel({
@@ -73,6 +81,10 @@ export function LabResultsPanel({
   onRerunQuery,
   isExecuting = false,
   onCopyQuery,
+  lastReviewData,
+  isReviewing = false,
+  labId,
+  sessionId,
 }: LabResultsPanelProps) {
   const [activeTab, setActiveTab] = useState('results');
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
@@ -127,6 +139,7 @@ export function LabResultsPanel({
     { id: 'results', label: 'Results' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
+    { id: 'ai-tutor', label: 'AI Tutor' },
   ];
 
   return (
@@ -309,6 +322,19 @@ export function LabResultsPanel({
                 <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>
                   Query executed successfully. No rows returned.
                 </p>
+              )}
+
+              {/* AI Query Review Card — students only, shown after wrong task submission */}
+              {!isStaffMode && !reviewMode && (isReviewing || lastReviewData) && (
+                <QueryReviewCard
+                  query={currentQuery}
+                  isLoading={isReviewing}
+                  problemToken={lastReviewData?.problem_token ?? ''}
+                  explanation={lastReviewData?.explanation ?? ''}
+                  hint={lastReviewData?.hint ?? ''}
+                  dbStateIssue={lastReviewData?.db_state_issue}
+                  dbStateMessage={lastReviewData?.db_state_message}
+                />
               )}
             </div>
           )
@@ -513,6 +539,18 @@ export function LabResultsPanel({
                   )}
                 </div>
               ))}
+            </div>
+          )
+        )}
+        {/* ── AI Tutor Tab ── */}
+        {activeTab === 'ai-tutor' && (
+          labId && sessionId ? (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <LabChatTab labId={labId} sessionId={sessionId} />
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13, padding: 24, textAlign: 'center' }}>
+              AI Tutor is not available in this mode.
             </div>
           )
         )}

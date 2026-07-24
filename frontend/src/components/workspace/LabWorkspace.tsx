@@ -32,6 +32,7 @@ import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import { LabDetail, LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
+import { chatbotService, LabQueryReviewResponse } from '@/services/chatbot.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
 import { LabResultsPanel } from './LabResultsPanel';
@@ -81,6 +82,10 @@ export function LabWorkspace({
   const [executedIndices, setExecutedIndices] = useState<Set<number>>(new Set());
   const [isLoadingStudentHistory, setIsLoadingStudentHistory] = useState(false);
   const [studentEmail, setStudentEmail] = useState<string>('');
+
+  // AI Query Review state
+  const [labReviewData, setLabReviewData] = useState<LabQueryReviewResponse | null>(null);
+  const [isLabReviewing, setIsLabReviewing] = useState(false);
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);
@@ -638,6 +643,9 @@ export function LabWorkspace({
   const handleSubmitToTask = async (taskId: number) => {
     if (!result || !sessionId || !query.trim()) return;
 
+    // Clear any previous review when a new submission starts
+    setLabReviewData(null);
+
     try {
       const response = await labService.submitTaskAnswer({
         task_id: taskId,
@@ -654,6 +662,16 @@ export function LabWorkspace({
         message: response.message,
         color: response.is_correct ? 'green' : 'red',
       });
+
+      // Trigger AI review in background for wrong submissions
+      if (!response.is_correct) {
+        setIsLabReviewing(true);
+        chatbotService
+          .reviewLabQuery(labId, sessionId, taskId, query)
+          .then(setLabReviewData)
+          .catch(() => {}) // fail silently
+          .finally(() => setIsLabReviewing(false));
+      }
 
       // Refresh progress
       const progressData = await labService.getLabTaskProgress(labId);
@@ -928,6 +946,10 @@ export function LabWorkspace({
             onRerunQuery={handleRerunQuery}
             isExecuting={isExecuting}
             onCopyQuery={handleCopyQuery}
+            lastReviewData={labReviewData}
+            isReviewing={isLabReviewing}
+            labId={labId}
+            sessionId={sessionId}
           />
         </Box>
       </Box>

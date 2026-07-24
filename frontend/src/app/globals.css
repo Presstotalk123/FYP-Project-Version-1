@@ -1172,3 +1172,95 @@ a {
     transition: none;
   }
 }
+
+/* ============================================================
+   AI Query Review Card — shared component styles
+   ============================================================ */
+
+/* Dark code block for displaying the student's SQL query */
+.demo-code {
+  background: #171a27;
+  color: #e2e8f0;
+  font-family: var(--font-geist-mono, 'Roboto Mono', monospace);
+  font-size: 12.5px;
+  line-height: 1.65;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+/* Highlighted problem token — amber underline + amber tint */
+.demo-code mark {
+  background: rgba(227, 163, 58, 0.18);
+  color: inherit;
+  border-bottom: 2.5px solid #e3a33a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Review card container — left amber accent border */
+.sql-note {
+  border-left: 3px solid #e3a33a;
+  background: #fffbf0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.sql-note h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sql-note p {
+  margin: 0;
+  font-size: 13px;
+  color: #4b3a1e;
+  line-height: 1.55;
+}
+
+/* Bold brown hint text */
+.sql-note .hint {
+  color: #92400e;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Amber warning alert (DB state issue) */
+.da-alert.alert-warn {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #78350f;
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* Loading skeleton for QueryReviewCard */
+.query-review-skeleton {
+  display: grid;
+  gap: 10px;
+}
+
+.query-review-skeleton .skeleton-block {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s infinite;
+  border-radius: var(--radius);
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

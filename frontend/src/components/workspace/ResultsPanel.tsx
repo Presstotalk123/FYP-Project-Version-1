@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import {
   Alert,
   Badge,
@@ -16,6 +17,8 @@ import { IconCheck, IconX } from '@tabler/icons-react';
 import { ExecuteResponse, Attempt } from '@/types/attempt.types';
 import { QuestionDetail } from '@/types/question.types';
 import { ChatTab } from './ChatTab';
+import { QueryReviewCard } from './QueryReviewCard';
+import { chatbotService, QueryReviewResponse } from '@/services/chatbot.service';
 
 interface ResultsPanelProps {
   result: ExecuteResponse | null;
@@ -33,6 +36,29 @@ export function ResultsPanel({
   question,
   currentQuery,
 }: ResultsPanelProps) {
+  const [reviewData, setReviewData] = useState<QueryReviewResponse | null>(null);
+  const [isReviewing, setIsReviewing] = useState(false);
+
+  // Auto-trigger AI review whenever we get a wrong (but valid) result
+  useEffect(() => {
+    // Clear card on correct result, SQL error, or no result
+    if (!result || result.is_correct || result.error_message) {
+      setReviewData(null);
+      return;
+    }
+
+    // Wrong-but-valid query → trigger review
+    setReviewData(null);
+    setIsReviewing(true);
+
+    chatbotService
+      .reviewQuery(questionId, currentQuery)
+      .then(setReviewData)
+      .catch(() => {}) // fail silently — never break the results view
+      .finally(() => setIsReviewing(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
+
   return (
     <Tabs defaultValue="results" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Tabs.List>
@@ -59,7 +85,7 @@ export function ResultsPanel({
             >
               {result.is_correct
                 ? 'Your query returned the expected results.'
-                : 'Your query results don\'t match the expected output.'}
+                : "Your query results don't match the expected output."}
             </Alert>
 
             <div>
@@ -92,6 +118,17 @@ export function ResultsPanel({
                 {result.row_count} {result.row_count === 1 ? 'row' : 'rows'} returned
               </Text>
             </div>
+
+            {/* AI Query Review Card — only for wrong-but-valid queries */}
+            {(isReviewing || reviewData) && (
+              <QueryReviewCard
+                query={currentQuery}
+                isLoading={isReviewing}
+                problemToken={reviewData?.problem_token ?? ''}
+                explanation={reviewData?.explanation ?? ''}
+                hint={reviewData?.hint ?? ''}
+              />
+            )}
           </Stack>
         )}
       </Tabs.Panel>

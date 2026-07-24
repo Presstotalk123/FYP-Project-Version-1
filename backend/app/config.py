@@ -20,8 +20,16 @@ class Settings(BaseSettings):
     # Lab databases path
     LAB_DB_PATH: str = "./lab_databases/"
 
-    # AI Chatbot
+    # AI Chatbot (existing Dify integration)
     DIFY_API_KEY: str
+
+    # AI Query Review — configurable provider
+    # Supported values: "azure_openai" | "openai" | "gemini"
+    AI_PROVIDER: str = "azure_openai"
+    AI_API_KEY: str = ""
+    AI_MODEL: str = "gpt-4o-mini"           # Azure deployment name or model ID
+    AI_AZURE_ENDPOINT: str = ""             # https://<resource>.openai.azure.com/
+    AI_AZURE_API_VERSION: str = "2024-02-01"
 
     # CORS
     CORS_ORIGINS: list[str] = [

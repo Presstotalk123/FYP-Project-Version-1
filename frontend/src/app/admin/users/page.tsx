@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Title,
   Text,
@@ -16,7 +16,7 @@ import {
   Card,
   Modal,
 } from '@mantine/core';
-import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers } from '@tabler/icons-react';
+import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers, IconUpload } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -71,6 +71,14 @@ export default function ManageUsersPage() {
   const [editingEntry, setEditingEntry] = useState<WhitelistEntry | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; class_group: string }>({ name: '', class_group: '' });
   const [savingEdit, setSavingEdit] = useState(false);
+
+  const [uploading, setUploading] = useState(false);
+  const [importSummary, setImportSummary] = useState<{
+    imported: number;
+    skipped: any[];
+    failed: any[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchWhitelist = async () => {
     try {
@@ -191,6 +199,36 @@ export default function ManageUsersPage() {
     }
   };
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await api.post('/whitelist/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImportSummary(res.data);
+      fetchWhitelist();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Upload Failed',
+        message: axiosErr.response?.data?.detail ?? 'An error occurred during file upload.',
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const getEntriesByRole = (role: UserRole) => entries.filter((e) => e.role === role);
 
   return (
@@ -222,11 +260,33 @@ export default function ManageUsersPage() {
                 return (
                   <Card key={role} withBorder padding="lg" radius="md">
                     <Stack gap="md">
-                      <Group>
-                        <Title order={3}>{label} List</Title>
-                        <Badge color={color} size="lg">
-                          {roleEntries.length}
-                        </Badge>
+                      <Group justify="space-between">
+                        <Group>
+                          <Title order={3}>{label} List</Title>
+                          <Badge color={color} size="lg">
+                            {roleEntries.length}
+                          </Badge>
+                        </Group>
+                        {role === UserRole.STUDENT && (
+                          <Group>
+                            <input
+                              type="file"
+                              accept=".xls,.xlsx"
+                              style={{ display: 'none' }}
+                              ref={fileInputRef}
+                              onChange={handleFileUpload}
+                            />
+                            <Button
+                              leftSection={<IconUpload size={16} />}
+                              variant="light"
+                              color={color}
+                              loading={uploading}
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              Upload Excel
+                            </Button>
+                          </Group>
+                        )}
                       </Group>
 
                       {roleEntries.length === 0 ? (
@@ -367,6 +427,43 @@ export default function ManageUsersPage() {
               </Button>
             </Group>
           </Stack>
+        </Modal>
+
+        <Modal
+          opened={!!importSummary}
+          onClose={() => setImportSummary(null)}
+          title="Import Complete"
+          centered
+          size="lg"
+        >
+          {importSummary && (
+            <Stack>
+              <Alert icon={<IconCheck size={16} />} color="green">
+                {importSummary.imported} students imported successfully.
+              </Alert>
+              {importSummary.skipped.length > 0 && (
+                <Alert icon={<IconAlertCircle size={16} />} color="orange" title={`${importSummary.skipped.length} Skipped (already exists)`}>
+                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                    {importSummary.skipped.map((s, i) => (
+                      <Text key={i} size="sm">• {s.email}</Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+              {importSummary.failed.length > 0 && (
+                <Alert icon={<IconAlertCircle size={16} />} color="red" title={`${importSummary.failed.length} Failed (invalid data)`}>
+                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                    {importSummary.failed.map((f, i) => (
+                      <Text key={i} size="sm">• {f.email}: {f.reason}</Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+              <Group justify="flex-end">
+                <Button onClick={() => setImportSummary(null)}>Close</Button>
+              </Group>
+            </Stack>
+          )}
         </Modal>
       </DashboardLayout>
     </ProtectedRoute>

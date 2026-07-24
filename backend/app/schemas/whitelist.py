@@ -11,6 +11,11 @@ class WhitelistEntryCreate(BaseModel):
     class_group: Optional[str] = None
 
 
+class WhitelistEntryUpdate(BaseModel):
+    name: Optional[str] = None
+    class_group: Optional[str] = None
+
+
 class WhitelistEntryResponse(BaseModel):
     id: int
     email: str

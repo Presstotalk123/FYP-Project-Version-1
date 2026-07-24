@@ -14,8 +14,9 @@ import {
   TextInput,
   Button,
   Card,
+  Modal,
 } from '@mantine/core';
-import { IconTrash, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers } from '@tabler/icons-react';
+import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -66,6 +67,10 @@ export default function ManageUsersPage() {
     [UserRole.STUDENT]: false,
   });
   const [deleting, setDeleting] = useState<number | null>(null);
+
+  const [editingEntry, setEditingEntry] = useState<WhitelistEntry | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; class_group: string }>({ name: '', class_group: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchWhitelist = async () => {
     try {
@@ -149,6 +154,43 @@ export default function ManageUsersPage() {
     }
   };
 
+  const handleEditOpen = (entry: WhitelistEntry) => {
+    setEditingEntry(entry);
+    setEditForm({
+      name: entry.name || '',
+      class_group: entry.class_group || '',
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (!editingEntry) return;
+    setSavingEdit(true);
+    try {
+      await api.put(`/whitelist/${editingEntry.id}`, {
+        name: editForm.name.trim() || null,
+        class_group: editForm.class_group.trim() || null,
+      });
+      notifications.show({
+        title: 'User Updated',
+        message: `${editingEntry.email} has been updated.`,
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+      setEditingEntry(null);
+      fetchWhitelist();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: axiosErr.response?.data?.detail ?? 'Failed to update entry.',
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const getEntriesByRole = (role: UserRole) => entries.filter((e) => e.role === role);
 
   return (
@@ -220,14 +262,23 @@ export default function ManageUsersPage() {
                                   {new Date(entry.created_at).toLocaleDateString()}
                                 </Table.Td>
                                 <Table.Td>
-                                  <ActionIcon
-                                    color="red"
-                                    variant="subtle"
-                                    loading={deleting === entry.id}
-                                    onClick={() => handleDelete(entry)}
-                                  >
-                                    <IconTrash size={16} />
-                                  </ActionIcon>
+                                  <Group gap="xs" wrap="nowrap">
+                                    <ActionIcon
+                                      color="blue"
+                                      variant="subtle"
+                                      onClick={() => handleEditOpen(entry)}
+                                    >
+                                      <IconEdit size={16} />
+                                    </ActionIcon>
+                                    <ActionIcon
+                                      color="red"
+                                      variant="subtle"
+                                      loading={deleting === entry.id}
+                                      onClick={() => handleDelete(entry)}
+                                    >
+                                      <IconTrash size={16} />
+                                    </ActionIcon>
+                                  </Group>
                                 </Table.Td>
                               </Table.Tr>
                             ))}
@@ -282,6 +333,41 @@ export default function ManageUsersPage() {
             </Stack>
           )}
         </Stack>
+
+        <Modal
+          opened={!!editingEntry}
+          onClose={() => setEditingEntry(null)}
+          title="Edit User"
+          centered
+        >
+          <Stack>
+            <TextInput
+              label="Email"
+              value={editingEntry?.email || ''}
+              disabled
+            />
+            <TextInput
+              label="Name"
+              placeholder="Full name"
+              value={editForm.name}
+              onChange={(e) => setEditForm(prev => ({ ...prev, name: e.currentTarget.value }))}
+            />
+            <TextInput
+              label="Class Group"
+              placeholder="e.g. CS3"
+              value={editForm.class_group}
+              onChange={(e) => setEditForm(prev => ({ ...prev, class_group: e.currentTarget.value }))}
+            />
+            <Group justify="flex-end" mt="md">
+              <Button variant="default" onClick={() => setEditingEntry(null)}>
+                Cancel
+              </Button>
+              <Button loading={savingEdit} onClick={handleEditSave}>
+                Save
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
       </DashboardLayout>
     </ProtectedRoute>
   );

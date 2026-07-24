@@ -4,7 +4,7 @@ from typing import List
 from app.database import get_db
 from app.models.user import User
 from app.models.whitelist import WhitelistEntry
-from app.schemas.whitelist import WhitelistEntryCreate, WhitelistEntryResponse
+from app.schemas.whitelist import WhitelistEntryCreate, WhitelistEntryResponse, WhitelistEntryUpdate
 from app.dependencies import require_admin_role
 
 router = APIRouter(prefix="/whitelist", tags=["whitelist"])
@@ -73,3 +73,28 @@ def remove_from_whitelist(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
     db.delete(entry)
     db.commit()
+
+
+@router.put("/{entry_id}", response_model=WhitelistEntryResponse)
+def update_whitelist_entry(
+    entry_id: int,
+    request: WhitelistEntryUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin_role),
+):
+    entry = db.query(WhitelistEntry).filter(WhitelistEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+
+    entry.name = request.name
+    entry.class_group = request.class_group
+    
+    # Sync to existing user if they have already signed in before
+    user = db.query(User).filter(User.email == entry.email).first()
+    if user:
+        user.name = request.name
+        user.class_group = request.class_group
+        
+    db.commit()
+    db.refresh(entry)
+    return entry

@@ -192,15 +192,22 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
             else:
                 client = OpenAI(api_key=settings.AI_API_KEY)
 
-            response = client.chat.completions.create(
-                model=settings.AI_MODEL,
-                messages=[
+            is_reasoning = "o1" in settings.AI_MODEL.lower() or "o3" in settings.AI_MODEL.lower()
+            
+            kwargs = {
+                "model": settings.AI_MODEL,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
-                temperature=0.2,
-                timeout=30,
-            )
+                "timeout": 30,
+            }
+            if settings.AI_TEMPERATURE is not None:
+                kwargs["temperature"] = settings.AI_TEMPERATURE
+            elif not is_reasoning:
+                kwargs["temperature"] = 0.2
+
+            response = client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content or ""
 
         elif provider == "gemini":
@@ -210,7 +217,16 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
                 model_name=settings.AI_MODEL,
                 system_instruction=system_prompt,
             )
-            response = model.generate_content(user_message)
+            gemini_kwargs = {}
+            if settings.AI_TEMPERATURE is not None:
+                gemini_kwargs["temperature"] = settings.AI_TEMPERATURE
+            else:
+                gemini_kwargs["temperature"] = 0.2
+                
+            response = model.generate_content(
+                user_message,
+                generation_config=gemini_kwargs if gemini_kwargs else None
+            )
             raw = response.text or ""
 
         else:
@@ -512,15 +528,22 @@ Your rules:
             else:
                 client = OpenAI(api_key=settings.AI_API_KEY)
 
-            response = client.chat.completions.create(
-                model=settings.AI_MODEL,
-                messages=[
+            is_reasoning = "o1" in settings.AI_MODEL.lower() or "o3" in settings.AI_MODEL.lower()
+            
+            kwargs = {
+                "model": settings.AI_MODEL,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": request.user_message},
                 ],
-                temperature=0.5,
-                timeout=30,
-            )
+                "timeout": 30,
+            }
+            if settings.AI_TEMPERATURE is not None:
+                kwargs["temperature"] = settings.AI_TEMPERATURE
+            elif not is_reasoning:
+                kwargs["temperature"] = 0.5
+
+            response = client.chat.completions.create(**kwargs)
             return response.choices[0].message.content or ""
 
         elif provider == "gemini":
@@ -530,7 +553,16 @@ Your rules:
                 model_name=settings.AI_MODEL,
                 system_instruction=system_prompt,
             )
-            response = model.generate_content(request.user_message)
+            gemini_kwargs = {}
+            if settings.AI_TEMPERATURE is not None:
+                gemini_kwargs["temperature"] = settings.AI_TEMPERATURE
+            else:
+                gemini_kwargs["temperature"] = 0.5
+                
+            response = model.generate_content(
+                request.user_message,
+                generation_config=gemini_kwargs if gemini_kwargs else None
+            )
             return response.text or ""
 
         else:

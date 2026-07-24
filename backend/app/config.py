@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     AI_PROVIDER: str = "azure_openai"
     AI_API_KEY: str = ""
     AI_MODEL: str = "gpt-4o-mini"           # Azure deployment name or model ID
+    AI_TEMPERATURE: Optional[float] = None  # Optional temperature override
     AI_AZURE_ENDPOINT: str = ""             # https://<resource>.openai.azure.com/
     AI_AZURE_API_VERSION: str = "2024-02-01"
 

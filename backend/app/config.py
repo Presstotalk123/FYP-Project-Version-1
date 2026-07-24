@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     AI_API_KEY: str = ""
     AI_MODEL: str = "gpt-4o-mini"           # Azure deployment name or model ID
     AI_TEMPERATURE: Optional[float] = None  # Optional temperature override
+    AI_ENABLE_TEMPERATURE: bool = True      # Set to False to disable passing temperature (e.g., for o1/o3/gpt-5 models)
     AI_AZURE_ENDPOINT: str = ""             # https://<resource>.openai.azure.com/
     AI_AZURE_API_VERSION: str = "2024-02-01"
 

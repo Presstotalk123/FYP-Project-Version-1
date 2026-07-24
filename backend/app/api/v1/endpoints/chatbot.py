@@ -192,7 +192,8 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
             else:
                 client = OpenAI(api_key=settings.AI_API_KEY)
 
-            is_reasoning = "o1" in settings.AI_MODEL.lower() or "o3" in settings.AI_MODEL.lower()
+            model_lower = settings.AI_MODEL.lower()
+            is_reasoning = "o1" in model_lower or "o3" in model_lower or "gpt-5" in model_lower
             
             kwargs = {
                 "model": settings.AI_MODEL,
@@ -202,9 +203,11 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
                 ],
                 "timeout": 30,
             }
-            if settings.AI_TEMPERATURE is not None:
+            if is_reasoning:
+                pass # Reasoning models do not support temperature overrides
+            elif settings.AI_TEMPERATURE is not None:
                 kwargs["temperature"] = settings.AI_TEMPERATURE
-            elif not is_reasoning:
+            else:
                 kwargs["temperature"] = 0.2
 
             response = client.chat.completions.create(**kwargs)
@@ -528,7 +531,8 @@ Your rules:
             else:
                 client = OpenAI(api_key=settings.AI_API_KEY)
 
-            is_reasoning = "o1" in settings.AI_MODEL.lower() or "o3" in settings.AI_MODEL.lower()
+            model_lower = settings.AI_MODEL.lower()
+            is_reasoning = "o1" in model_lower or "o3" in model_lower or "gpt-5" in model_lower
             
             kwargs = {
                 "model": settings.AI_MODEL,
@@ -538,9 +542,11 @@ Your rules:
                 ],
                 "timeout": 30,
             }
-            if settings.AI_TEMPERATURE is not None:
+            if is_reasoning:
+                pass # Reasoning models do not support temperature overrides
+            elif settings.AI_TEMPERATURE is not None:
                 kwargs["temperature"] = settings.AI_TEMPERATURE
-            elif not is_reasoning:
+            else:
                 kwargs["temperature"] = 0.5
 
             response = client.chat.completions.create(**kwargs)

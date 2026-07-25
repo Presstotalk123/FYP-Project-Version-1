@@ -15,9 +15,6 @@ export function HeaderNav() {
 
   const isStaffMember = isStaff || isAdmin;
 
-  // Hide global header on the home page — the home page renders its own header
-  if (pathname === "/") return null;
-
   const staffLinks = [
     { label: "Dashboard", href: "/admin", exact: true },
     { label: "Problems", href: "/admin/problems" },
@@ -64,6 +61,9 @@ export function HeaderNav() {
       }
     }
   }, [pathname, isStaffMember, isAuthenticated]);
+
+  // Hide global header on the home page — the home page renders its own header
+  if (pathname === "/") return null;
 
   const handleLogout = () => {
     logout();

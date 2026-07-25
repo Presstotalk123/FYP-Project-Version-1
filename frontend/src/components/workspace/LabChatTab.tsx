@@ -64,17 +64,54 @@ export function LabChatTab({ labId, sessionId }: LabChatTabProps) {
     setIsLoading(true);
 
     try {
-      const response = await chatbotService.labChat(labId, sessionId, trimmed);
-      const aiMsg: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        role: 'assistant',
-        content: response.answer,
-        timestamp: response.timestamp,
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      const response = await chatbotService.streamLabChat(labId, sessionId, trimmed);
+      
+      if (!response.ok) {
+        let errorDetail = 'Failed to get a response.';
+        try {
+          const errData = await response.json();
+          errorDetail = errData.detail || errorDetail;
+        } catch (e) {
+          // Ignore json parse error
+        }
+        throw new Error(errorDetail);
+      }
+
+      if (!response.body) {
+        throw new Error('No response body stream available.');
+      }
+
+      const aiMsgId = `ai-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: aiMsgId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date().toISOString(),
+        }
+      ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let aiContent = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          aiContent += decoder.decode(value, { stream: true });
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsgId ? { ...msg, content: aiContent } : msg
+            )
+          );
+        }
+      }
     } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to get a response. Please try again.');
+      const e = err as Error;
+      setError(e.message || 'Failed to get a response. Please try again.');
     } finally {
       setIsLoading(false);
     }

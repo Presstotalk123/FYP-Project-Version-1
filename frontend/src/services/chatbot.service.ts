@@ -1,5 +1,5 @@
 import api from './api.service';
-import { API_ENDPOINTS } from '@/config/api.config';
+import { API_ENDPOINTS, API_BASE_URL } from '@/config/api.config';
 
 export interface ChatbotRequest {
   question_id: number;
@@ -72,16 +72,20 @@ export const chatbotService = {
     return response.data;
   },
 
-  // NEW: Conversational AI Tutor for SQL Labs
-  async labChat(
+  // NEW: Conversational AI Tutor for SQL Labs (Streaming)
+  async streamLabChat(
     lab_id: number,
     session_id: number,
     user_message: string
-  ): Promise<ChatbotResponse> {
-    const response = await api.post<ChatbotResponse>(
-      API_ENDPOINTS.CHATBOT.LAB_CHAT,
-      { lab_id, session_id, user_message }
-    );
-    return response.data;
+  ): Promise<Response> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    return fetch(`${API_BASE_URL}${API_ENDPOINTS.CHATBOT.LAB_CHAT}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ lab_id, session_id, user_message }),
+    });
   },
 };

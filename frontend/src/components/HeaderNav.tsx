@@ -90,7 +90,7 @@ export function HeaderNav() {
               : pathname === link.href || pathname.startsWith(link.href + "/");
             return (
               <Link
-                key={link.href}
+                key={link.label}
                 href={link.href}
                 className={`seg-item ${isActive ? "active-seg" : ""}`}
                 aria-current={isActive ? "page" : undefined}

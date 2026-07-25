@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { chatbotService, ChatMessage } from '@/services/chatbot.service';
 
 interface LabChatTabProps {

@@ -122,6 +122,53 @@ a {
   color: var(--brand-lilac) !important;
 }
 
+/* ============================================================
+   SEGMENTED CONTROL
+   ============================================================ */
+.segmented-control {
+  display: inline-flex;
+  position: relative;
+  background: var(--surface-muted);
+  padding: 4px;
+  border-radius: 999px;
+  gap: 4px;
+  align-items: center;
+}
+
+.segmented-pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  background: #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1), width 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms ease;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.seg-item {
+  position: relative;
+  z-index: 2;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-muted);
+  border-radius: 999px;
+  transition: color 300ms ease;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.seg-item.active-seg {
+  color: var(--text);
+}
+
+.seg-item:hover:not(.active-seg) {
+  color: var(--brand-lilac);
+}
+
 .user-tools {
   display: flex;
   gap: 10px;
@@ -137,6 +184,10 @@ a {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: calc(100vh - 64px);
+}
+
+.layout.layout-no-sidebar {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .side {

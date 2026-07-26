@@ -6,6 +6,7 @@ const msalConfig: Configuration = {
     authority: `https://login.microsoftonline.com/${process.env.NEXT_PUBLIC_MICROSOFT_TENANT_ID || 'common'}`,
     redirectUri: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
     postLogoutRedirectUri: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+    navigateToLoginRequestUrl: false,
   },
   cache: {
     cacheLocation: 'sessionStorage',
@@ -27,15 +28,5 @@ export const loginRequest = {
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
-
-// Initialize MSAL and handle popup redirects outside of React to ensure it runs as soon as possible
-// and correctly processes the auth token before React hydration can interfere.
-if (typeof window !== 'undefined') {
-  msalInstance.initialize().then(() => {
-    return msalInstance.handleRedirectPromise();
-  }).catch((err) => {
-    console.error('MSAL initialization/redirect error:', err);
-  });
-}
 
 export default msalConfig;

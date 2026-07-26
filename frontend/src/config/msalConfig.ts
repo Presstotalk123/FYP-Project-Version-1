@@ -6,7 +6,6 @@ const msalConfig: Configuration = {
     authority: `https://login.microsoftonline.com/${process.env.NEXT_PUBLIC_MICROSOFT_TENANT_ID || 'common'}`,
     redirectUri: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
     postLogoutRedirectUri: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
-    navigateToLoginRequestUrl: false,
   },
   cache: {
     cacheLocation: 'sessionStorage',

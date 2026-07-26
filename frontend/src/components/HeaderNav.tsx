@@ -20,7 +20,6 @@ export function HeaderNav() {
     { label: "Problems", href: "/admin/problems" },
     { label: "Manage Labs", href: "/admin/labs" },
     { label: "Assessments", href: "/admin/assessments" },
-    { label: "ERD", href: "/er-diagram" },
     // Staff + admin (deliberately outside the isAdmin gate below): the
     // /admin/settings prompt editor is editable by both roles.
     { label: "Settings", href: "/admin/settings" },

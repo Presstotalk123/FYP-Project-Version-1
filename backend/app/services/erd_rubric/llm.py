@@ -10,9 +10,9 @@ def make_rubric_llm() -> ChatOpenAI:
     Returns the RAW client so `.with_structured_output(...)` works.
     """
     return ChatOpenAI(
-        base_url=settings.AZURE_OPENAI_ENDPOINT.rstrip("/") + "/openai/v1",
-        api_key=settings.AZURE_OPENAI_API_KEY,
-        model=settings.AZURE_OPENAI_GRADE_DEPLOYMENT,
+        base_url=settings.ERD_AZURE_OPENAI_ENDPOINT.rstrip("/") + "/openai/v1",
+        api_key=settings.ERD_AZURE_OPENAI_API_KEY,
+        model=settings.ERD_AZURE_OPENAI_GRADE_DEPLOYMENT,
         max_retries=3,
         model_kwargs={"verbosity": "low"},
     )

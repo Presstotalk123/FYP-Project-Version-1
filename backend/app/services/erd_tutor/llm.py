@@ -6,13 +6,13 @@ from app.config import settings
 # gpt-5.x families reject); model_kwargs passes it to the API verbatim on any
 # langchain-openai version.
 _STAGES = {
-    "observe":  dict(deployment=lambda: settings.AZURE_OPENAI_VISION_DEPLOYMENT, params={}),
-    "normalize":dict(deployment=lambda: settings.AZURE_OPENAI_GRADE_DEPLOYMENT, params=dict(temperature=0.2, seed=42)),
-    "grade":    dict(deployment=lambda: settings.AZURE_OPENAI_GRADE_DEPLOYMENT,
+    "observe":  dict(deployment=lambda: settings.ERD_AZURE_OPENAI_VISION_DEPLOYMENT, params={}),
+    "normalize":dict(deployment=lambda: settings.ERD_AZURE_OPENAI_GRADE_DEPLOYMENT, params=dict(temperature=0.2, seed=42)),
+    "grade":    dict(deployment=lambda: settings.ERD_AZURE_OPENAI_GRADE_DEPLOYMENT,
                      params=dict(temperature=0.2, seed=42,
                                  model_kwargs={"max_completion_tokens": 2000})),
-    "tutor":    dict(deployment=lambda: settings.AZURE_OPENAI_TUTOR_DEPLOYMENT, params={}),  # gpt-5.4-nano (vision), per DSL
-    "state":    dict(deployment=lambda: settings.AZURE_OPENAI_TUTOR_DEPLOYMENT, params={}),
+    "tutor":    dict(deployment=lambda: settings.ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT, params={}),  # gpt-5.4-nano (vision), per DSL
+    "state":    dict(deployment=lambda: settings.ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT, params={}),
 }
 
 def make_llm(stage: str) -> ChatOpenAI:
@@ -28,8 +28,8 @@ def make_llm(stage: str) -> ChatOpenAI:
     # max_retries lives on the client itself, so it survives with_structured_output
     # (DSL parity: retry_config max_retries: 3 on the LLM nodes).
     return ChatOpenAI(
-        base_url=settings.AZURE_OPENAI_ENDPOINT.rstrip("/") + "/openai/v1",
-        api_key=settings.AZURE_OPENAI_API_KEY,
+        base_url=settings.ERD_AZURE_OPENAI_ENDPOINT.rstrip("/") + "/openai/v1",
+        api_key=settings.ERD_AZURE_OPENAI_API_KEY,
         model=cfg["deployment"](),
         max_retries=3,
         **cfg["params"],

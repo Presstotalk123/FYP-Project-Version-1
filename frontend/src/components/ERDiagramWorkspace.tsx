@@ -9,18 +9,20 @@ import {
   Button,
   Container,
   Group,
+  Modal,
   Paper,
   ScrollArea,
   Stack,
   Tabs,
   Text,
+  Textarea,
   Title,
 } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
-import { ChatPanel } from "@/components/ChatPanel";
+import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import {
@@ -160,6 +162,50 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
   const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [initialDrawioXml] = useState(() => readDraftFromSessionStorage(question.id, labContext));
+  const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
+  const [descModalOpen, setDescModalOpen] = useState(false);
+  const [descText, setDescText] = useState("");
+  const [pendingSubmitImage, setPendingSubmitImage] = useState<File | null>(null);
+
+  // Restore the persisted tutor transcript (LangGraph engine) so the chat log
+  // survives reloads. Best-effort: no conversation yet / Dify engine / errors
+  // all leave the chat empty, exactly as before.
+  useEffect(() => {
+    let cancelled = false;
+    const ref = labContext
+      ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
+      : { question_id: question.id };
+    erDiagramService
+      .getConversation(ref)
+      .then((conversation) => {
+        if (cancelled || !conversation.exists) return;
+        const restored = conversation.messages
+          .filter((m) => typeof m.content === "string" && m.content.trim().length > 0)
+          .map((m) => ({
+            id: String(m.id),
+            role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+            content: (m.content as string).replace(/\\n/g, "\n"),
+          }));
+        if (restored.length > 0) setChatHistory(restored);
+        const restoredResult = extractSubmissionPayload(conversation.last_submit_report);
+        if (restoredResult) {
+          setLatestStructuredOutput(restoredResult);
+          setHasSubmittedAttempt(true);
+          if (restoredResult.student_message?.trim()) {
+            setLatestStudentMessage(restoredResult.student_message.trim());
+          }
+        }
+      })
+      .catch(() => {
+        // Transcript restore is a nicety — never block the workspace on it.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Depend on primitives, not the labContext object identity, so a parent
+    // re-render can't retrigger the fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.id, labContext?.er_lab_id, labContext?.er_lab_question_id]);
   const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id" | "er_lab_id" | "er_lab_question_id"> =>
     labContext
       ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
@@ -400,20 +446,40 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
     setSubmitError(null);
   }, [focusMode, submitError]);
 
-  const handleSubmitDrawioImage = async (imageFile: File) => {
+  const requestSubmit = (imageFile: File) => {
     if (chatSending) return;
     if (!imageFile || imageFile.size === 0) {
-      setSubmitError("Draw.io PNG export is empty. Please export again and retry.");
+      setSubmitError("Diagram export is empty. Please export again and retry.");
       return;
     }
-
     setSubmitError(null);
+    setPendingSubmitImage(imageFile);
+    setDescText("");
+    setDescModalOpen(true);
+  };
 
+  const confirmSubmitWithDescription = async () => {
+    const image = pendingSubmitImage;
+    setDescModalOpen(false);
+    if (!image) return;
+    const description = descText.trim();
+    setPendingSubmitImage(null);
     await runSubmitStream({
-        ...buildSubmissionRef(),
-        mode: "Submit",
-        erd_img: imageFile,
-      });
+      ...buildSubmissionRef(),
+      mode: "Submit",
+      erd_img: image,
+      submission_description: description || null,
+    });
+  };
+
+  const cancelSubmitDescription = () => {
+    setDescModalOpen(false);
+    setPendingSubmitImage(null);
+    setDescText("");
+  };
+
+  const handleSubmitDrawioImage = async (imageFile: File) => {
+    requestSubmit(imageFile);
   };
 
   const handleSubmitImage = async () => {
@@ -423,12 +489,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
       setSubmitError("Please select an image before submitting.");
       return;
     }
-
-    await runSubmitStream({
-        ...buildSubmissionRef(),
-        mode: "Submit",
-        erd_img: image,
-      });
+    requestSubmit(image);
   };
 
   const chatPanelNode: ReactNode = (
@@ -437,6 +498,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
       injectedAssistantMessage={latestStudentMessage}
       disabled={submitLoading}
       onSendingChange={setChatSending}
+      historyMessages={chatHistory}
     />
   );
 
@@ -569,8 +631,41 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
     </Stack>
   );
 
+  const descriptionModal: ReactNode = (
+    <Modal
+      opened={descModalOpen}
+      onClose={cancelSubmitDescription}
+      title="Describe your submission (optional)"
+      centered
+    >
+      <Text size="sm" c="dimmed" mb="sm">
+        Add anything that helps the tutor read your diagram correctly (for
+        example: which line is a relationship, which attribute is the key, or a
+        cardinality that is hard to see). You can leave this blank.
+      </Text>
+      <Textarea
+        value={descText}
+        onChange={(e) => setDescText(e.currentTarget.value)}
+        placeholder="e.g. The double line from Order to Contains means total participation."
+        autosize
+        minRows={3}
+        maxRows={8}
+        data-autofocus
+      />
+      <Group justify="flex-end" mt="md">
+        <Button variant="default" onClick={cancelSubmitDescription} disabled={submitLoading}>
+          Cancel
+        </Button>
+        <Button onClick={confirmSubmitWithDescription} loading={submitLoading}>
+          Submit
+        </Button>
+      </Group>
+    </Modal>
+  );
+
   if (focusMode) {
     return (
+      <>
       <DrawioFocusLayout
         ref={focusLayoutRef}
         question={question}
@@ -600,6 +695,8 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
         showRubricToggle={showRubricTab}
         isDirty={isDirty}
       />
+      {descriptionModal}
+      </>
     );
   }
 
@@ -848,6 +945,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
           </Box>
         </Box>
       </Stack>
+      {descriptionModal}
     </Container>
   );
 }

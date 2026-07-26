@@ -26,11 +26,19 @@ const seedMessages: ChatMessage[] = [
   },
 ];
 
+export type ChatHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
+
 type ChatPanelProps = {
   onSendMessage?: (message: string) => Promise<string>;
   injectedAssistantMessage?: string | null;
   disabled?: boolean;
   onSendingChange?: (value: boolean) => void;
+  /** Persisted transcript from previous turns; rendered once, without animation. */
+  historyMessages?: ChatHistoryMessage[] | null;
 };
 
 const TYPEWRITER_INTERVAL_MS = 12;
@@ -74,12 +82,33 @@ export function ChatPanel({
   injectedAssistantMessage,
   disabled = false,
   onSendingChange,
+  historyMessages,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const lastInjectedMessageRef = useRef<string>("");
+  const historyAppliedRef = useRef(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (historyAppliedRef.current) return;
+    if (!historyMessages || historyMessages.length === 0) return;
+    historyAppliedRef.current = true;
+    const restored: ChatMessage[] = historyMessages.map((m) => ({
+      id: `history-${m.id}`,
+      role: m.role,
+      content: m.content,
+      animate: false,
+    }));
+    // Greeting first, then the persisted transcript, then anything the user
+    // already typed this session (normally nothing — history loads on mount).
+    setMessages((prev) => [
+      ...seedMessages,
+      ...restored,
+      ...prev.filter((m) => !seedMessages.some((s) => s.id === m.id)),
+    ]);
+  }, [historyMessages]);
 
   const normalizeMessage = (value: string): string => value.replace(/\\n/g, "\n");
   const scrollToLatest = useCallback(() => {

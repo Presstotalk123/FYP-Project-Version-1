@@ -7,6 +7,7 @@ export const API_BASE_URL =
 export const API_ENDPOINTS = {
   AUTH: {
     GOOGLE: '/auth/google',
+    MICROSOFT: '/auth/microsoft',
     ME: '/auth/me',
   },
   QUESTIONS: {
@@ -27,6 +28,14 @@ export const API_ENDPOINTS = {
     QUESTIONS: '/er-diagram/questions',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
     SUBMISSION: '/er-diagram/submission',
+    CONVERSATION: '/er-diagram/conversation',
+  },
+  ERD_PROMPTS: {
+    LIST: '/erd-prompts',
+    DETAIL: (key: string) => `/erd-prompts/${key}`,
+    VERSIONS: (key: string) => `/erd-prompts/${key}/versions`,
+    ACTIVATE: (key: string, versionNo: number) => `/erd-prompts/${key}/versions/${versionNo}/activate`,
+    OVERRIDE: (key: string) => `/erd-prompts/${key}/override`,
   },
   CHATBOT: {
     SEND: '/chatbot/send',

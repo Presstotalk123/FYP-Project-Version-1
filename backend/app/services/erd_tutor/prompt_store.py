@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 PROMPT_REGISTRY = {
     "tutor_system": {
         "default": prompts.TUTOR_SYSTEM,
-        "label": "Query Tutor behavior",
+        "label": "ERD Query Tutor behavior",
         "description": "System prompt for the AI tutor when students ask questions (IBL style, hint levels, refusal policy).",
     },
     "grade_system": {
         "default": prompts.GRADE_SYSTEM,
-        "label": "Grading policy",
+        "label": "ERD Grading policy",
         "description": "System prompt for the strict submission grader (status policy, naming tolerance, partial-credit rules).",
     },
 }

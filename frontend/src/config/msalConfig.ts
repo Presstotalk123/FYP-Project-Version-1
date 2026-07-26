@@ -28,4 +28,14 @@ export const loginRequest = {
 
 export const msalInstance = new PublicClientApplication(msalConfig);
 
+// Initialize MSAL and handle popup redirects outside of React to ensure it runs as soon as possible
+// and correctly processes the auth token before React hydration can interfere.
+if (typeof window !== 'undefined') {
+  msalInstance.initialize().then(() => {
+    return msalInstance.handleRedirectPromise();
+  }).catch((err) => {
+    console.error('MSAL initialization/redirect error:', err);
+  });
+}
+
 export default msalConfig;

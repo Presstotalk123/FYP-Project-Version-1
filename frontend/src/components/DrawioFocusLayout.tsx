@@ -30,6 +30,7 @@ import {
   IconMessageCircle,
   IconNotebook,
   IconReportAnalytics,
+  IconX,
 } from "@tabler/icons-react";
 import type { ERDiagramWorkspaceQuestion } from "@/components/ERDiagramWorkspace";
 
@@ -81,9 +82,51 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     ref,
   ) {
   const [problemOpen, setProblemOpen] = useState(false);
+  const [problemWidth, setProblemWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState(false);
   const [rightDrawer, setRightDrawer] = useState<RightDrawer>(null);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = e.clientX;
+      if (newWidth < 150) {
+        setProblemOpen(false);
+        setIsResizing(false);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        return;
+      }
+      const clampedWidth = Math.min(Math.max(newWidth, 250), window.innerWidth * 0.6);
+      setProblemWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing]);
 
   const visibleRightDrawer: RightDrawer =
     rightDrawer === "rubric" && !showRubricToggle ? null : rightDrawer;
@@ -258,8 +301,68 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
         </Button>
       </Box>
 
-      <Box style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        {canvas}
+      <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", position: "relative" }}>
+        {problemOpen && (
+          <Box
+            style={{
+              width: problemWidth,
+              flexShrink: 0,
+              background: "var(--mantine-color-body)",
+              borderRight: "1px solid var(--mantine-color-gray-3)",
+              display: "flex",
+              flexDirection: "column",
+              zIndex: 10,
+            }}
+          >
+            <Box style={{ padding: "12px 16px", borderBottom: "1px solid var(--mantine-color-gray-3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Group gap="xs" align="center">
+                <Text fw={600}>Problem</Text>
+                <Badge variant="light" size="sm">
+                  {question.difficulty}
+                </Badge>
+              </Group>
+              <ActionIcon onClick={() => setProblemOpen(false)} size="sm" variant="subtle">
+                <IconX size={16} />
+              </ActionIcon>
+            </Box>
+            <Box style={{ padding: 16, overflowY: "auto", flex: 1 }}>
+              {problemContent}
+            </Box>
+          </Box>
+        )}
+
+        {problemOpen && (
+          <Box
+            onMouseDown={startResizing}
+            style={{
+              width: 12,
+              cursor: "col-resize",
+              zIndex: 11,
+              position: "absolute",
+              left: problemWidth - 6,
+              top: 0,
+              bottom: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Box
+              style={{
+                width: 4,
+                height: 32,
+                borderRadius: 4,
+                background: isResizing ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-gray-4)",
+                transition: "background-color 0.2s",
+              }}
+            />
+          </Box>
+        )}
+
+        <Box style={{ flex: 1, minWidth: 0, position: "relative" }}>
+          {canvas}
+          {isResizing && <Box style={{ position: "absolute", inset: 0, zIndex: 999 }} />}
+        </Box>
       </Box>
 
       <input
@@ -269,33 +372,6 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
         onChange={handleFileInputChange}
         style={{ display: "none" }}
       />
-
-      <Drawer
-        opened={problemOpen}
-        onClose={() => setProblemOpen(false)}
-        position="left"
-        size="md"
-        withOverlay={false}
-        lockScroll={false}
-        withCloseButton
-        keepMounted
-        title={
-          <Group gap="xs" align="center">
-            <Text fw={600}>Problem</Text>
-            <Badge variant="light" size="sm">
-              {question.difficulty}
-            </Badge>
-          </Group>
-        }
-        styles={{
-          content: { boxShadow: DRAWER_SHADOW },
-          inner: { pointerEvents: "none" },
-          body: { pointerEvents: "auto" },
-          header: { pointerEvents: "auto" },
-        }}
-      >
-        {problemContent}
-      </Drawer>
 
       <Drawer
         opened={visibleRightDrawer !== null}

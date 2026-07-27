@@ -6,7 +6,7 @@ import { useMsal } from '@azure/msal-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { msalLoginRequest } from '@/config/msal.config';
-import { UserRole } from '@/types/user.types';
+import { getPostLoginRedirect } from '@/utils/auth-redirect';
 
 function MicrosoftLogo() {
   return (
@@ -22,12 +22,9 @@ function MicrosoftLogo() {
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [msLoading, setMsLoading] = useState(false);
-  const { googleLogin, microsoftLogin } = useAuth();
+  const { googleLogin } = useAuth();
   const { instance } = useMsal();
   const router = useRouter();
-
-  const redirectForRole = (role: UserRole) =>
-    role === UserRole.STAFF || role === UserRole.ADMIN ? '/admin' : '/student';
 
   const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
     setError(null);
@@ -39,7 +36,7 @@ export default function LoginForm() {
 
     try {
       const user = await googleLogin(token);
-      router.push(redirectForRole(user.role));
+      router.push(getPostLoginRedirect(user.role));
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(
@@ -53,36 +50,15 @@ export default function LoginForm() {
     setError(null);
     setMsLoading(true);
     try {
-      // initialize() is required and idempotent in MSAL v3+; guarantees the
-      // instance is ready before we open the sign-in popup.
+      // Full-page redirect avoids the popup/Cross-Origin-Opener-Policy interop
+      // issues that make loginPopup unreliable in some browsers. This call
+      // navigates the browser away; completion is handled in AuthContext once
+      // Microsoft sends the user back.
       await instance.initialize();
-      const result = await instance.loginPopup(msalLoginRequest);
-
-      const idToken = result.idToken;
-      if (!idToken) {
-        setError('No credential received from Microsoft.');
-        return;
-      }
-
-      const user = await microsoftLogin(idToken);
-      router.push(redirectForRole(user.role));
+      await instance.loginRedirect(msalLoginRequest);
     } catch (err: unknown) {
-      // Logged for diagnosis — MSAL errors carry an errorCode/errorMessage that
-      // the generic banner below intentionally doesn't expose to end users.
       console.error('Microsoft sign-in failed:', err);
-
-      // User closed / cancelled the popup — not an error worth surfacing.
-      const errorCode = (err as { errorCode?: string }).errorCode;
-      if (errorCode === 'user_cancelled') {
-        return;
-      }
-
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      setError(
-        axiosErr.response?.data?.detail ??
-          'Microsoft sign-in failed. Contact your administrator to get access.'
-      );
-    } finally {
+      setError('Microsoft sign-in failed. Please try again.');
       setMsLoading(false);
     }
   };
@@ -149,7 +125,7 @@ export default function LoginForm() {
                   style={{ width: 16, height: 16, borderWidth: 2 }}
                   aria-hidden="true"
                 />
-                Signing in…
+                Redirecting to Microsoft…
               </>
             ) : (
               <>

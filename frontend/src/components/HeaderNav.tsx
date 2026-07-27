@@ -65,7 +65,8 @@ export function HeaderNav() {
   }, [pathname, isStaffMember, isAuthenticated]);
 
   // Hide global header on the home page — the home page renders its own header
-  if (pathname === "/") return null;
+  // Also hide on the login page so nav buttons don't appear there
+  if (pathname === "/" || pathname === "/login") return null;
 
   const handleLogout = () => {
     logout();

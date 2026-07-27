@@ -3,32 +3,25 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.whitelist import WhitelistEntry
-from app.schemas.auth import GoogleAuthRequest, Token
+from app.schemas.auth import GoogleAuthRequest, MicrosoftAuthRequest, Token
 from app.schemas.user import UserResponse
-from app.core.security import verify_google_token, create_access_token
+from app.core.security import verify_google_token, verify_microsoft_token, create_access_token
 from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-@router.post("/google", response_model=Token)
-def google_login(
-    request: GoogleAuthRequest,
-    db: Session = Depends(get_db),
-):
-    payload = verify_google_token(request.token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Google token",
-        )
+def _issue_token_for_whitelisted_email(email: str, db: Session) -> dict:
+    """Shared SSO login logic used by every identity provider.
 
-    email: str = payload.get("email", "").lower()
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Google token missing email",
-        )
+    Given an authenticated email address, validates it against the whitelist,
+    creates or updates the corresponding User (syncing role/name/class_group from
+    the whitelist entry), and returns a signed JWT access-token response.
+
+    Only the email is used to decide whether the user may log in. Raises 403 if the
+    email is not whitelisted.
+    """
+    email = email.lower()
 
     entry = db.query(WhitelistEntry).filter(WhitelistEntry.email == email).first()
     if not entry:
@@ -59,9 +52,54 @@ def google_login(
     db.commit()
     db.refresh(user)
 
-
     access_token = create_access_token(data={"sub": user.email, "role": user.role.value})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/google", response_model=Token)
+def google_login(
+    request: GoogleAuthRequest,
+    db: Session = Depends(get_db),
+):
+    payload = verify_google_token(request.token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token",
+        )
+
+    email: str = payload.get("email", "")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token missing email",
+        )
+
+    return _issue_token_for_whitelisted_email(email, db)
+
+
+@router.post("/microsoft", response_model=Token)
+def microsoft_login(
+    request: MicrosoftAuthRequest,
+    db: Session = Depends(get_db),
+):
+    payload = verify_microsoft_token(request.token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Microsoft token",
+        )
+
+    # The Azure App registration is configured to return the user's email. Fall back
+    # to preferred_username (a UPN, which is email-shaped) only when it is a real email.
+    email: str = payload.get("email") or payload.get("preferred_username") or ""
+    if "@" not in email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Microsoft token missing email",
+        )
+
+    return _issue_token_for_whitelisted_email(email, db)
 
 
 @router.get("/me", response_model=UserResponse)

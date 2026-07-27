@@ -7,6 +7,7 @@ export const API_BASE_URL =
 export const API_ENDPOINTS = {
   AUTH: {
     GOOGLE: '/auth/google',
+    MICROSOFT: '/auth/microsoft',
     ME: '/auth/me',
   },
   QUESTIONS: {

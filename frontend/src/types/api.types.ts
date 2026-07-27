@@ -11,6 +11,10 @@ export interface GoogleAuthRequest {
   token: string;
 }
 
+export interface MicrosoftAuthRequest {
+  token: string;
+}
+
 export interface LoginResponse {
   access_token: string;
   token_type: string;

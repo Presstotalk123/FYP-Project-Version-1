@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     GOOGLE_CLIENT_ID: str = ""
 
+    # Microsoft SSO (Azure Entra ID / Microsoft Identity Platform)
+    # Use "common" for the tenant to allow any Microsoft account (work/school
+    # or personal). MICROSOFT_CLIENT_ID is the Azure App registration's
+    # Application (client) ID; ID tokens are validated against it as the audience.
+    MICROSOFT_CLIENT_ID: str = ""
+    MICROSOFT_TENANT_ID: str = "common"
+
     # Question databases path
     QUESTION_DB_PATH: str = "./question_databases/"
 

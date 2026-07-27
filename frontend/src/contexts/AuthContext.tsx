@@ -36,7 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // this effect can run before that one — initialize() is idempotent and
         // required before handleRedirectPromise() will work reliably.
         await instance.initialize();
-        const redirectResult = await instance.handleRedirectPromise();
+        // navigateToLoginRequestUrl: false — otherwise MSAL first navigates back to
+        // whatever page initiated the login (e.g. /login) before this code runs its
+        // own role-based redirect, producing a visible flash of the login screen.
+        const redirectResult = await instance.handleRedirectPromise({
+          navigateToLoginRequestUrl: false,
+        });
         if (redirectResult?.idToken) {
           const response = await authService.microsoftLogin(redirectResult.idToken);
           authService.setToken(response.access_token);

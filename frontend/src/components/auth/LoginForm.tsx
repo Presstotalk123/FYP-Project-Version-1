@@ -67,6 +67,10 @@ export default function LoginForm() {
       const user = await microsoftLogin(idToken);
       router.push(redirectForRole(user.role));
     } catch (err: unknown) {
+      // Logged for diagnosis — MSAL errors carry an errorCode/errorMessage that
+      // the generic banner below intentionally doesn't expose to end users.
+      console.error('Microsoft sign-in failed:', err);
+
       // User closed / cancelled the popup — not an error worth surfacing.
       const errorCode = (err as { errorCode?: string }).errorCode;
       if (errorCode === 'user_cancelled') {

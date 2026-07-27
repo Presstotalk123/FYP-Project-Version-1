@@ -1,9 +1,14 @@
 import axios, { AxiosError } from 'axios';
-import { API_BASE_URL } from '@/config/api.config';
+import { API_BASE_URL, API_ENDPOINTS } from '@/config/api.config';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
 });
+
+// SSO login calls return 401 to report "invalid/expired token from the provider" —
+// that is a login failure, not an expired session, so it must surface as a normal
+// rejected promise for the caller to display, not trigger the logout redirect below.
+const SSO_LOGIN_PATHS = [API_ENDPOINTS.AUTH.GOOGLE, API_ENDPOINTS.AUTH.MICROSOFT];
 
 api.interceptors.request.use(
   (config) => {
@@ -21,7 +26,8 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    const isSsoLoginCall = SSO_LOGIN_PATHS.some((path) => error.config?.url?.includes(path));
+    if (error.response?.status === 401 && !isSsoLoginCall) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('access_token');
         window.location.href = '/login';

@@ -13,8 +13,6 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     GOOGLE_CLIENT_ID: str = ""
-    MICROSOFT_CLIENT_ID: str = ""
-    MICROSOFT_TENANT_ID: str = "common"
 
     # Question databases path
     QUESTION_DB_PATH: str = "./question_databases/"
@@ -57,22 +55,6 @@ class Settings(BaseSettings):
     ER_AZURE_CONNECTION_STRING: Optional[str] = None
     ER_AZURE_ACCOUNT_URL: Optional[str] = None
     ER_AZURE_ACCOUNT_KEY: Optional[str] = None
-
-    # ERD tutor engine selector: "dify" (legacy) | "langgraph" (new)
-    ERD_TUTOR_ENGINE: str = "dify"
-
-    # ERD rubric-generation engine selector: "dify" (legacy) | "langgraph" (new)
-    ERD_RUBRIC_ENGINE: str = "dify"
-
-    # Azure OpenAI for the ERD LangGraph engines (tutor + rubric generator).
-    # ERD_-prefixed so the scope is explicit; values are deployment NAMES from
-    # the Azure OpenAI resource. (No api-version setting: the code talks to
-    # Azure's unified v1 surface, which has none.)
-    ERD_AZURE_OPENAI_ENDPOINT: Optional[str] = None
-    ERD_AZURE_OPENAI_API_KEY: Optional[str] = None
-    ERD_AZURE_OPENAI_VISION_DEPLOYMENT: str = "gpt-5.4"
-    ERD_AZURE_OPENAI_GRADE_DEPLOYMENT: str = "gpt-5.4-mini"
-    ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT: str = "gpt-5.4-nano"
 
     class Config:
         env_file = ".env"

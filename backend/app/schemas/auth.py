@@ -18,8 +18,3 @@ class TokenData(BaseModel):
 class GoogleAuthRequest(BaseModel):
     """Google SSO login request — contains the Google ID token"""
     token: str
-
-
-class MicrosoftAuthRequest(BaseModel):
-    """Microsoft SSO login request — contains the Microsoft ID token"""
-    token: str

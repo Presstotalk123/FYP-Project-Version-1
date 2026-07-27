@@ -3,30 +3,33 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.whitelist import WhitelistEntry
-from app.schemas.auth import GoogleAuthRequest, MicrosoftAuthRequest, Token
+from app.schemas.auth import GoogleAuthRequest, Token
 from app.schemas.user import UserResponse
-from app.core.security import verify_google_token, verify_microsoft_token, create_access_token
+from app.core.security import verify_google_token, create_access_token
 from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-def _authenticate_by_email(email: str, db: Session) -> dict:
-    """Shared authentication logic used by all SSO providers.
+@router.post("/google", response_model=Token)
+def google_login(
+    request: GoogleAuthRequest,
+    db: Session = Depends(get_db),
+):
+    payload = verify_google_token(request.token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token",
+        )
 
-    Validates the email against the whitelist, creates or updates the user,
-    and returns a JWT token dict.
+    email: str = payload.get("email", "").lower()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token missing email",
+        )
 
-    Args:
-        email: Verified email address from the identity provider.
-        db: Database session.
-
-    Returns:
-        Dict with access_token and token_type.
-
-    Raises:
-        HTTPException: If email is not on the whitelist.
-    """
     entry = db.query(WhitelistEntry).filter(WhitelistEntry.email == email).first()
     if not entry:
         raise HTTPException(
@@ -56,56 +59,11 @@ def _authenticate_by_email(email: str, db: Session) -> dict:
     db.commit()
     db.refresh(user)
 
+
     access_token = create_access_token(data={"sub": user.email, "role": user.role.value})
     return {"access_token": access_token, "token_type": "bearer"}
-
-
-@router.post("/google", response_model=Token)
-def google_login(
-    request: GoogleAuthRequest,
-    db: Session = Depends(get_db),
-):
-    payload = verify_google_token(request.token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Google token",
-        )
-
-    email: str = payload.get("email", "").lower()
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Google token missing email",
-        )
-
-    return _authenticate_by_email(email, db)
-
-
-@router.post("/microsoft", response_model=Token)
-def microsoft_login(
-    request: MicrosoftAuthRequest,
-    db: Session = Depends(get_db),
-):
-    payload = verify_microsoft_token(request.token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Microsoft token",
-        )
-
-    # Microsoft tokens use 'email' or 'preferred_username' for the email claim
-    email: str = (payload.get("email") or payload.get("preferred_username") or "").lower()
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Microsoft token missing email",
-        )
-
-    return _authenticate_by_email(email, db)
 
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user: User = Depends(get_current_user)):
     return current_user
-

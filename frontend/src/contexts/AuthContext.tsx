@@ -8,7 +8,6 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   googleLogin: (token: string) => Promise<User>;
-  microsoftLogin: (token: string) => Promise<User>;
   logout: () => void;
   isAuthenticated: boolean;
   isStaff: boolean;
@@ -46,14 +45,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return currentUser;
   };
 
-  const microsoftLogin = async (token: string): Promise<User> => {
-    const response = await authService.microsoftLogin(token);
-    authService.setToken(response.access_token);
-    const currentUser = await authService.getCurrentUser();
-    setUser(currentUser);
-    return currentUser;
-  };
-
   const logout = () => {
     authService.logout();
     setUser(null);
@@ -65,7 +56,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         loading,
         googleLogin,
-        microsoftLogin,
         logout,
         isAuthenticated: !!user,
         isStaff: user?.role === UserRole.STAFF || user?.role === UserRole.ADMIN,
@@ -84,4 +74,3 @@ export function useAuth(): AuthContextType {
   }
   return context;
 }
-

@@ -88,36 +88,40 @@ export function ResultsPanel({
                 : "Your query results don't match the expected output."}
             </Alert>
 
-            <div>
-              <Text size="sm" fw={500} mb="xs">
-                Query Results
-              </Text>
-              <ScrollArea>
-                <Table striped highlightOnHover withTableBorder>
-                  <Table.Thead>
-                    <Table.Tr>
-                      {result.columns.map((col) => (
-                        <Table.Th key={col}>{col}</Table.Th>
-                      ))}
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {result.results.map((row, idx) => (
-                      <Table.Tr key={idx}>
+            {/* Advanced SQL Testing grades on hidden state, not the submission's
+                own output — there's no query-result table to show. */}
+            {!question.advanced_sql_testing && (
+              <div>
+                <Text size="sm" fw={500} mb="xs">
+                  Query Results
+                </Text>
+                <ScrollArea>
+                  <Table striped highlightOnHover withTableBorder>
+                    <Table.Thead>
+                      <Table.Tr>
                         {result.columns.map((col) => (
-                          <Table.Td key={col}>
-                            {row[col] !== null && row[col] !== undefined ? String(row[col]) : 'NULL'}
-                          </Table.Td>
+                          <Table.Th key={col}>{col}</Table.Th>
                         ))}
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea>
-              <Text size="xs" c="dimmed" mt="xs">
-                {result.row_count} {result.row_count === 1 ? 'row' : 'rows'} returned
-              </Text>
-            </div>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {result.results.map((row, idx) => (
+                        <Table.Tr key={idx}>
+                          {result.columns.map((col) => (
+                            <Table.Td key={col}>
+                              {row[col] !== null && row[col] !== undefined ? String(row[col]) : 'NULL'}
+                            </Table.Td>
+                          ))}
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </ScrollArea>
+                <Text size="xs" c="dimmed" mt="xs">
+                  {result.row_count} {result.row_count === 1 ? 'row' : 'rows'} returned
+                </Text>
+              </div>
+            )}
 
             {/* AI Query Review Card — only for wrong-but-valid queries */}
             {(isReviewing || reviewData) && (

@@ -34,6 +34,13 @@ class Question(Base):
     schema_sql = Column(Text, nullable=False)
     sample_data_sql = Column(Text, nullable=False)
 
+    # Advanced SQL Testing (triggers / complex DML grading via hidden test script + check query).
+    # 0/1 flag, following the same Integer-flag convention as is_deleted.
+    advanced_sql_testing = Column(Integer, nullable=False, default=0)
+    # Hidden staff-authored statements, only meaningful when advanced_sql_testing=1.
+    test_script = Column(Text, nullable=True)
+    check_query = Column(Text, nullable=True)
+
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

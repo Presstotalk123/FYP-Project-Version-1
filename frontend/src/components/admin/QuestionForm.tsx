@@ -11,6 +11,8 @@ import {
   Group,
   Title,
   Alert,
+  Switch,
+  Text,
 } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
@@ -36,6 +38,9 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
   const [schemaSql, setSchemaSql] = useState(question?.schema_sql || '');
   const [sampleDataSql, setSampleDataSql] = useState(question?.sample_data_sql || '');
   const [correctAnswerQuery, setCorrectAnswerQuery] = useState(question?.correct_answer_query || '');
+  const [advancedSqlTesting, setAdvancedSqlTesting] = useState(question?.advanced_sql_testing ?? false);
+  const [testScript, setTestScript] = useState(question?.test_script || '');
+  const [checkQuery, setCheckQuery] = useState(question?.check_query || '');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +69,14 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
       setError('Correct Answer Query is required');
       return;
     }
+    if (advancedSqlTesting && !testScript.trim()) {
+      setError('Test Script is required when Advanced SQL Testing is enabled');
+      return;
+    }
+    if (advancedSqlTesting && !checkQuery.trim()) {
+      setError('Check Query is required when Advanced SQL Testing is enabled');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -76,6 +89,9 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         schema_sql: schemaSql,
         sample_data_sql: sampleDataSql,
         correct_answer_query: correctAnswerQuery,
+        advanced_sql_testing: advancedSqlTesting,
+        test_script: advancedSqlTesting ? testScript : null,
+        check_query: advancedSqlTesting ? checkQuery : null,
       };
 
       if (isEdit && question) {
@@ -192,7 +208,14 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         </div>
 
         <div>
-          <Title order={5} mb="xs">Correct Answer Query</Title>
+          <Title order={5} mb="xs">
+            {advancedSqlTesting ? 'Reference Implementation' : 'Correct Answer Query'}
+          </Title>
+          <Text size="xs" c="dimmed" mb="xs">
+            {advancedSqlTesting
+              ? 'The correct SQL for this question, e.g. a CREATE TRIGGER statement.'
+              : 'A SELECT query whose output is the expected answer.'}
+          </Text>
           <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
             <Editor
               height="150px"
@@ -209,6 +232,72 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
             />
           </div>
         </div>
+
+        <div>
+          <Switch
+            label="Advanced SQL Testing"
+            checked={advancedSqlTesting}
+            onChange={(e) => setAdvancedSqlTesting(e.currentTarget.checked)}
+          />
+          <Text size="xs" c="dimmed" mt="xs">
+            For triggers and complex multi-statement DML only. Stored procedures
+            and SQL-level functions are not supported on this platform (SQLite
+            has no CREATE PROCEDURE / CREATE FUNCTION). When enabled, grading
+            applies the submission, runs a hidden Test Script, runs a hidden
+            Check Query, and compares its hashed output — instead of comparing
+            the submission&apos;s own output directly.
+          </Text>
+        </div>
+
+        {advancedSqlTesting && (
+          <>
+            <div>
+              <Title order={5} mb="xs">Test Script</Title>
+              <Text size="xs" c="dimmed" mb="xs">
+                Hidden from students. One or more statements that exercise the
+                submission, e.g. an INSERT that should fire the trigger.
+              </Text>
+              <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
+                <Editor
+                  height="150px"
+                  language="sql"
+                  theme="vs-dark"
+                  value={testScript}
+                  onChange={(value) => setTestScript(value || '')}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Title order={5} mb="xs">Check Query</Title>
+              <Text size="xs" c="dimmed" mb="xs">
+                Hidden from students. A single SELECT that captures the
+                resulting database state after the Test Script runs.
+              </Text>
+              <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
+                <Editor
+                  height="150px"
+                  language="sql"
+                  theme="vs-dark"
+                  value={checkQuery}
+                  onChange={(value) => setCheckQuery(value || '')}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                  }}
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         <Group justify="flex-end" mt="md">
           <Button

@@ -4,6 +4,7 @@ import os
 from typing import Tuple, List, Dict, Any
 from pathlib import Path
 from app.config import settings
+from app.core.advanced_sql_grader import is_permissive_but_safe
 
 
 class SQLValidationError(Exception):
@@ -74,7 +75,8 @@ def validate_sql_statements(sql: str, statement_type: str = "general") -> None:
 def create_sqlite_from_sql(
     schema_sql: str,
     data_sql: str,
-    correct_answer_query: str
+    correct_answer_query: str,
+    advanced: bool = False
 ) -> Tuple[str, str]:
     """
     Create a SQLite database file from SQL statements and return the filepath and database filename.
@@ -83,6 +85,10 @@ def create_sqlite_from_sql(
         schema_sql: CREATE TABLE statements
         data_sql: INSERT statements
         correct_answer_query: SELECT query to validate (not executed here, just validated)
+            when `advanced` is False. When `advanced` is True, this is instead an
+            arbitrary reference implementation (e.g. CREATE TRIGGER ...) validated
+            with the more permissive Advanced SQL Testing rules.
+        advanced: Whether Advanced SQL Testing is enabled for this question.
 
     Returns:
         Tuple of (db_filename, full_db_path)
@@ -94,7 +100,10 @@ def create_sqlite_from_sql(
     # Validate SQL statements
     validate_sql_statements(schema_sql, "schema")
     validate_sql_statements(data_sql, "data")
-    validate_sql_statements(correct_answer_query, "query")
+    if advanced:
+        is_permissive_but_safe(correct_answer_query, "student")
+    else:
+        validate_sql_statements(correct_answer_query, "query")
 
     # Generate unique filename
     db_filename = generate_unique_filename()

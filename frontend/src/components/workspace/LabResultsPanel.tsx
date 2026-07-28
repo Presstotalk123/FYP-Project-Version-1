@@ -266,11 +266,25 @@ export function LabResultsPanel({
                             </option>
                           ))}
                         </select>
-                        {selectedSubmitTaskId && taskProgress[parseInt(selectedSubmitTaskId)]?.is_completed && (
-                          <div className="da-alert" style={{ background: '#dcfce7', borderColor: '#bbf7d0', color: '#166534', fontSize: 12 }}>
-                            You&apos;ve already solved this task! You can still resubmit.
-                          </div>
-                        )}
+                        {selectedSubmitTaskId && (() => {
+                          const submitProgress = taskProgress[parseInt(selectedSubmitTaskId)];
+                          if (!submitProgress) return null;
+                          if (submitProgress.is_completed) {
+                            return (
+                              <div className="da-alert" style={{ background: '#dcfce7', borderColor: '#bbf7d0', color: '#166534', fontSize: 12 }}>
+                                You&apos;ve already solved this task! You can still resubmit.
+                              </div>
+                            );
+                          }
+                          if (submitProgress.attempt_count > 0) {
+                            return (
+                              <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                                You&apos;ve already submitted an answer for this task ({submitProgress.attempt_count} attempt{submitProgress.attempt_count !== 1 ? 's' : ''}). You can still resubmit.
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         <button
                           className="btn btn-brand"
                           style={{ width: '100%', justifyContent: 'center', minHeight: 34 }}

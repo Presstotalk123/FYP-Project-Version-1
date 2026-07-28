@@ -7,6 +7,7 @@ export interface Lab {
   description: string;
   is_published: boolean;
   is_running: boolean;
+  hide_correctness: boolean;
   lab_type: 'sql' | 'graph';
   created_at: string;
   updated_at: string;
@@ -186,7 +187,8 @@ export interface LabTaskSubmitRequest {
 
 export interface LabTaskSubmitResponse {
   submission_id: number;
-  is_correct: boolean;
+  /** null when the lab hides correctness from students */
+  is_correct: boolean | null;
   message: string;
   submitted_at: string;
 }

@@ -657,14 +657,23 @@ export function LabWorkspace({
         row_count: result.row_count,
       });
 
-      notifications.show({
-        title: response.is_correct ? 'Correct!' : 'Incorrect',
-        message: response.message,
-        color: response.is_correct ? 'green' : 'red',
-      });
+      if (response.is_correct === null) {
+        notifications.show({
+          title: 'Submitted',
+          message: response.message,
+          color: 'blue',
+        });
+      } else {
+        notifications.show({
+          title: response.is_correct ? 'Correct!' : 'Incorrect',
+          message: response.message,
+          color: response.is_correct ? 'green' : 'red',
+        });
+      }
 
       // Trigger AI review in background for wrong submissions
-      if (!response.is_correct) {
+      // (skip when is_correct is null - the lab hides correctness from students)
+      if (response.is_correct === false) {
         setIsLabReviewing(true);
         chatbotService
           .reviewLabQuery(labId, sessionId, taskId, query)

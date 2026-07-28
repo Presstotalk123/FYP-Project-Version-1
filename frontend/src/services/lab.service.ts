@@ -68,6 +68,16 @@ export const labService = {
     return response.data;
   },
 
+  async hideLabResults(id: number): Promise<Lab> {
+    const response = await api.post(API_ENDPOINTS.LABS.HIDE_RESULTS(id));
+    return response.data;
+  },
+
+  async showLabResults(id: number): Promise<Lab> {
+    const response = await api.post(API_ENDPOINTS.LABS.SHOW_RESULTS(id));
+    return response.data;
+  },
+
   async startLab(id: number): Promise<Lab> {
     const response = await api.post(API_ENDPOINTS.LABS.START(id));
     return response.data;

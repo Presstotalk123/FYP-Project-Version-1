@@ -103,6 +103,7 @@ def create_lab(
         description=lab.description,
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -136,6 +137,7 @@ def list_labs(
             description=lab.description,
             is_published=bool(lab.is_published),
             is_running=bool(lab.is_running),
+            hide_correctness=bool(lab.hide_correctness),
             lab_type=lab.lab_type,
             created_at=lab.created_at,
             updated_at=lab.updated_at
@@ -198,6 +200,7 @@ def get_lab(
         description=lab.description,
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
         lab_type=lab.lab_type,
         template_db_path=lab.template_db_path,
         schema_sql=lab.schema_sql,
@@ -279,6 +282,7 @@ def update_lab(
         description=lab.description,
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -360,6 +364,7 @@ def publish_lab(
         description=lab.description,
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -404,6 +409,86 @@ def unpublish_lab(
         description=lab.description,
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
+        lab_type=lab.lab_type,
+        created_at=lab.created_at,
+        updated_at=lab.updated_at
+    )
+
+
+@router.post("/{lab_id}/hide-results", response_model=LabResponse)
+def hide_lab_results(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Hide correctness feedback from students (Staff only).
+    Sets hide_correctness=1. Students submitting task answers only see a
+    generic "submitted successfully" notice instead of correct/incorrect.
+    """
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    lab.hide_correctness = 1
+    lab.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(lab)
+
+    return LabResponse(
+        id=lab.id,
+        title=lab.title,
+        description=lab.description,
+        is_published=bool(lab.is_published),
+        is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
+        lab_type=lab.lab_type,
+        created_at=lab.created_at,
+        updated_at=lab.updated_at
+    )
+
+
+@router.post("/{lab_id}/show-results", response_model=LabResponse)
+def show_lab_results(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Reveal correctness feedback to students again (Staff only).
+    Sets hide_correctness=0.
+    """
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    lab.hide_correctness = 0
+    lab.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(lab)
+
+    return LabResponse(
+        id=lab.id,
+        title=lab.title,
+        description=lab.description,
+        is_published=bool(lab.is_published),
+        is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -450,6 +535,7 @@ def start_lab(
         description=lab.description,
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -1574,7 +1660,17 @@ def submit_task_answer(
     db.commit()
     db.refresh(submission)
 
-    # 7. Return result
+    # 7. Return result - real correctness is always persisted above for grading,
+    # but labs with hide_correctness on don't reveal it to students in the response.
+    lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
+    if lab and lab.hide_correctness and current_user.role.value == "student":
+        return LabTaskSubmitResponse(
+            submission_id=submission.id,
+            is_correct=None,
+            message="Submitted successfully.",
+            submitted_at=submission.submitted_at
+        )
+
     message = (
         "Correct! Your query produces the expected result." if is_correct
         else "Incorrect. Your query result doesn't match the expected answer."
@@ -1625,6 +1721,16 @@ def get_lab_task_progress(
         LabTask.is_deleted == 0
     ).order_by(LabTask.order_index, LabTask.created_at).all()
 
+    # A student viewing their own progress on a hide_correctness lab never sees
+    # is_completed=True - that would leak correctness the same way a badge would.
+    # Staff viewing their own or another student's progress (student_id set) always
+    # sees the real value.
+    mask_completion = (
+        bool(lab.hide_correctness)
+        and student_id is None
+        and current_user.role.value == "student"
+    )
+
     # For each task, get submission statistics
     task_progress_list = []
     for task in tasks:
@@ -1636,7 +1742,7 @@ def get_lab_task_progress(
 
         # Calculate progress
         attempt_count = len(submissions)
-        is_completed = any(sub.is_correct == 1 for sub in submissions)
+        is_completed = False if mask_completion else any(sub.is_correct == 1 for sub in submissions)
         last_submitted_at = max(
             (sub.submitted_at for sub in submissions),
             default=None

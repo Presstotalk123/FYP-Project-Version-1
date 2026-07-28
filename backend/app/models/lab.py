@@ -15,6 +15,10 @@ class Lab(Base):
     is_published = Column(Integer, default=0)  # Visibility: 0=unpublished, 1=published
     is_running = Column(Integer, default=0)    # Active session: 0=stopped, 1=running
 
+    # When set, students submitting task answers are not told whether they were
+    # correct or incorrect - they just get a generic "submitted successfully" notice.
+    hide_correctness = Column(Integer, default=0)
+
     # Template database
     template_db_path = Column(String(500), nullable=False)  # Filename of template DB
 

@@ -477,6 +477,11 @@ async def lab_chat(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Free-form chat could otherwise be used to fish for correctness hints
+    # ("is my query right?") on labs where that's meant to be hidden.
+    if lab.hide_correctness and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI Tutor is disabled for this lab.")
+
     # Live schema
     try:
         schema_info = get_schema_info(session.db_file_path)

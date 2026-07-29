@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { notifications } from '@mantine/notifications';
 import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { LabQueryReviewResponse } from '@/services/chatbot.service';
@@ -50,6 +50,7 @@ interface LabResultsPanelProps {
   databaseState: DatabaseState | null;
   isLoadingDatabase: boolean;
   isStaffMode: boolean;
+  hideCorrectness?: boolean;
   tasks: LabTask[];
   currentQuery: string;
   taskProgress: Record<number, LabTaskProgress>;
@@ -72,6 +73,7 @@ export function LabResultsPanel({
   databaseState,
   isLoadingDatabase,
   isStaffMode,
+  hideCorrectness = false,
   tasks,
   currentQuery,
   taskProgress,
@@ -135,12 +137,21 @@ export function LabResultsPanel({
   const tasksWithAnswers = tasks.filter(task => task.has_answer);
   const hasVisibleResultRows = result?.success === true && result.results.length > 0;
 
+  // Staff test-driving a lab keep the tutor; students on a hide_correctness lab don't,
+  // since free-form chat could otherwise be used to fish for correctness hints.
+  const aiTutorDisabled = hideCorrectness && !isStaffMode;
+
   const tabs = [
     { id: 'results', label: 'Results' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
-    { id: 'ai-tutor', label: 'AI Tutor' },
+    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'AI Tutor' }]),
   ];
+
+  // If the AI Tutor tab gets hidden while it's the active tab, fall back to Results.
+  useEffect(() => {
+    if (aiTutorDisabled && activeTab === 'ai-tutor') setActiveTab('results');
+  }, [aiTutorDisabled, activeTab]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -556,8 +567,8 @@ export function LabResultsPanel({
             </div>
           )
         )}
-        {/* ── AI Tutor Tab ── */}
-        {activeTab === 'ai-tutor' && (
+        {/* ── AI Tutor Tab (not rendered at all when aiTutorDisabled - see tabs above) ── */}
+        {activeTab === 'ai-tutor' && !aiTutorDisabled && (
           labId && sessionId ? (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
               <LabChatTab labId={labId} sessionId={sessionId} />

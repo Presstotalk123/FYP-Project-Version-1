@@ -946,6 +946,7 @@ export function LabWorkspace({
             databaseState={databaseState}
             isLoadingDatabase={isLoadingDatabase}
             isStaffMode={isStaffMode}
+            hideCorrectness={lab?.hide_correctness ?? false}
             tasks={tasks}
             currentQuery={query}
             taskProgress={taskProgress}

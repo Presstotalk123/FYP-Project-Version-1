@@ -48,6 +48,17 @@ const IconMessageCheck = () => (
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/>
   </svg>
 );
+const IconWand = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h0M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/>
+  </svg>
+);
+const IconWandOff = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M15 4V2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h0M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
 const IconReview = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -160,6 +171,22 @@ export default function AdminLabsPage() {
     }
   };
 
+  const handleToggleAiAssist = async (labId: number, disableAiAssist: boolean) => {
+    try {
+      if (disableAiAssist) {
+        await labService.enableLabAiAssist(labId);
+        notifications.show({ title: 'Success', message: 'AI Tutor re-enabled for students', color: 'green' });
+      } else {
+        await labService.disableLabAiAssist(labId);
+        notifications.show({ title: 'Success', message: 'AI Tutor disabled for students', color: 'green' });
+      }
+      fetchLabs();
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to update lab', color: 'red' });
+    }
+  };
+
   const openDeleteModal = (labId: number) => {
     setLabToDelete(labId);
     setDeleteModalOpen(true);
@@ -256,6 +283,9 @@ export default function AdminLabsPage() {
                         {lab.hide_correctness && (
                           <span className="badge badge-warn">Results Hidden</span>
                         )}
+                        {lab.disable_ai_assist && (
+                          <span className="badge neutral">AI Assist Off</span>
+                        )}
                       </div>
                     </td>
                     <td>{new Date(lab.created_at).toLocaleDateString()}</td>
@@ -278,6 +308,15 @@ export default function AdminLabsPage() {
                           style={{ color: lab.hide_correctness ? '#f59e0b' : '#6b7280' }}
                         >
                           {lab.hide_correctness ? <IconMessageOff /> : <IconMessageCheck />}
+                        </button>
+                        {/* Disable/Enable AI Tutor + query-review helper for students */}
+                        <button
+                          className="icon-btn"
+                          title={lab.disable_ai_assist ? 'Enable AI Tutor for students' : 'Disable AI Tutor for students'}
+                          onClick={() => handleToggleAiAssist(lab.id, lab.disable_ai_assist)}
+                          style={{ color: lab.disable_ai_assist ? '#f59e0b' : '#6b7280' }}
+                        >
+                          {lab.disable_ai_assist ? <IconWandOff /> : <IconWand />}
                         </button>
                         {/* Review / Student Attempts */}
                         <button

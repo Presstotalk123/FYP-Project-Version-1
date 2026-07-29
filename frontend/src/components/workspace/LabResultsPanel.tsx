@@ -51,6 +51,7 @@ interface LabResultsPanelProps {
   isLoadingDatabase: boolean;
   isStaffMode: boolean;
   hideCorrectness?: boolean;
+  disableAiAssist?: boolean;
   tasks: LabTask[];
   currentQuery: string;
   taskProgress: Record<number, LabTaskProgress>;
@@ -74,6 +75,7 @@ export function LabResultsPanel({
   isLoadingDatabase,
   isStaffMode,
   hideCorrectness = false,
+  disableAiAssist = false,
   tasks,
   currentQuery,
   taskProgress,
@@ -137,9 +139,10 @@ export function LabResultsPanel({
   const tasksWithAnswers = tasks.filter(task => task.has_answer);
   const hasVisibleResultRows = result?.success === true && result.results.length > 0;
 
-  // Staff test-driving a lab keep the tutor; students on a hide_correctness lab don't,
-  // since free-form chat could otherwise be used to fish for correctness hints.
-  const aiTutorDisabled = hideCorrectness && !isStaffMode;
+  // Staff test-driving a lab keep the tutor. Students lose it if either the lab hides
+  // correctness (free-form chat could be used to fish for hints) or has AI assist
+  // turned off independent of correctness.
+  const aiTutorDisabled = (hideCorrectness || disableAiAssist) && !isStaffMode;
 
   const tabs = [
     { id: 'results', label: 'Results' },

@@ -672,8 +672,9 @@ export function LabWorkspace({
       }
 
       // Trigger AI review in background for wrong submissions
-      // (skip when is_correct is null - the lab hides correctness from students)
-      if (response.is_correct === false) {
+      // (skip when is_correct is null - the lab hides correctness from students -
+      // or when this lab has AI assist turned off independent of correctness)
+      if (response.is_correct === false && !lab?.disable_ai_assist) {
         setIsLabReviewing(true);
         chatbotService
           .reviewLabQuery(labId, sessionId, taskId, query)
@@ -947,6 +948,7 @@ export function LabWorkspace({
             isLoadingDatabase={isLoadingDatabase}
             isStaffMode={isStaffMode}
             hideCorrectness={lab?.hide_correctness ?? false}
+            disableAiAssist={lab?.disable_ai_assist ?? false}
             tasks={tasks}
             currentQuery={query}
             taskProgress={taskProgress}

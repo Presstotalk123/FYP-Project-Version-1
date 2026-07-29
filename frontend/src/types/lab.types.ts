@@ -8,6 +8,7 @@ export interface Lab {
   is_published: boolean;
   is_running: boolean;
   hide_correctness: boolean;
+  disable_ai_assist: boolean;
   lab_type: 'sql' | 'graph';
   created_at: string;
   updated_at: string;

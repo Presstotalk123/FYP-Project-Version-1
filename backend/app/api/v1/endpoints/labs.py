@@ -104,6 +104,7 @@ def create_lab(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -138,6 +139,7 @@ def list_labs(
             is_published=bool(lab.is_published),
             is_running=bool(lab.is_running),
             hide_correctness=bool(lab.hide_correctness),
+            disable_ai_assist=bool(lab.disable_ai_assist),
             lab_type=lab.lab_type,
             created_at=lab.created_at,
             updated_at=lab.updated_at
@@ -201,6 +203,7 @@ def get_lab(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         template_db_path=lab.template_db_path,
         schema_sql=lab.schema_sql,
@@ -283,6 +286,7 @@ def update_lab(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -365,6 +369,7 @@ def publish_lab(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -410,6 +415,7 @@ def unpublish_lab(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -450,6 +456,7 @@ def hide_lab_results(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -489,6 +496,88 @@ def show_lab_results(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
+        lab_type=lab.lab_type,
+        created_at=lab.created_at,
+        updated_at=lab.updated_at
+    )
+
+
+@router.post("/{lab_id}/disable-ai-assist", response_model=LabResponse)
+def disable_lab_ai_assist(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Turn off the AI Tutor and AI query-review hint for students (Staff only).
+    Sets disable_ai_assist=1. Independent of hide_correctness - correctness
+    feedback is unaffected.
+    """
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    lab.disable_ai_assist = 1
+    lab.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(lab)
+
+    return LabResponse(
+        id=lab.id,
+        title=lab.title,
+        description=lab.description,
+        is_published=bool(lab.is_published),
+        is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
+        lab_type=lab.lab_type,
+        created_at=lab.created_at,
+        updated_at=lab.updated_at
+    )
+
+
+@router.post("/{lab_id}/enable-ai-assist", response_model=LabResponse)
+def enable_lab_ai_assist(
+    lab_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """
+    Turn the AI Tutor and AI query-review hint back on for students (Staff only).
+    Sets disable_ai_assist=0.
+    """
+    lab = db.query(Lab).filter(
+        Lab.id == lab_id,
+        Lab.is_deleted == 0
+    ).first()
+
+    if not lab:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lab not found"
+        )
+
+    lab.disable_ai_assist = 0
+    lab.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(lab)
+
+    return LabResponse(
+        id=lab.id,
+        title=lab.title,
+        description=lab.description,
+        is_published=bool(lab.is_published),
+        is_running=bool(lab.is_running),
+        hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -536,6 +625,7 @@ def start_lab(
         is_published=bool(lab.is_published),
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
+        disable_ai_assist=bool(lab.disable_ai_assist),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at

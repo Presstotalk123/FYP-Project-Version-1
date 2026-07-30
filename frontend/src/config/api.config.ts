@@ -1,7 +1,7 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (typeof window !== 'undefined' && window.location.hostname === 'proud-stone-0ec93a000.2.azurestaticapps.net'
-    ? 'https://aidb-backend.azurewebsites.net/api/v1'
+  (typeof window !== 'undefined' && window.location.hostname === 'zealous-stone-03626e900.7.azurestaticapps.net'
+    ? 'https://ntu-akela-backend-ggcpejb0evb3fbg5.southeastasia-01.azurewebsites.net/api/v1'
     : 'http://localhost:8000/api/v1');
 
 export const API_ENDPOINTS = {

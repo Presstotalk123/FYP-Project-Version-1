@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://proud-stone-0ec93a000.2.azurestaticapps.net"
+        "https://zealous-stone-03626e900.7.azurestaticapps.net"
     ]
 
     # Dify ER rubric endpoint

@@ -161,9 +161,13 @@ def run_advanced_pipeline(
                 cursor.executescript(test_script)
                 dest.commit()
             except sqlite3.Error as e:
-                result_container["error"] = str(e)
-                result_container["error_stage"] = "test_script"
-                return
+                error_msg = str(e).lower()
+                if "syntax error" in error_msg or "no such table" in error_msg or "no such column" in error_msg:
+                    result_container["error"] = str(e)
+                    result_container["error_stage"] = "test_script"
+                    return
+                # Otherwise, it is likely a constraint violation or trigger abort (which is expected).
+                pass
 
             try:
                 cursor.execute(check_query)

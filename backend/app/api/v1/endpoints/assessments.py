@@ -27,6 +27,7 @@ from app.schemas.assessment import (
     AssessmentItemComponentScore,
 )
 from app.dependencies import get_current_user, require_staff_role
+from app.services import assessment_clone
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -199,6 +200,15 @@ def update_assessment(
             detail="Cannot edit assessment while it is running. Stop it first.",
         )
 
+    # A published assessment is frozen (its items point to content clones). Editing the
+    # item list would orphan those clones, so require unpublish first. Metadata edits are
+    # still allowed below.
+    if data.items is not None and assessment.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot edit assessment items while it is published. Unpublish first.",
+        )
+
     if data.title is not None:
         assessment.title = data.title
     if data.description is not None:
@@ -250,6 +260,9 @@ def delete_assessment(
             detail="Cannot delete assessment while it is running. Stop it first.",
         )
 
+    # Reclaim clone SQLite files and soft-delete clone rows before removing the assessment.
+    assessment_clone.delete_cloned_content(db, assessment.id)
+
     assessment.is_deleted = 1
     assessment.updated_at = datetime.utcnow()
     db.commit()
@@ -274,10 +287,28 @@ def publish_assessment(
     if not assessment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
-    assessment.is_published = 1
-    assessment.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(assessment)
+    # Freeze the assessment: deep-copy each item's content into an assessment-owned clone
+    # and repoint item_id to the clone, so student progress/attempts on this assessment are
+    # isolated from the master bank and other assessments. Idempotent: items already frozen
+    # (source_item_id set) are skipped, so re-publishing does not double-clone.
+    try:
+        for item in assessment.items:
+            if item.source_item_id is not None:
+                continue
+            clone_id = assessment_clone.clone_item(db, item, assessment.id)
+            item.source_item_id = item.item_id
+            item.item_id = clone_id
+
+        assessment.is_published = 1
+        assessment.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(assessment)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to publish assessment: {exc}",
+        )
 
     return AssessmentListItem(
         id=assessment.id,
@@ -308,6 +339,14 @@ def unpublish_assessment(
 
     if assessment.is_running:
         assessment.is_running = 0
+
+    # Tear down the frozen clones (delete SQLite files, soft-delete rows) and restore each
+    # item's pointer to its master content so the assessment becomes editable again.
+    assessment_clone.delete_cloned_content(db, assessment.id)
+    for item in assessment.items:
+        if item.source_item_id is not None:
+            item.item_id = item.source_item_id
+            item.source_item_id = None
 
     assessment.is_published = 0
     assessment.updated_at = datetime.utcnow()

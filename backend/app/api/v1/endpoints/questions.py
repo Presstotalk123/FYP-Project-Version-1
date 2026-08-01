@@ -196,7 +196,12 @@ def list_questions(
     Returns:
         List of questions
     """
-    query = db.query(Question).filter(Question.is_deleted == 0)
+    # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
+    # the question bank or the assessment item picker.
+    query = db.query(Question).filter(
+        Question.is_deleted == 0,
+        Question.owner_assessment_id.is_(None),
+    )
 
     # Apply filters
     if difficulty:

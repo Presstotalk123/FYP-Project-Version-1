@@ -40,3 +40,8 @@ class Lab(Base):
 
     # Soft delete
     is_deleted = Column(Integer, default=0)
+
+    # When set, this row is an assessment-owned clone (created at publish time) rather
+    # than a master bank lab. Clones are excluded from bank listings/pickers and give
+    # each published assessment its own isolated progress/attempt history.
+    owner_assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)

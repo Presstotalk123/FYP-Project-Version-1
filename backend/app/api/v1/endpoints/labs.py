@@ -123,7 +123,12 @@ def list_labs(
     Students: only published labs (is_published=1)
     Staff: all non-deleted labs
     """
-    query = db.query(Lab).filter(Lab.is_deleted == 0)
+    # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
+    # the lab bank, the assessment item picker, or the student practice lab list.
+    query = db.query(Lab).filter(
+        Lab.is_deleted == 0,
+        Lab.owner_assessment_id.is_(None),
+    )
 
     # Filter by role
     if current_user.role.value == "student":

@@ -48,3 +48,8 @@ class Question(Base):
 
     # Soft delete flag
     is_deleted = Column(Integer, default=0)  # Using Integer for SQLite compatibility
+
+    # When set, this row is an assessment-owned clone (created at publish time) rather
+    # than a master bank question. Clones are excluded from bank listings/pickers and
+    # give each published assessment its own isolated progress/attempt history.
+    owner_assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)

@@ -16,5 +16,9 @@ class AssessmentItem(Base):
     item_type = Column(String(30), nullable=False)
     item_id = Column(Integer, nullable=False)
     order_index = Column(Integer, default=0, nullable=False)
+    # When the assessment is published, item_id is repointed to a frozen content clone and
+    # source_item_id holds the original master content id (used for idempotent re-publish
+    # and to restore the master pointer on unpublish). NULL while unpublished.
+    source_item_id = Column(Integer, nullable=True)
 
     assessment = relationship("Assessment", back_populates="items")

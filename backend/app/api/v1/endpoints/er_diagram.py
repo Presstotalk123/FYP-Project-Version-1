@@ -929,7 +929,11 @@ def list_er_questions(
     question_rows = (
         db.query(ERDiagramQuestion, User.role)
         .join(User, ERDiagramQuestion.created_by == User.id)
-        .filter(ERDiagramQuestion.is_deleted == 0)
+        # Exclude assessment-owned clones (owner_assessment_id set) from the ER bank/picker.
+        .filter(
+            ERDiagramQuestion.is_deleted == 0,
+            ERDiagramQuestion.owner_assessment_id.is_(None),
+        )
         .order_by(ERDiagramQuestion.created_at.desc())
         .all()
     )

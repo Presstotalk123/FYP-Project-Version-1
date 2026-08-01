@@ -21,5 +21,5 @@ class GoogleAuthRequest(BaseModel):
 
 
 class MicrosoftAuthRequest(BaseModel):
-    """Microsoft SSO login request — contains the Microsoft ID token"""
+    """Microsoft SSO login request — contains the Microsoft (Entra ID) ID token"""
     token: str

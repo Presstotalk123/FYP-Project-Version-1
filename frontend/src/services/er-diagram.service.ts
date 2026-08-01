@@ -6,6 +6,7 @@ import {
   ERSubmissionRequest,
   ERSubmissionResponse,
   ERSubmissionStreamEvent,
+  ErdTutorConversationResponse,
   GenerateRubricRequest,
   GenerateRubricResponse,
   SaveERQuestionRequest,
@@ -151,6 +152,16 @@ export const erDiagramService = {
     await api.delete(API_ENDPOINTS.ER_DIAGRAM.QUESTION_DETAIL(id));
   },
 
+  async getConversation(
+    ref: { question_id: number } | { er_lab_id: number; er_lab_question_id: number },
+  ): Promise<ErdTutorConversationResponse> {
+    const response = await api.get<ErdTutorConversationResponse>(
+      API_ENDPOINTS.ER_DIAGRAM.CONVERSATION,
+      { params: ref },
+    );
+    return response.data;
+  },
+
   async *submitStream(payload: ERSubmissionRequest): AsyncGenerator<ERSubmissionStreamEvent> {
     const formData = new FormData();
     if (payload.question_id !== undefined) {
@@ -168,6 +179,9 @@ export const erDiagramService = {
     }
     if (payload.submission_xml_text?.trim()) {
       formData.append("submission_xml_text", payload.submission_xml_text.trim());
+    }
+    if (payload.submission_description?.trim()) {
+      formData.append("submission_description", payload.submission_description.trim());
     }
     if (payload.erd_img) {
       formData.append("erd_img", payload.erd_img);

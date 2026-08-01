@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { notifications } from '@mantine/notifications';
 import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { LabQueryReviewResponse } from '@/services/chatbot.service';
@@ -50,6 +50,8 @@ interface LabResultsPanelProps {
   databaseState: DatabaseState | null;
   isLoadingDatabase: boolean;
   isStaffMode: boolean;
+  hideCorrectness?: boolean;
+  disableAiAssist?: boolean;
   tasks: LabTask[];
   currentQuery: string;
   taskProgress: Record<number, LabTaskProgress>;
@@ -72,6 +74,8 @@ export function LabResultsPanel({
   databaseState,
   isLoadingDatabase,
   isStaffMode,
+  hideCorrectness = false,
+  disableAiAssist = false,
   tasks,
   currentQuery,
   taskProgress,
@@ -135,12 +139,22 @@ export function LabResultsPanel({
   const tasksWithAnswers = tasks.filter(task => task.has_answer);
   const hasVisibleResultRows = result?.success === true && result.results.length > 0;
 
+  // Staff test-driving a lab keep the tutor. Students lose it if either the lab hides
+  // correctness (free-form chat could be used to fish for hints) or has AI assist
+  // turned off independent of correctness.
+  const aiTutorDisabled = (hideCorrectness || disableAiAssist) && !isStaffMode;
+
   const tabs = [
     { id: 'results', label: 'Results' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
-    { id: 'ai-tutor', label: 'AI Tutor' },
+    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'AI Tutor' }]),
   ];
+
+  // If the AI Tutor tab gets hidden while it's the active tab, fall back to Results.
+  useEffect(() => {
+    if (aiTutorDisabled && activeTab === 'ai-tutor') setActiveTab('results');
+  }, [aiTutorDisabled, activeTab]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -266,11 +280,25 @@ export function LabResultsPanel({
                             </option>
                           ))}
                         </select>
-                        {selectedSubmitTaskId && taskProgress[parseInt(selectedSubmitTaskId)]?.is_completed && (
-                          <div className="da-alert" style={{ background: '#dcfce7', borderColor: '#bbf7d0', color: '#166534', fontSize: 12 }}>
-                            You&apos;ve already solved this task! You can still resubmit.
-                          </div>
-                        )}
+                        {selectedSubmitTaskId && (() => {
+                          const submitProgress = taskProgress[parseInt(selectedSubmitTaskId)];
+                          if (!submitProgress) return null;
+                          if (submitProgress.is_completed) {
+                            return (
+                              <div className="da-alert" style={{ background: '#dcfce7', borderColor: '#bbf7d0', color: '#166534', fontSize: 12 }}>
+                                You&apos;ve already solved this task! You can still resubmit.
+                              </div>
+                            );
+                          }
+                          if (submitProgress.attempt_count > 0) {
+                            return (
+                              <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                                You&apos;ve already submitted an answer for this task ({submitProgress.attempt_count} attempt{submitProgress.attempt_count !== 1 ? 's' : ''}). You can still resubmit.
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         <button
                           className="btn btn-brand"
                           style={{ width: '100%', justifyContent: 'center', minHeight: 34 }}
@@ -542,8 +570,8 @@ export function LabResultsPanel({
             </div>
           )
         )}
-        {/* ── AI Tutor Tab ── */}
-        {activeTab === 'ai-tutor' && (
+        {/* ── AI Tutor Tab (not rendered at all when aiTutorDisabled - see tabs above) ── */}
+        {activeTab === 'ai-tutor' && !aiTutorDisabled && (
           labId && sessionId ? (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
               <LabChatTab labId={labId} sessionId={sessionId} />

@@ -26,6 +26,9 @@ from app.models.er_lab import ErLab
 from app.models.er_lab_question import ErLabQuestion
 from app.models.er_lab_session import ErLabSession
 from app.models.er_lab_submission import ErLabSubmission
+from app.models.erd_tutor_conversation import ErdTutorConversation
+from app.models.erd_tutor_message import ErdTutorMessage
+from app.models.erd_prompt_version import ErdPromptVersion
 
 def create_tables():
     print(f"Connecting to: {settings.DATABASE_URL[:50]}...")
@@ -47,6 +50,8 @@ def create_tables():
             'uq_active_er_session_per_user_lab',
             'ix_er_lab_submissions_question_user', 'ix_er_lab_submissions_user_lab',
             'ix_er_lab_submissions_question_time',
+            'ix_erd_tutor_conv_lab', 'ix_erd_tutor_conv_standalone', 'ix_erd_tutor_msg_conv',
+            'ix_erd_prompt_key_active',
         ]
         for idx in indexes:
             try:
@@ -60,6 +65,7 @@ def create_tables():
         # Drop all tables
         print("\nDropping tables...")
         tables = [
+            'erd_tutor_messages', 'erd_tutor_conversations', 'erd_prompt_versions',
             'assessment_item_visits', 'er_lab_submissions',
             'assessment_sessions', 'assessment_items', 'assessments',
             'er_lab_sessions', 'er_lab_questions', 'er_labs',

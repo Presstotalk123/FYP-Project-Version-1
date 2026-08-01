@@ -73,7 +73,7 @@ class LabTaskSubmitRequest(BaseModel):
 class LabTaskSubmitResponse(BaseModel):
     """Schema for task submission response"""
     submission_id: int
-    is_correct: bool
+    is_correct: Optional[bool] = None  # None when the lab hides correctness from students
     message: str
     submitted_at: datetime
 

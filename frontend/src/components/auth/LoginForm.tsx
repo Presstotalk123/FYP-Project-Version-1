@@ -5,21 +5,26 @@ import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { useMsal } from '@azure/msal-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/types/user.types';
-import { loginRequest } from '@/config/msalConfig';
+import { msalLoginRequest } from '@/config/msal.config';
+import { getPostLoginRedirect } from '@/utils/auth-redirect';
+
+function MicrosoftLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
 
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [msLoading, setMsLoading] = useState(false);
-  const { googleLogin, microsoftLogin } = useAuth();
+  const { googleLogin } = useAuth();
   const { instance } = useMsal();
   const router = useRouter();
-
-  const redirectByRole = (user: { role: UserRole }) => {
-    const redirectPath =
-      user.role === UserRole.STAFF || user.role === UserRole.ADMIN ? '/admin' : '/student';
-    router.push(redirectPath);
-  };
 
   const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
     setError(null);
@@ -31,7 +36,7 @@ export default function LoginForm() {
 
     try {
       const user = await googleLogin(token);
-      redirectByRole(user);
+      router.push(getPostLoginRedirect(user.role));
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(
@@ -44,31 +49,16 @@ export default function LoginForm() {
   const handleMicrosoftLogin = async () => {
     setError(null);
     setMsLoading(true);
-
     try {
-      const result = await instance.loginPopup(loginRequest);
-      const idToken = result.idToken;
-      if (!idToken) {
-        setError('No credential received from Microsoft.');
-        setMsLoading(false);
-        return;
-      }
-
-      const user = await microsoftLogin(idToken);
-      redirectByRole(user);
+      // Full-page redirect avoids the popup/Cross-Origin-Opener-Policy interop
+      // issues that make loginPopup unreliable in some browsers. This call
+      // navigates the browser away; completion is handled in AuthContext once
+      // Microsoft sends the user back.
+      await instance.initialize();
+      await instance.loginRedirect(msalLoginRequest);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      // MSAL throws BrowserAuthError on user cancel — don't show error for that
-      const msalErr = err as { errorCode?: string };
-      if (msalErr.errorCode === 'user_cancelled') {
-        setMsLoading(false);
-        return;
-      }
-      setError(
-        axiosErr.response?.data?.detail ??
-          'Microsoft login failed. Contact your administrator to get access.'
-      );
-    } finally {
+      console.error('Microsoft sign-in failed:', err);
+      setError('Microsoft sign-in failed. Please try again.');
       setMsLoading(false);
     }
   };
@@ -82,7 +72,7 @@ export default function LoginForm() {
         </div>
 
         <h2>Database Assist</h2>
-        <p className="sub">Sign in with your account to continue&nbsp;practising SQL and ER diagrams.</p>
+        <p className="sub">Sign in with your Google or Microsoft account to continue&nbsp;practising SQL and ER diagrams.</p>
 
         {error && (
           <div
@@ -95,39 +85,57 @@ export default function LoginForm() {
           </div>
         )}
 
-        {/* Google Login button */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError('Google sign-in failed. Please try again.')}
-          />
-        </div>
+        {/* Sign-in options */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
+          {/* Google Login button */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError('Google sign-in failed. Please try again.')}
+            />
+          </div>
 
-        {/* Divider */}
-        <div className="auth-divider">
-          <span>or</span>
-        </div>
+          {/* Divider */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              color: 'var(--text-muted)',
+              fontSize: 12,
+            }}
+          >
+            <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            or
+            <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
 
-        {/* Microsoft Login button */}
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {/* Microsoft Login button */}
           <button
-            id="microsoft-login-btn"
             type="button"
-            className="ms-login-btn"
+            className="btn btn-secondary"
+            style={{ width: '100%' }}
             onClick={handleMicrosoftLogin}
             disabled={msLoading}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21">
-              <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-              <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-              <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-              <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-            </svg>
-            <span>{msLoading ? 'Signing in…' : 'Sign in with Microsoft'}</span>
+            {msLoading ? (
+              <>
+                <span
+                  className="spinner"
+                  style={{ width: 16, height: 16, borderWidth: 2 }}
+                  aria-hidden="true"
+                />
+                Redirecting to Microsoft…
+              </>
+            ) : (
+              <>
+                <MicrosoftLogo />
+                Continue with Microsoft
+              </>
+            )}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

@@ -20,7 +20,9 @@ export function HeaderNav() {
     { label: "Problems", href: "/admin/problems" },
     { label: "Manage Labs", href: "/admin/labs" },
     { label: "Assessments", href: "/admin/assessments" },
-    { label: "ERD", href: "/er-diagram" },
+    // Staff + admin (deliberately outside the isAdmin gate below): the
+    // /admin/settings prompt editor is editable by both roles.
+    { label: "Settings", href: "/admin/settings" },
   ];
 
   if (isAdmin) {
@@ -63,7 +65,8 @@ export function HeaderNav() {
   }, [pathname, isStaffMember, isAuthenticated]);
 
   // Hide global header on the home page — the home page renders its own header
-  if (pathname === "/") return null;
+  // Also hide on the login page so nav buttons don't appear there
+  if (pathname === "/" || pathname === "/login") return null;
 
   const handleLogout = () => {
     logout();

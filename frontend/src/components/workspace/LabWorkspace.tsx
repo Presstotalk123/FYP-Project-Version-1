@@ -657,14 +657,24 @@ export function LabWorkspace({
         row_count: result.row_count,
       });
 
-      notifications.show({
-        title: response.is_correct ? 'Correct!' : 'Incorrect',
-        message: response.message,
-        color: response.is_correct ? 'green' : 'red',
-      });
+      if (response.is_correct === null) {
+        notifications.show({
+          title: 'Submitted',
+          message: response.message,
+          color: 'blue',
+        });
+      } else {
+        notifications.show({
+          title: response.is_correct ? 'Correct!' : 'Incorrect',
+          message: response.message,
+          color: response.is_correct ? 'green' : 'red',
+        });
+      }
 
       // Trigger AI review in background for wrong submissions
-      if (!response.is_correct) {
+      // (skip when is_correct is null - the lab hides correctness from students -
+      // or when this lab has AI assist turned off independent of correctness)
+      if (response.is_correct === false && !lab?.disable_ai_assist) {
         setIsLabReviewing(true);
         chatbotService
           .reviewLabQuery(labId, sessionId, taskId, query)
@@ -937,6 +947,8 @@ export function LabWorkspace({
             databaseState={databaseState}
             isLoadingDatabase={isLoadingDatabase}
             isStaffMode={isStaffMode}
+            hideCorrectness={lab?.hide_correctness ?? false}
+            disableAiAssist={lab?.disable_ai_assist ?? false}
             tasks={tasks}
             currentQuery={query}
             taskProgress={taskProgress}

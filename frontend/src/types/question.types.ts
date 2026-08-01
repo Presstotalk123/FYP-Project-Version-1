@@ -19,6 +19,9 @@ export interface QuestionDetail extends Question {
   sample_data_sql: string;
   db_file_path: string;
   correct_answer_query?: string | null;
+  advanced_sql_testing: boolean;
+  test_script?: string | null;
+  check_query?: string | null;
 }
 
 export interface QuestionCreate {
@@ -28,4 +31,7 @@ export interface QuestionCreate {
   schema_sql: string;
   sample_data_sql: string;
   correct_answer_query: string;
+  advanced_sql_testing?: boolean;
+  test_script?: string | null;
+  check_query?: string | null;
 }

@@ -624,56 +624,6 @@ a {
   width: 100%;
 }
 
-.auth-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 18px 0;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.auth-divider::before,
-.auth-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-.ms-login-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 20px;
-  border: 1px solid #8c8c8c;
-  border-radius: 4px;
-  background: #ffffff;
-  color: #5e5e5e;
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.ms-login-btn:hover:not(:disabled) {
-  background: #f3f3f3;
-  border-color: #6e6e6e;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.ms-login-btn:active:not(:disabled) {
-  background: #e6e6e6;
-}
-
-.ms-login-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 /* ============================================================
    MODAL
    ============================================================ */

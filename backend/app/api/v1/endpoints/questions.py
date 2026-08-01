@@ -20,8 +20,21 @@ from app.utils.db_generator import (
     DatabaseGenerationError
 )
 from app.core.answer_validator import generate_hash
+from app.core.advanced_sql_grader import (
+    AdvancedGradingError,
+    run_advanced_pipeline,
+    compute_advanced_hash,
+    validate_check_query,
+)
 
 router = APIRouter(prefix="/questions", tags=["questions"])
+
+_ADVANCED_STAGE_LABELS = {
+    "student": "Reference implementation",
+    "test_script": "Test Script",
+    "check_query": "Check Query",
+    "timeout": "Execution",
+}
 
 
 def _require_answer_rows(results) -> None:
@@ -31,6 +44,24 @@ def _require_answer_rows(results) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The correct answer query must return at least one row."
         )
+
+
+def _require_non_empty(value: Optional[str], label: str) -> None:
+    """Reject blank Advanced SQL Testing fields with a clear staff-facing error."""
+    if not value or not value.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{label} is required when Advanced SQL Testing is enabled."
+        )
+
+
+def _advanced_stage_error(exc: AdvancedGradingError) -> HTTPException:
+    """Build a staff-facing error naming which pipeline stage failed."""
+    label = _ADVANCED_STAGE_LABELS.get(exc.stage, "Advanced SQL Testing")
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"{label} failed: {exc.message}"
+    )
 
 
 @router.post("", response_model=QuestionResponse, status_code=status.HTTP_201_CREATED)
@@ -55,26 +86,48 @@ def create_question(
         HTTPException: If SQL validation or database generation fails
     """
     try:
+        is_advanced = question_data.advanced_sql_testing
+
+        if is_advanced:
+            _require_non_empty(question_data.test_script, "Test Script")
+            _require_non_empty(question_data.check_query, "Check Query")
+            validate_check_query(question_data.check_query)
+
         # Generate SQLite database from SQL
         db_filename, db_path = create_sqlite_from_sql(
             question_data.schema_sql,
             question_data.sample_data_sql,
-            question_data.correct_answer_query
+            question_data.correct_answer_query,
+            advanced=is_advanced
         )
 
-        # Execute the correct answer query to generate hash
-        columns, results = execute_query_on_database(
-            db_path,
-            question_data.correct_answer_query
-        )
-        try:
-            _require_answer_rows(results)
-        except HTTPException:
-            delete_question_database(db_filename)
-            raise
+        if is_advanced:
+            # Reference implementation -> Test Script -> Check Query, hash the Check Query's output.
+            try:
+                columns, results, _ = run_advanced_pipeline(
+                    db_path,
+                    question_data.correct_answer_query,
+                    question_data.test_script,
+                    question_data.check_query,
+                )
+            except AdvancedGradingError as e:
+                delete_question_database(db_filename)
+                raise _advanced_stage_error(e)
+            correct_hash = compute_advanced_hash(columns, results)
+        else:
+            # Execute the correct answer query to generate hash
+            columns, results = execute_query_on_database(
+                db_path,
+                question_data.correct_answer_query
+            )
+            try:
+                _require_answer_rows(results)
+            except HTTPException:
+                delete_question_database(db_filename)
+                raise
 
-        # Generate hash from correct answer
-        correct_hash = generate_hash(results, columns)
+            # Generate hash from correct answer
+            correct_hash = generate_hash(results, columns)
 
         # Create question in database
         new_question = Question(
@@ -84,6 +137,9 @@ def create_question(
             schema_sql=question_data.schema_sql,
             sample_data_sql=question_data.sample_data_sql,
             correct_answer_query=question_data.correct_answer_query,
+            advanced_sql_testing=1 if is_advanced else 0,
+            test_script=question_data.test_script if is_advanced else None,
+            check_query=question_data.check_query if is_advanced else None,
             db_file_path=db_filename,
             correct_answer_hash=correct_hash,
             created_by=current_user.id
@@ -190,10 +246,14 @@ def get_question(
             detail="Question not found"
         )
 
-    # Students need the database setup, but must never receive the model answer.
+    # Students need the database setup, but must never receive the model answer
+    # or any trace of Advanced SQL Testing (toggle state, Test Script, Check Query).
     question_detail = QuestionDetail.model_validate(question)
     if current_user.role not in {UserRole.STAFF, UserRole.ADMIN}:
         question_detail.correct_answer_query = None
+        question_detail.test_script = None
+        question_detail.check_query = None
+        question_detail.advanced_sql_testing = False
 
     return question_detail
 
@@ -233,11 +293,21 @@ def update_question(
         )
 
     try:
+        # Resolve the advanced-mode flag: explicit value wins, else keep current.
+        advanced_sql_testing = (
+            question_data.advanced_sql_testing
+            if question_data.advanced_sql_testing is not None
+            else bool(question.advanced_sql_testing)
+        )
+
         # Check if SQL needs to be regenerated
         sql_changed = (
             question_data.schema_sql is not None or
             question_data.sample_data_sql is not None or
-            question_data.correct_answer_query is not None
+            question_data.correct_answer_query is not None or
+            question_data.test_script is not None or
+            question_data.check_query is not None or
+            question_data.advanced_sql_testing is not None
         )
 
         if sql_changed:
@@ -249,6 +319,16 @@ def update_question(
                 if question_data.correct_answer_query is not None
                 else question.correct_answer_query
             )
+            test_script = (
+                question_data.test_script
+                if question_data.test_script is not None
+                else question.test_script
+            )
+            check_query = (
+                question_data.check_query
+                if question_data.check_query is not None
+                else question.check_query
+            )
 
             if not correct_answer_query:
                 raise HTTPException(
@@ -256,21 +336,41 @@ def update_question(
                     detail="A correct answer query is required when regenerating a legacy question."
                 )
 
+            if advanced_sql_testing:
+                _require_non_empty(test_script, "Test Script")
+                _require_non_empty(check_query, "Check Query")
+                validate_check_query(check_query)
+            else:
+                # Toggled off (or staying off): hidden fields no longer apply.
+                test_script = None
+                check_query = None
+
             # Generate new SQLite database
             db_filename, db_path = create_sqlite_from_sql(
                 schema_sql,
                 sample_data_sql,
-                correct_answer_query
+                correct_answer_query,
+                advanced=advanced_sql_testing
             )
 
-            # Execute correct answer query to generate new hash
-            columns, results = execute_query_on_database(db_path, correct_answer_query)
-            try:
-                _require_answer_rows(results)
-            except HTTPException:
-                delete_question_database(db_filename)
-                raise
-            correct_hash = generate_hash(results, columns)
+            if advanced_sql_testing:
+                try:
+                    columns, results, _ = run_advanced_pipeline(
+                        db_path, correct_answer_query, test_script, check_query
+                    )
+                except AdvancedGradingError as e:
+                    delete_question_database(db_filename)
+                    raise _advanced_stage_error(e)
+                correct_hash = compute_advanced_hash(columns, results)
+            else:
+                # Execute correct answer query to generate new hash
+                columns, results = execute_query_on_database(db_path, correct_answer_query)
+                try:
+                    _require_answer_rows(results)
+                except HTTPException:
+                    delete_question_database(db_filename)
+                    raise
+                correct_hash = generate_hash(results, columns)
 
             # Only replace the existing database after the new answer has been validated.
             delete_question_database(question.db_file_path)
@@ -279,6 +379,9 @@ def update_question(
             question.schema_sql = schema_sql
             question.sample_data_sql = sample_data_sql
             question.correct_answer_query = correct_answer_query
+            question.test_script = test_script
+            question.check_query = check_query
+            question.advanced_sql_testing = 1 if advanced_sql_testing else 0
             question.db_file_path = db_filename
             question.correct_answer_hash = correct_hash
 

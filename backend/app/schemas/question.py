@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 from typing import Optional
 from app.models.question import Difficulty
@@ -15,7 +15,21 @@ class QuestionCreate(QuestionBase):
     """Schema for creating a new question"""
     schema_sql: str = Field(..., description="CREATE TABLE statements")
     sample_data_sql: str = Field(..., description="INSERT statements")
-    correct_answer_query: str = Field(..., description="SELECT query for correct answer")
+    # A SELECT query in standard mode; an arbitrary reference implementation
+    # (e.g. CREATE TRIGGER ...) when advanced_sql_testing is enabled.
+    correct_answer_query: str = Field(..., description="Correct answer query / reference implementation")
+    advanced_sql_testing: bool = Field(False, description="Staff-only: grade via hidden Test Script + Check Query instead of direct output comparison")
+    test_script: Optional[str] = Field(None, description="Staff-only hidden script that exercises the submission (e.g. an INSERT that fires a trigger)")
+    check_query: Optional[str] = Field(None, description="Staff-only hidden SELECT that captures the resulting state to hash")
+
+    @model_validator(mode="after")
+    def _validate_advanced_fields(self):
+        if self.advanced_sql_testing:
+            if not self.test_script or not self.test_script.strip():
+                raise ValueError("Test Script is required when Advanced SQL Testing is enabled")
+            if not self.check_query or not self.check_query.strip():
+                raise ValueError("Check Query is required when Advanced SQL Testing is enabled")
+        return self
 
 
 class QuestionUpdate(BaseModel):
@@ -26,6 +40,9 @@ class QuestionUpdate(BaseModel):
     schema_sql: Optional[str] = None
     sample_data_sql: Optional[str] = None
     correct_answer_query: Optional[str] = Field(None, min_length=1)
+    advanced_sql_testing: Optional[bool] = None
+    test_script: Optional[str] = None
+    check_query: Optional[str] = None
 
 
 class QuestionResponse(QuestionBase):
@@ -34,6 +51,9 @@ class QuestionResponse(QuestionBase):
     created_by: int
     created_at: datetime
     updated_at: datetime
+    advanced_sql_testing: bool = False
+    test_script: Optional[str] = None
+    check_query: Optional[str] = None
 
     class Config:
         from_attributes = True

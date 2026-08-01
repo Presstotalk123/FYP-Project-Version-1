@@ -371,6 +371,9 @@ async def review_lab_query(
     if not lab:
         raise HTTPException(status_code=404, detail="Lab not found")
 
+    if (lab.hide_correctness or lab.disable_ai_assist) and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI query review is disabled for this lab.")
+
     # Fetch all tasks for this lab (ordered)
     all_tasks = (
         db.query(LabTask)
@@ -476,6 +479,12 @@ async def lab_chat(
     session = db.query(LabSession).filter(LabSession.id == request.session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Free-form chat could otherwise be used to fish for correctness hints
+    # ("is my query right?") on labs where that's meant to be hidden, or the
+    # lab may just have AI assist turned off independent of correctness.
+    if (lab.hide_correctness or lab.disable_ai_assist) and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI Tutor is disabled for this lab.")
 
     # Live schema
     try:

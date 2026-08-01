@@ -11,22 +11,18 @@ from app.dependencies import get_current_user
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-def _authenticate_by_email(email: str, db: Session) -> dict:
-    """Shared authentication logic used by all SSO providers.
+def _issue_token_for_whitelisted_email(email: str, db: Session) -> dict:
+    """Shared SSO login logic used by every identity provider.
 
-    Validates the email against the whitelist, creates or updates the user,
-    and returns a JWT token dict.
+    Given an authenticated email address, validates it against the whitelist,
+    creates or updates the corresponding User (syncing role/name/class_group from
+    the whitelist entry), and returns a signed JWT access-token response.
 
-    Args:
-        email: Verified email address from the identity provider.
-        db: Database session.
-
-    Returns:
-        Dict with access_token and token_type.
-
-    Raises:
-        HTTPException: If email is not on the whitelist.
+    Only the email is used to decide whether the user may log in. Raises 403 if the
+    email is not whitelisted.
     """
+    email = email.lower()
+
     entry = db.query(WhitelistEntry).filter(WhitelistEntry.email == email).first()
     if not entry:
         raise HTTPException(
@@ -72,14 +68,14 @@ def google_login(
             detail="Invalid Google token",
         )
 
-    email: str = payload.get("email", "").lower()
+    email: str = payload.get("email", "")
     if not email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Google token missing email",
         )
 
-    return _authenticate_by_email(email, db)
+    return _issue_token_for_whitelisted_email(email, db)
 
 
 @router.post("/microsoft", response_model=Token)
@@ -94,18 +90,18 @@ def microsoft_login(
             detail="Invalid Microsoft token",
         )
 
-    # Microsoft tokens use 'email' or 'preferred_username' for the email claim
-    email: str = (payload.get("email") or payload.get("preferred_username") or "").lower()
-    if not email:
+    # The Azure App registration is configured to return the user's email. Fall back
+    # to preferred_username (a UPN, which is email-shaped) only when it is a real email.
+    email: str = payload.get("email") or payload.get("preferred_username") or ""
+    if "@" not in email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Microsoft token missing email",
         )
 
-    return _authenticate_by_email(email, db)
+    return _issue_token_for_whitelisted_email(email, db)
 
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user: User = Depends(get_current_user)):
     return current_user
-

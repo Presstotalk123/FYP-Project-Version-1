@@ -126,6 +126,7 @@ export interface ERSubmissionRequest {
   mode: ERSubmissionMode;
   student_query?: string | null;
   submission_xml_text?: string | null;
+  submission_description?: string | null;
   erd_img?: File | null;
   er_lab_id?: number;
   er_lab_question_id?: number;
@@ -178,3 +179,22 @@ export type ERSubmissionStreamEvent =
   | ERSubmissionStreamStructuredOutputEvent
   | ERSubmissionStreamDoneEvent
   | ERSubmissionStreamErrorEvent;
+
+export interface ErdTutorTranscriptMessage {
+  id: number;
+  role: "user" | "assistant" | "submission";
+  mode: "query" | "submit";
+  content: string | null;
+  created_at: string | null;
+}
+
+export interface ErdTutorConversationResponse {
+  exists: boolean;
+  conversation_id: number | null;
+  context_type: "standalone" | "lab" | null;
+  ibl_stage: string | null;
+  hint_level: number | null;
+  last_submit_score: { percent?: number; label?: string } | null;
+  last_submit_report?: ERSubmissionStructuredOutput | Record<string, unknown> | null;
+  messages: ErdTutorTranscriptMessage[];
+}

@@ -1,15 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
-import time
 import bcrypt
 from jose import JWTError, jwt
+import jwt as pyjwt  # PyJWT — used for Microsoft ID-token verification (JWKS)
+from jwt import PyJWKClient
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
-import jwt as pyjwt
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
-from cryptography.hazmat.backends import default_backend
-import base64
-import requests
 from app.config import settings
 from app.models.user import UserRole
 
@@ -56,82 +52,59 @@ def verify_google_token(token: str) -> Optional[dict]:
         return None
 
 
-# ---------- Microsoft token verification ----------
-
-# Cache for Microsoft JWKS keys (keys, fetched_at)
-_ms_jwks_cache: dict = {"keys": None, "fetched_at": 0.0}
-_MS_JWKS_CACHE_TTL = 3600  # 1 hour
-
-
-def _ensure_bytes(value: str) -> bytes:
-    """Base64url-decode a string, adding padding as needed."""
-    value = value.replace("-", "+").replace("_", "/")
-    padding = 4 - len(value) % 4
-    if padding != 4:
-        value += "=" * padding
-    return base64.b64decode(value)
+# Lazily-created JWKS client for the Microsoft identity platform. The constructor
+# performs no network I/O (keys are fetched and cached on first use), so it is safe
+# to build once at module scope.
+_microsoft_jwks_client: Optional[PyJWKClient] = None
 
 
-def _get_microsoft_jwks() -> list[dict]:
-    """Fetch and cache Microsoft's JWKS public keys for the configured tenant."""
-    now = time.time()
-    if _ms_jwks_cache["keys"] and (now - _ms_jwks_cache["fetched_at"]) < _MS_JWKS_CACHE_TTL:
-        return _ms_jwks_cache["keys"]
-
-    tenant = settings.MICROSOFT_TENANT_ID or "common"
-    discovery_url = f"https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration"
-    discovery = requests.get(discovery_url, timeout=10).json()
-    jwks_uri = discovery["jwks_uri"]
-    jwks = requests.get(jwks_uri, timeout=10).json()
-
-    _ms_jwks_cache["keys"] = jwks.get("keys", [])
-    _ms_jwks_cache["fetched_at"] = now
-    return _ms_jwks_cache["keys"]
-
-
-def _get_rsa_public_key(kid: str):
-    """Find the RSA public key matching the given key ID from Microsoft's JWKS."""
-    keys = _get_microsoft_jwks()
-    for key in keys:
-        if key["kid"] == kid:
-            n = int.from_bytes(_ensure_bytes(key["n"]), byteorder="big")
-            e = int.from_bytes(_ensure_bytes(key["e"]), byteorder="big")
-            return RSAPublicNumbers(e, n).public_key(default_backend())
-    return None
+def _get_microsoft_jwks_client() -> PyJWKClient:
+    global _microsoft_jwks_client
+    if _microsoft_jwks_client is None:
+        jwks_url = (
+            f"https://login.microsoftonline.com/"
+            f"{settings.MICROSOFT_TENANT_ID}/discovery/v2.0/keys"
+        )
+        _microsoft_jwks_client = PyJWKClient(jwks_url)
+    return _microsoft_jwks_client
 
 
 def verify_microsoft_token(token: str) -> Optional[dict]:
-    """Verify a Microsoft ID token and return the payload (contains 'email' / 'preferred_username', etc.)."""
+    """Verify a Microsoft (Entra ID) ID token and return its claims.
+
+    Security checks performed:
+      * RS256 signature validated against the Microsoft identity platform JWKS.
+      * Audience must equal our app's MICROSOFT_CLIENT_ID.
+      * Expiry ('exp') is validated by PyJWT.
+      * Issuer is validated against the Microsoft issuer for the token's own tenant.
+        (With the "common" endpoint the tenant varies per user, so the issuer cannot
+        be a single fixed value — we bind it to the token's `tid` claim instead.)
+
+    Returns the decoded claims (contains 'email'/'preferred_username', etc.) or None
+    if the token is missing/invalid.
+    """
+    if not settings.MICROSOFT_CLIENT_ID:
+        return None
+
     try:
-        # Decode header to get key ID without verification first
-        unverified_header = pyjwt.get_unverified_header(token)
-        kid = unverified_header.get("kid")
-        if not kid:
-            return None
-
-        public_key = _get_rsa_public_key(kid)
-        if not public_key:
-            return None
-
-        tenant = settings.MICROSOFT_TENANT_ID or "common"
-        # For multi-tenant ("common"), we must accept any issuer
-        issuer = None if tenant == "common" else f"https://login.microsoftonline.com/{tenant}/v2.0"
-
-        decode_options = {}
-        if issuer is None:
-            decode_options["verify_iss"] = False
-
+        signing_key = _get_microsoft_jwks_client().get_signing_key_from_jwt(token)
         payload = pyjwt.decode(
             token,
-            public_key,
+            signing_key.key,
             algorithms=["RS256"],
             audience=settings.MICROSOFT_CLIENT_ID,
-            issuer=issuer,
-            options=decode_options,
+            # Issuer is tenant-specific under "common"; validated manually below.
+            options={"verify_iss": False},
         )
-        return payload
     except Exception:
         return None
+
+    tenant_id = payload.get("tid")
+    issuer = payload.get("iss", "")
+    if not tenant_id or issuer != f"https://login.microsoftonline.com/{tenant_id}/v2.0":
+        return None
+
+    return payload
 
 
 def decode_token(token: str) -> Optional[dict]:
@@ -149,4 +122,3 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
-

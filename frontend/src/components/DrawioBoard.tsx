@@ -25,7 +25,7 @@ type DrawioBoardProps = {
   initialXml?: string;
 };
 
-const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "https://fyp-database-drawio-ehb7h3afbzebe3fq.eastus-01.azurewebsites.net/?embed=1&spin=1&ui=min&libs=er;general&proto=json";
+const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "https://embed.diagrams.net/?embed=1&spin=1&ui=min&libs=er;general&proto=json";
 
 const DRAWIO_ORIGIN = (() => {
   if (!DRAWIO_URL) return "";

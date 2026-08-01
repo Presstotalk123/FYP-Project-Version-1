@@ -31,3 +31,10 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+
+.lavish/
+.understand-anything/
+backend/tests/
+frontend/.npm-cache/
+docs/ 

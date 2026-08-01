@@ -1,7 +1,7 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (typeof window !== 'undefined' && window.location.hostname === 'proud-stone-0ec93a000.2.azurestaticapps.net'
-    ? 'https://aidb-backend.azurewebsites.net/api/v1'
+  (typeof window !== 'undefined' && window.location.hostname === 'zealous-stone-03626e900.7.azurestaticapps.net'
+    ? 'https://ntu-akela-backend-ggcpejb0evb3fbg5.southeastasia-01.azurewebsites.net/api/v1'
     : 'http://localhost:8000/api/v1');
 
 export const API_ENDPOINTS = {
@@ -28,6 +28,14 @@ export const API_ENDPOINTS = {
     QUESTIONS: '/er-diagram/questions',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
     SUBMISSION: '/er-diagram/submission',
+    CONVERSATION: '/er-diagram/conversation',
+  },
+  ERD_PROMPTS: {
+    LIST: '/erd-prompts',
+    DETAIL: (key: string) => `/erd-prompts/${key}`,
+    VERSIONS: (key: string) => `/erd-prompts/${key}/versions`,
+    ACTIVATE: (key: string, versionNo: number) => `/erd-prompts/${key}/versions/${versionNo}/activate`,
+    OVERRIDE: (key: string) => `/erd-prompts/${key}/override`,
   },
   CHATBOT: {
     SEND: '/chatbot/send',
@@ -40,6 +48,10 @@ export const API_ENDPOINTS = {
     DETAIL: (id: number) => `/labs/${id}`,
     PUBLISH: (id: number) => `/labs/${id}/publish`,
     UNPUBLISH: (id: number) => `/labs/${id}/unpublish`,
+    HIDE_RESULTS: (id: number) => `/labs/${id}/hide-results`,
+    SHOW_RESULTS: (id: number) => `/labs/${id}/show-results`,
+    DISABLE_AI_ASSIST: (id: number) => `/labs/${id}/disable-ai-assist`,
+    ENABLE_AI_ASSIST: (id: number) => `/labs/${id}/enable-ai-assist`,
     START: (id: number) => `/labs/${id}/start`,
     STOP: (id: number) => `/labs/${id}/stop`,
     SESSION_START: (id: number) => `/labs/${id}/session/start`,

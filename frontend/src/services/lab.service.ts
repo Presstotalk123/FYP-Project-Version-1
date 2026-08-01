@@ -68,6 +68,26 @@ export const labService = {
     return response.data;
   },
 
+  async hideLabResults(id: number): Promise<Lab> {
+    const response = await api.post(API_ENDPOINTS.LABS.HIDE_RESULTS(id));
+    return response.data;
+  },
+
+  async showLabResults(id: number): Promise<Lab> {
+    const response = await api.post(API_ENDPOINTS.LABS.SHOW_RESULTS(id));
+    return response.data;
+  },
+
+  async disableLabAiAssist(id: number): Promise<Lab> {
+    const response = await api.post(API_ENDPOINTS.LABS.DISABLE_AI_ASSIST(id));
+    return response.data;
+  },
+
+  async enableLabAiAssist(id: number): Promise<Lab> {
+    const response = await api.post(API_ENDPOINTS.LABS.ENABLE_AI_ASSIST(id));
+    return response.data;
+  },
+
   async startLab(id: number): Promise<Lab> {
     const response = await api.post(API_ENDPOINTS.LABS.START(id));
     return response.data;

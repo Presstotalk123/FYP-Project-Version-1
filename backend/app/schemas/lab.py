@@ -28,6 +28,8 @@ class LabListItem(BaseModel):
     description: str
     is_published: bool
     is_running: bool
+    hide_correctness: bool = False
+    disable_ai_assist: bool = False
     lab_type: str = "sql"
     created_at: datetime
     updated_at: datetime
@@ -43,6 +45,8 @@ class LabDetail(BaseModel):
     description: str
     is_published: bool
     is_running: bool
+    hide_correctness: bool = False
+    disable_ai_assist: bool = False
     lab_type: str = "sql"
     template_db_path: str
     schema_sql: str
@@ -62,6 +66,8 @@ class LabResponse(BaseModel):
     description: str
     is_published: bool
     is_running: bool
+    hide_correctness: bool = False
+    disable_ai_assist: bool = False
     lab_type: str = "sql"
     created_at: datetime
     updated_at: datetime

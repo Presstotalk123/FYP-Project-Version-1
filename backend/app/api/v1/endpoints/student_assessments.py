@@ -57,6 +57,23 @@ def _get_active_session(assessment_id: int, user_id: int, db: Session) -> Assess
     )
 
 
+def _get_completed_session(assessment_id: int, user_id: int, db: Session) -> AssessmentSession | None:
+    """Return the student's submitted session (attempt_complete=1) if one exists.
+
+    Independent of is_active: assessments are single-attempt, so once a session is
+    completed the student is locked out of retaking it.
+    """
+    return (
+        db.query(AssessmentSession)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.user_id == user_id,
+            AssessmentSession.attempt_complete == 1,
+        )
+        .first()
+    )
+
+
 def _build_item_view(item: AssessmentItem, visited: bool, db: Session) -> StudentAssessmentItemView:
     return StudentAssessmentItemView(
         id=item.id,
@@ -103,6 +120,8 @@ def get_student_assessment(
 ):
     assessment = _get_published_assessment(assessment_id, db)
 
+    attempt_complete = _get_completed_session(assessment_id, current_user.id, db) is not None
+
     # If not running, return only metadata with no items
     if not assessment.is_running:
         return StudentAssessmentDetail(
@@ -111,6 +130,7 @@ def get_student_assessment(
             description=assessment.description,
             is_running=False,
             has_password=bool(assessment.password),
+            attempt_complete=attempt_complete,
             items=[],
         )
 
@@ -137,6 +157,7 @@ def get_student_assessment(
         description=assessment.description,
         is_running=True,
         has_password=bool(assessment.password),
+        attempt_complete=attempt_complete,
         items=items,
     )
 
@@ -154,6 +175,13 @@ def join_assessment(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Assessment has not been started by staff",
+        )
+
+    # Single-attempt: if the student already ended & submitted, block retaking.
+    if _get_completed_session(assessment_id, current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You have already submitted this assessment and cannot retake it.",
         )
 
     # Return existing active session if already joined (skip password check)
@@ -285,6 +313,7 @@ def submit_assessment(
 
     from datetime import datetime, timezone
     session.is_active = 0
+    session.attempt_complete = 1  # single-attempt: lock out any future retake
     session.submitted_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(session)

@@ -34,6 +34,9 @@ class StudentAssessmentDetail(BaseModel):
     description: Optional[str]
     is_running: bool
     has_password: bool
+    # True once this student has ended & submitted; the UI shows a "Completed" state
+    # and hides the Join/Continue buttons (assessments are single-attempt).
+    attempt_complete: bool = False
     items: List[StudentAssessmentItemView]
 
     class Config:

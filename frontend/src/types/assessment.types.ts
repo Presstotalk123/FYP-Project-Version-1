@@ -80,6 +80,9 @@ export interface StudentAssessmentDetail {
   description: string | null;
   is_running: boolean;
   has_password: boolean;
+  // True once this student has ended & submitted; UI shows a Completed state and
+  // hides Join/Continue (assessments are single-attempt).
+  attempt_complete: boolean;
   items: StudentAssessmentItemView[];
 }
 

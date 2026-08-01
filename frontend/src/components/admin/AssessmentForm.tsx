@@ -7,6 +7,7 @@ import {
   Group,
   TextInput,
   Textarea,
+  NumberInput,
   PasswordInput,
   Switch,
   Button,
@@ -89,6 +90,8 @@ export function AssessmentForm({ mode, initial }: Props) {
   const [description, setDescription] = useState(initial?.description ?? '');
   const [password, setPassword] = useState(initial?.password ?? '');
   const [clearPassword, setClearPassword] = useState(false);
+  // Empty string = no time limit (untimed). Whole minutes otherwise.
+  const [timeLimit, setTimeLimit] = useState<number | ''>(initial?.time_limit_minutes ?? '');
   const [selectedItems, setSelectedItems] = useState<SortableItem[]>(() =>
     (initial?.items ?? []).map((i) => ({
       uid: nextUid(),
@@ -207,6 +210,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           description: description.trim() || undefined,
           items,
           password: password.trim() || undefined,
+          time_limit_minutes: timeLimit === '' ? null : timeLimit,
         };
         await assessmentService.createAssessment(payload);
         notifications.show({ title: 'Success', message: 'Assessment created', color: 'green' });
@@ -217,6 +221,8 @@ export function AssessmentForm({ mode, initial }: Props) {
           items,
           password: password.trim() || undefined,
           clear_password: clearPassword,
+          time_limit_minutes: timeLimit === '' ? undefined : timeLimit,
+          clear_time_limit: timeLimit === '',
         };
         await assessmentService.updateAssessment(initial!.id, payload);
         notifications.show({ title: 'Success', message: 'Assessment saved', color: 'green' });
@@ -297,6 +303,16 @@ export function AssessmentForm({ mode, initial }: Props) {
             value={description}
             onChange={(e) => setDescription(e.currentTarget.value)}
             minRows={3}
+          />
+          <NumberInput
+            label="Time limit (minutes)"
+            description="Optional. Leave blank for no time limit. Students are auto-submitted when time runs out; query execution time is credited back."
+            placeholder="No time limit"
+            value={timeLimit}
+            onChange={(v) => setTimeLimit(v === '' || v === null ? '' : Number(v))}
+            min={1}
+            allowDecimal={false}
+            allowNegative={false}
           />
           <PasswordInput
             label="Assessment Password"

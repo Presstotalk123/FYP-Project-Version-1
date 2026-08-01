@@ -36,6 +36,8 @@ import { chatbotService, LabQueryReviewResponse } from '@/services/chatbot.servi
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
 import { LabResultsPanel } from './LabResultsPanel';
+import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 
 interface LabWorkspaceProps {
   labId: number;
@@ -57,6 +59,7 @@ export function LabWorkspace({
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const taskOrderChanged = useRef(false);
+  const timer = useAssessmentTimer();
 
   // State
   const [lab, setLab] = useState<LabDetail | null>(null);
@@ -270,8 +273,12 @@ export function LabWorkspace({
     }
 
     setIsExecuting(true);
+    // Pause the assessment countdown while the query runs; the backend credits this time.
+    timer.pause();
+    let creditedEndTime: string | null | undefined;
     try {
       const response = await labService.executeQuery(sessionId, query, reviewMode);
+      creditedEndTime = response.assessment_end_time;
       setResult(response);
 
       // Refresh comprehensive query history
@@ -311,6 +318,7 @@ export function LabWorkspace({
       });
     } finally {
       setIsExecuting(false);
+      timer.resume(creditedEndTime);
     }
   };
 
@@ -339,8 +347,12 @@ export function LabWorkspace({
 
     // Execute the query
     setIsExecuting(true);
+    // Pause the assessment countdown while the query runs; the backend credits this time.
+    timer.pause();
+    let creditedEndTime: string | null | undefined;
     try {
       const response = await labService.executeQuery(sessionId, queryText, reviewMode);
+      creditedEndTime = response.assessment_end_time;
       setResult(response);
 
       // Refresh query history
@@ -381,6 +393,7 @@ export function LabWorkspace({
       });
     } finally {
       setIsExecuting(false);
+      timer.resume(creditedEndTime);
     }
   };
 
@@ -757,6 +770,7 @@ export function LabWorkspace({
     <div style={{ padding: '12px 16px', display: 'grid', gap: 12 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
+        {inAssessment && <div style={{ marginRight: 'auto' }}><AssessmentTimer /></div>}
         <button
           className="btn btn-secondary"
           style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}

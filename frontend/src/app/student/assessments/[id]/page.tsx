@@ -23,6 +23,7 @@ import {
   IconClipboardList,
   IconLock,
   IconCircleCheck,
+  IconClock,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -146,6 +147,16 @@ export default function StudentAssessmentDetailPage() {
                       {assessment.description}
                     </Text>
                   </>
+                )}
+
+                {assessment.time_limit_minutes != null && (
+                  <Alert icon={<IconClock size={16} />} color="blue" title="Timed assessment">
+                    You will have <strong>{assessment.time_limit_minutes} minute
+                    {assessment.time_limit_minutes === 1 ? '' : 's'}</strong> once you begin. The
+                    countdown starts as soon as you click Join, and the assessment is submitted
+                    automatically when time runs out. Time spent waiting for queries to run is
+                    credited back to you.
+                  </Alert>
                 )}
 
                 <Divider />

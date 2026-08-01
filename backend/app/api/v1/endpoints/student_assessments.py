@@ -18,6 +18,7 @@ from app.schemas.student_assessment import (
 )
 from app.dependencies import get_current_user
 from app.api.v1.endpoints.assessments import _resolve_item_title
+from app.services.assessment_timer import finalize_session
 
 router = APIRouter(prefix="/student-assessments", tags=["student-assessments"])
 
@@ -130,6 +131,7 @@ def get_student_assessment(
             description=assessment.description,
             is_running=False,
             has_password=bool(assessment.password),
+            time_limit_minutes=assessment.time_limit_minutes,
             attempt_complete=attempt_complete,
             items=[],
         )
@@ -157,6 +159,7 @@ def get_student_assessment(
         description=assessment.description,
         is_running=True,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         attempt_complete=attempt_complete,
         items=items,
     )
@@ -194,6 +197,7 @@ def join_assessment(
             is_active=bool(existing.is_active),
             joined_at=existing.joined_at,
             submitted_at=existing.submitted_at,
+            end_time=existing.end_time,
         )
 
     if assessment.password:
@@ -203,9 +207,15 @@ def join_assessment(
                 detail="Incorrect assessment password",
             )
 
+    from datetime import datetime, timedelta, timezone
+    end_time = None
+    if assessment.time_limit_minutes:
+        end_time = datetime.now(timezone.utc) + timedelta(minutes=assessment.time_limit_minutes)
+
     session = AssessmentSession(
         assessment_id=assessment_id,
         user_id=current_user.id,
+        end_time=end_time,
     )
     db.add(session)
     db.commit()
@@ -218,6 +228,7 @@ def join_assessment(
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
+        end_time=session.end_time,
     )
 
 
@@ -240,6 +251,7 @@ def get_session(
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
+        end_time=session.end_time,
     )
 
 
@@ -311,11 +323,7 @@ def submit_assessment(
             detail="No active session to submit",
         )
 
-    from datetime import datetime, timezone
-    session.is_active = 0
-    session.attempt_complete = 1  # single-attempt: lock out any future retake
-    session.submitted_at = datetime.now(timezone.utc)
-    db.commit()
+    finalize_session(db, session)
     db.refresh(session)
 
     return AssessmentSessionResponse(
@@ -325,4 +333,5 @@ def submit_assessment(
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
+        end_time=session.end_time,
     )

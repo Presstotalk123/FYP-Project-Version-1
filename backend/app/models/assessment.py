@@ -20,6 +20,8 @@ class Assessment(Base):
 
     is_deleted = Column(Integer, default=0)
     password = Column(String(255), nullable=True)
+    # Optional time limit in whole minutes. NULL = untimed (assessment behaves as before).
+    time_limit_minutes = Column(Integer, nullable=True)
 
     items = relationship(
         "AssessmentItem",

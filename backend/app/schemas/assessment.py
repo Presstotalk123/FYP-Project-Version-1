@@ -22,6 +22,8 @@ class AssessmentCreate(BaseModel):
     description: Optional[str] = None
     items: List[AssessmentItemIn] = []
     password: Optional[str] = None
+    # Optional whole-minute time limit; None = untimed.
+    time_limit_minutes: Optional[int] = Field(None, ge=1)
 
 
 class AssessmentUpdate(BaseModel):
@@ -30,6 +32,10 @@ class AssessmentUpdate(BaseModel):
     items: Optional[List[AssessmentItemIn]] = None
     password: Optional[str] = None
     clear_password: bool = False
+    # Whole-minute time limit. Send an explicit value to set it; send null with
+    # clear_time_limit=True to remove it.
+    time_limit_minutes: Optional[int] = Field(None, ge=1)
+    clear_time_limit: bool = False
 
 
 class AssessmentItemResponse(BaseModel):
@@ -51,6 +57,7 @@ class AssessmentListItem(BaseModel):
     is_running: bool
     item_count: int
     has_password: bool
+    time_limit_minutes: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -68,6 +75,7 @@ class AssessmentResponse(BaseModel):
     created_by: int
     password: Optional[str]
     has_password: bool
+    time_limit_minutes: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime]
 

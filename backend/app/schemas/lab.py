@@ -112,6 +112,9 @@ class LabExecuteResponse(BaseModel):
     execution_time_ms: float
     row_count: int
     error_message: Optional[str] = None
+    # Assessment deadline after crediting this query's time; None outside a timed assessment.
+    # Lets the frontend resume its countdown without a separate session round-trip.
+    assessment_end_time: Optional[datetime] = None
 
 
 # Preview schemas

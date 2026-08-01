@@ -23,6 +23,8 @@ import { attemptService } from '@/services/attempt.service';
 import { QuestionPanel } from './QuestionPanel';
 import { EditorPanel } from './EditorPanel';
 import { ResultsPanel } from './ResultsPanel';
+import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 
 interface SqlWorkspaceProps {
   questionId: number;
@@ -32,6 +34,7 @@ interface SqlWorkspaceProps {
 export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const timer = useAssessmentTimer();
 
   // State
   const [question, setQuestion] = useState<QuestionDetail | null>(null);
@@ -82,11 +85,16 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
     }
 
     setIsExecuting(true);
+    // Pause the assessment countdown while the query runs; the backend credits this
+    // time to the deadline and resume() picks up the new end_time from the response.
+    timer.pause();
+    let creditedEndTime: string | null | undefined;
     try {
       const response = await executeService.executeQuery({
         question_id: questionId,
         query,
       });
+      creditedEndTime = response.assessment_end_time;
       setResult(response);
 
       if (response.is_correct) {
@@ -109,6 +117,7 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
       });
     } finally {
       setIsExecuting(false);
+      timer.resume(creditedEndTime);
     }
   };
 
@@ -181,16 +190,19 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
     <Container fluid px="sm" py="md">
       <Stack gap="md">
         {/* Header */}
-        <Group align="baseline" gap="sm">
-          <ActionIcon
-            onClick={() => router.push(backUrl ?? '/student')}
-            variant="subtle"
-            size="sm"
-            aria-label="Back to dashboard"
-          >
-            <IconArrowLeft size={18} />
-          </ActionIcon>
-          <Title order={2}>SQL Workspace</Title>
+        <Group justify="space-between" align="center">
+          <Group align="baseline" gap="sm">
+            <ActionIcon
+              onClick={() => router.push(backUrl ?? '/student')}
+              variant="subtle"
+              size="sm"
+              aria-label="Back to dashboard"
+            >
+              <IconArrowLeft size={18} />
+            </ActionIcon>
+            <Title order={2}>SQL Workspace</Title>
+          </Group>
+          <AssessmentTimer />
         </Group>
 
         {/* 3-Panel Layout */}

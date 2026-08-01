@@ -93,6 +93,7 @@ def create_assessment(
         is_running=0,
         is_deleted=0,
         password=data.password or None,
+        time_limit_minutes=data.time_limit_minutes,
     )
     db.add(assessment)
     db.flush()
@@ -118,6 +119,7 @@ def create_assessment(
         created_by=assessment.created_by,
         password=assessment.password,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -143,6 +145,7 @@ def list_assessments(
             is_running=bool(a.is_running),
             item_count=len(a.items),
             has_password=bool(a.password),
+            time_limit_minutes=a.time_limit_minutes,
             created_at=a.created_at,
             updated_at=a.updated_at,
         )
@@ -174,6 +177,7 @@ def get_assessment(
         created_by=assessment.created_by,
         password=assessment.password,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -221,6 +225,11 @@ def update_assessment(
     elif data.password:
         assessment.password = data.password
 
+    if data.clear_time_limit:
+        assessment.time_limit_minutes = None
+    elif data.time_limit_minutes is not None:
+        assessment.time_limit_minutes = data.time_limit_minutes
+
     assessment.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(assessment)
@@ -235,6 +244,7 @@ def update_assessment(
         created_by=assessment.created_by,
         password=assessment.password,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -318,6 +328,7 @@ def publish_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -361,6 +372,7 @@ def unpublish_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -399,6 +411,7 @@ def start_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -431,6 +444,7 @@ def stop_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )

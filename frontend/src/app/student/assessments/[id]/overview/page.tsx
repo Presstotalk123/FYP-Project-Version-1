@@ -30,6 +30,7 @@ import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { StudentAssessmentDetail, StudentAssessmentItemView, AssessmentItemType } from '@/types/assessment.types';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
+import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 
 function itemTypeLabel(type: AssessmentItemType): string {
   switch (type) {
@@ -143,13 +144,16 @@ export default function AssessmentOverviewPage() {
               </Button>
               {assessment && <Title order={2}>{assessment.title}</Title>}
             </Group>
-            <Button
-              color="red"
-              leftSection={<IconLogout size={16} />}
-              onClick={openConfirm}
-            >
-              End &amp; Submit
-            </Button>
+            <Group gap="sm">
+              <AssessmentTimer />
+              <Button
+                color="red"
+                leftSection={<IconLogout size={16} />}
+                onClick={openConfirm}
+              >
+                End &amp; Submit
+              </Button>
+            </Group>
           </Group>
 
           {loading && (

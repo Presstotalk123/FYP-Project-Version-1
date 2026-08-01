@@ -22,6 +22,7 @@ export interface Assessment {
   is_running: boolean;
   item_count: number;
   has_password: boolean;
+  time_limit_minutes: number | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -36,6 +37,7 @@ export interface AssessmentDetail {
   created_by: number;
   password: string | null;
   has_password: boolean;
+  time_limit_minutes: number | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -45,6 +47,7 @@ export interface AssessmentCreate {
   description?: string;
   items: AssessmentItemIn[];
   password?: string;
+  time_limit_minutes?: number | null;
 }
 
 export interface AssessmentUpdate {
@@ -53,6 +56,8 @@ export interface AssessmentUpdate {
   items?: AssessmentItemIn[];
   password?: string;
   clear_password?: boolean;
+  time_limit_minutes?: number | null;
+  clear_time_limit?: boolean;
 }
 
 // Student-side assessment types
@@ -80,6 +85,8 @@ export interface StudentAssessmentDetail {
   description: string | null;
   is_running: boolean;
   has_password: boolean;
+  // Optional whole-minute time limit; null = untimed. Shown on the Begin screen.
+  time_limit_minutes: number | null;
   // True once this student has ended & submitted; UI shows a Completed state and
   // hides Join/Continue (assessments are single-attempt).
   attempt_complete: boolean;
@@ -93,6 +100,8 @@ export interface AssessmentSessionResponse {
   is_active: boolean;
   joined_at: string;
   submitted_at: string | null;
+  // Deadline for this attempt (ISO); null = untimed. The countdown ticks toward this.
+  end_time: string | null;
 }
 
 export interface ItemVisitResponse {

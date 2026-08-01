@@ -17,6 +17,9 @@ class ExecuteResponse(BaseModel):
     columns: List[str]
     error_message: Optional[str] = None
     row_count: int
+    # Assessment deadline after crediting this query's time; None outside a timed assessment.
+    # Lets the frontend resume its countdown without a separate session round-trip.
+    assessment_end_time: Optional[datetime] = None
 
 
 class AttemptCreate(BaseModel):

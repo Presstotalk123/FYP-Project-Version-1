@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import sqlite3
 import os
 import logging
@@ -38,9 +38,37 @@ from app.utils.lab_cleanup import terminate_all_lab_sessions
 from app.core.lab_query_executor import execute_lab_query
 from app.core.graph_query_executor import execute_graph_query
 from app.core.answer_validator import generate_hash
+from app.services.assessment_timer import (
+    get_active_assessment_session,
+    enforce_not_expired,
+    credit_query_time,
+)
 
 router = APIRouter(prefix="/labs", tags=["labs"])
 logger = logging.getLogger(__name__)
+
+
+def _assessment_timer_start(lab, user, db, received_at=None):
+    """For an assessment-clone lab (owner_assessment_id set) opened by a student, enforce lazy
+    expiration on the student's assessment session and return (session, query_start) so the
+    caller can credit the query time afterwards. Returns (None, None) for staff, master labs,
+    or non-assessment sessions (no timer applies).
+
+    query_start is the request's ingress time (received_at, set by the middleware) so time
+    spent queueing for a threadpool worker under load is credited too; falls back to now."""
+    if user.role.value != "student":
+        return None, None
+    if not lab or not lab.owner_assessment_id:
+        return None, None
+    session = get_active_assessment_session(db, lab.owner_assessment_id, user.id)
+    if session is None:
+        # Session already submitted/expired — the assessment is over for this student.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Assessment has ended.",
+        )
+    enforce_not_expired(db, session)  # 403 + finalize if past end_time
+    return session, (received_at or datetime.now(timezone.utc))
 
 
 # ==============================================================================
@@ -813,6 +841,7 @@ def get_session(
 def execute_query(
     session_id: int,
     execute_request: LabExecuteRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -865,26 +894,37 @@ def execute_query(
                 detail="Lab is no longer running"
             )
 
-    # Execute query on student's database (dispatch on lab_type)
-    if lab.lab_type == "graph":
-        result = execute_graph_query(session.db_file_path, execute_request.query, timeout=15)
-    else:
-        result = execute_lab_query(session.db_file_path, execute_request.query, timeout=15)
+    # Assessment timer: enforce lazy expiration before running; credit the query time after.
+    # Credit from the request's ingress time so threadpool-queue wait under load is included.
+    assessment_session, query_start = _assessment_timer_start(
+        lab, current_user, db, getattr(request.state, "received_at", None)
+    )
 
-    # Save attempt to history (skip in review mode)
-    if not execute_request.is_review_mode:
-        attempt = LabAttempt(
-            session_id=session.id,
-            lab_id=session.lab_id,
-            user_id=current_user.id,
-            query=execute_request.query,
-            success=1 if result["success"] else 0,
-            execution_time_ms=result["execution_time_ms"],
-            row_count=result["row_count"],
-            error_message=result["error_message"]
-        )
-        db.add(attempt)
-        db.commit()
+    # try/finally so the query time is credited even if execution raises (e.g. timeout).
+    try:
+        # Execute query on student's database (dispatch on lab_type)
+        if lab.lab_type == "graph":
+            result = execute_graph_query(session.db_file_path, execute_request.query, timeout=15)
+        else:
+            result = execute_lab_query(session.db_file_path, execute_request.query, timeout=15)
+
+        # Save attempt to history (skip in review mode)
+        if not execute_request.is_review_mode:
+            attempt = LabAttempt(
+                session_id=session.id,
+                lab_id=session.lab_id,
+                user_id=current_user.id,
+                query=execute_request.query,
+                success=1 if result["success"] else 0,
+                execution_time_ms=result["execution_time_ms"],
+                row_count=result["row_count"],
+                error_message=result["error_message"]
+            )
+            db.add(attempt)
+            db.commit()
+    finally:
+        if query_start is not None:
+            credit_query_time(db, assessment_session, query_start)
 
     return LabExecuteResponse(
         success=result["success"],
@@ -892,7 +932,8 @@ def execute_query(
         results=result["results"],
         execution_time_ms=result["execution_time_ms"],
         row_count=result["row_count"],
-        error_message=result["error_message"]
+        error_message=result["error_message"],
+        assessment_end_time=assessment_session.end_time if assessment_session else None,
     )
 
 
@@ -1610,6 +1651,7 @@ def delete_lab_task(
 @router.post("/tasks/validate", response_model=LabTaskValidateResponse)
 def validate_task_answer(
     validate_request: LabTaskValidateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -1651,10 +1693,21 @@ def validate_task_answer(
 
     # Execute user's query on their session database (dispatch on lab_type)
     validate_lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
-    if validate_lab and validate_lab.lab_type == "graph":
-        result = execute_graph_query(session.db_file_path, validate_request.user_query, timeout=15)
-    else:
-        result = execute_lab_query(session.db_file_path, validate_request.user_query, timeout=15)
+
+    # Assessment timer: enforce lazy expiration before running; credit the query time after
+    # (from the request's ingress time so threadpool-queue wait under load is included).
+    assessment_session, query_start = _assessment_timer_start(
+        validate_lab, current_user, db, getattr(request.state, "received_at", None)
+    )
+
+    try:
+        if validate_lab and validate_lab.lab_type == "graph":
+            result = execute_graph_query(session.db_file_path, validate_request.user_query, timeout=15)
+        else:
+            result = execute_lab_query(session.db_file_path, validate_request.user_query, timeout=15)
+    finally:
+        if query_start is not None:
+            credit_query_time(db, assessment_session, query_start)
 
     if not result["success"]:
         return LabTaskValidateResponse(
@@ -1727,6 +1780,11 @@ def submit_task_answer(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Task does not belong to this lab session"
         )
+
+    # 3b. Assessment timer: reject a submission after the deadline (no query runs here, so
+    # there is nothing to credit — the run/validate calls already credited their time).
+    submit_lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
+    _assessment_timer_start(submit_lab, current_user, db)
 
     # 4. Generate hash from submitted results
     # Convert dict results to tuple format for hash generation

@@ -23,6 +23,7 @@ import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
+import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import {
@@ -55,6 +56,8 @@ export type LabContext = { er_lab_id: number; er_lab_question_id: number };
 type WorkspaceProps = {
   question: ERDiagramWorkspaceQuestion;
   labContext?: LabContext;
+  /** Assessment weightage (%) for this question; omitted outside assessments. */
+  weight?: number;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -144,7 +147,7 @@ const readDraftFromSessionStorage = (questionId: number, labContext?: LabContext
   }
 };
 
-export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
+export function ERDiagramWorkspace({ question, labContext, weight }: WorkspaceProps) {
   const router = useRouter();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
@@ -716,6 +719,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
           <Text c="dimmed" mt={4}>
             Difficulty: {question.difficulty}
           </Text>
+          <QuestionWeightBadge weight={weight} />
         </Group>
         <Box
           ref={containerRef}

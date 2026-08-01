@@ -4,6 +4,7 @@ export interface AssessmentItemIn {
   item_type: AssessmentItemType;
   item_id: number;
   order_index: number;
+  weight: number;
 }
 
 export interface AssessmentItemResponse {
@@ -11,6 +12,7 @@ export interface AssessmentItemResponse {
   item_type: AssessmentItemType;
   item_id: number;
   order_index: number;
+  weight: number;
   item_title: string;
 }
 
@@ -75,6 +77,7 @@ export interface StudentAssessmentItemView {
   item_type: AssessmentItemType;
   item_id: number;
   order_index: number;
+  weight: number;
   item_title: string;
   visited: boolean;
 }
@@ -116,6 +119,8 @@ export interface AssessmentStudentRow {
   is_active: boolean;
   joined_at: string;
   submitted_at: string | null;
+  // Weighted total (0-100) from the student's activity; null if the assessment is unweighted.
+  weighted_score?: number | null;
 }
 
 export interface AssessmentStudentsResponse {
@@ -135,6 +140,9 @@ export interface AssessmentItemComponentScore {
   tasks_correct?: number | null;
   tasks_total?: number | null;
   visited?: boolean | null;
+  weight?: number;
+  score_fraction?: number | null;
+  weighted_points?: number | null;
 }
 
 export interface StudentComponentScoresResponse {
@@ -143,4 +151,5 @@ export interface StudentComponentScoresResponse {
   assessment_id: number;
   assessment_title: string;
   items: AssessmentItemComponentScore[];
+  total_weighted_score?: number | null;
 }

@@ -81,6 +81,7 @@ def _build_item_view(item: AssessmentItem, visited: bool, db: Session) -> Studen
         item_type=item.item_type,
         item_id=item.item_id,
         order_index=item.order_index,
+        weight=item.weight,
         item_title=_resolve_item_title(item, db),
         visited=visited,
     )

@@ -21,6 +21,8 @@ class StudentAssessmentItemView(BaseModel):
     item_type: AssessmentItemType
     item_id: int
     order_index: int
+    # Integer percentage (0-100) this question contributes to the assessment total.
+    weight: int
     item_title: str
     visited: bool
 

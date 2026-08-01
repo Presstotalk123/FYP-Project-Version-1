@@ -16,6 +16,9 @@ class AssessmentItem(Base):
     item_type = Column(String(30), nullable=False)
     item_id = Column(Integer, nullable=False)
     order_index = Column(Integer, default=0, nullable=False)
+    # Integer percentage (0-100) of the assessment total for this item. Weights across an
+    # assessment's items must total 100 (enforced in the API layer / editor). 0 = legacy/unweighted.
+    weight = Column(Integer, default=0, nullable=False)
     # When the assessment is published, item_id is repointed to a frozen content clone and
     # source_item_id holds the original master content id (used for idempotent re-publish
     # and to restore the master pointer on unpublish). NULL while unpublished.

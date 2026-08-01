@@ -37,6 +37,7 @@ import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
 import { LabResultsPanel } from './LabResultsPanel';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 
 interface LabWorkspaceProps {
@@ -46,6 +47,8 @@ interface LabWorkspaceProps {
   reviewStudentId?: number;
   backUrl?: string;
   inAssessment?: boolean;
+  /** Assessment weightage (%) for this lab; omitted outside assessments. */
+  weight?: number;
 }
 
 export function LabWorkspace({
@@ -55,6 +58,7 @@ export function LabWorkspace({
   reviewStudentId,
   backUrl,
   inAssessment = false,
+  weight,
 }: LabWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -770,7 +774,12 @@ export function LabWorkspace({
     <div style={{ padding: '12px 16px', display: 'grid', gap: 12 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
-        {inAssessment && <div style={{ marginRight: 'auto' }}><AssessmentTimer /></div>}
+        {inAssessment && (
+          <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AssessmentTimer />
+            <QuestionWeightBadge weight={weight} />
+          </div>
+        )}
         <button
           className="btn btn-secondary"
           style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}

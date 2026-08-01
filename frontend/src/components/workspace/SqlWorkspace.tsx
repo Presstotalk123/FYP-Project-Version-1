@@ -24,14 +24,17 @@ import { QuestionPanel } from './QuestionPanel';
 import { EditorPanel } from './EditorPanel';
 import { ResultsPanel } from './ResultsPanel';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 
 interface SqlWorkspaceProps {
   questionId: number;
   backUrl?: string;
+  /** Assessment weightage (%) for this question; omitted outside assessments. */
+  weight?: number;
 }
 
-export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
+export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timer = useAssessmentTimer();
@@ -201,6 +204,7 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
               <IconArrowLeft size={18} />
             </ActionIcon>
             <Title order={2}>SQL Workspace</Title>
+            <QuestionWeightBadge weight={weight} />
           </Group>
           <AssessmentTimer />
         </Group>

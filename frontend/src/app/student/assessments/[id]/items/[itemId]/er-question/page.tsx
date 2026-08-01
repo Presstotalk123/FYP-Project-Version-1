@@ -19,6 +19,7 @@ export default function AssessmentErQuestionPage() {
   const assessmentId = Number(params.id);
   const itemId = Number(params.itemId);
   const resourceId = Number(searchParams.get('resourceId'));
+  const weight = Number(searchParams.get('weight')) || undefined;
   const backUrl = `/student/assessments/${assessmentId}/overview`;
 
   const [question, setQuestion] = useState<ERDiagramWorkspaceQuestion | null>(null);
@@ -93,7 +94,7 @@ export default function AssessmentErQuestionPage() {
 
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
-      <ERDiagramWorkspace question={question} />
+      <ERDiagramWorkspace question={question} weight={weight} />
     </ProtectedRoute>
   );
 }

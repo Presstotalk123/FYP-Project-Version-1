@@ -63,6 +63,21 @@ import { labService } from '@/services/lab.service';
 let _uidCounter = 0;
 const nextUid = () => `item-${++_uidCounter}`;
 
+// Integer percentages summing to 100, remainder given to the earliest items.
+// n=1 -> [100], n=3 -> [34, 33, 33], n=4 -> [25, 25, 25, 25]. Mirrors the backend.
+const equalWeights = (n: number): number[] => {
+  if (n <= 0) return [];
+  const base = Math.floor(100 / n);
+  const remainder = 100 - base * n;
+  return Array.from({ length: n }, (_, i) => (i < remainder ? base + 1 : base));
+};
+
+// Return a copy of the items with equal weights applied.
+const withEqualWeights = (items: SortableItem[]): SortableItem[] => {
+  const weights = equalWeights(items.length);
+  return items.map((item, i) => ({ ...item, weight: weights[i] }));
+};
+
 const DIFFICULTY_COLOR: Record<string, string> = {
   easy: 'green', Easy: 'green',
   medium: 'yellow', Medium: 'yellow',
@@ -92,14 +107,19 @@ export function AssessmentForm({ mode, initial }: Props) {
   const [clearPassword, setClearPassword] = useState(false);
   // Empty string = no time limit (untimed). Whole minutes otherwise.
   const [timeLimit, setTimeLimit] = useState<number | ''>(initial?.time_limit_minutes ?? '');
-  const [selectedItems, setSelectedItems] = useState<SortableItem[]>(() =>
-    (initial?.items ?? []).map((i) => ({
+  const [selectedItems, setSelectedItems] = useState<SortableItem[]>(() => {
+    const items: SortableItem[] = (initial?.items ?? []).map((i) => ({
       uid: nextUid(),
       item_type: i.item_type,
       item_id: i.item_id,
       item_title: i.item_title,
-    }))
-  );
+      weight: i.weight ?? 0,
+    }));
+    // Legacy/unweighted assessments (weights don't total 100) get an equal split so the
+    // editor opens in a valid state; staff can then fine-tune.
+    const total = items.reduce((sum, i) => sum + (i.weight || 0), 0);
+    return total === 100 ? items : withEqualWeights(items);
+  });
   const [saving, setSaving] = useState(false);
 
   // Pool data
@@ -161,15 +181,31 @@ export function AssessmentForm({ mode, initial }: Props) {
 
   const addItem = (type: AssessmentItemType, id: number, title: string) => {
     if (isAlreadySelected(type, id)) return;
-    setSelectedItems((prev) => [
-      ...prev,
-      { uid: nextUid(), item_type: type, item_id: id, item_title: title },
-    ]);
+    // Re-distribute equally so the total stays at 100% as items are added; staff can fine-tune.
+    setSelectedItems((prev) =>
+      withEqualWeights([
+        ...prev,
+        { uid: nextUid(), item_type: type, item_id: id, item_title: title, weight: 0 },
+      ])
+    );
   };
 
   const removeItem = (uid: string) => {
-    setSelectedItems((prev) => prev.filter((i) => i.uid !== uid));
+    setSelectedItems((prev) => withEqualWeights(prev.filter((i) => i.uid !== uid)));
   };
+
+  const updateWeight = (uid: string, weight: number) => {
+    setSelectedItems((prev) =>
+      prev.map((i) => (i.uid === uid ? { ...i, weight } : i))
+    );
+  };
+
+  const distributeEvenly = () => {
+    setSelectedItems((prev) => withEqualWeights(prev));
+  };
+
+  const totalWeight = selectedItems.reduce((sum, i) => sum + (i.weight || 0), 0);
+  const weightValid = selectedItems.length === 0 || totalWeight === 100;
 
   // ---------------------------------------------------------------------------
   // Drag-and-drop
@@ -196,10 +232,20 @@ export function AssessmentForm({ mode, initial }: Props) {
       return;
     }
 
+    if (selectedItems.length > 0 && totalWeight !== 100) {
+      notifications.show({
+        title: 'Validation',
+        message: `Question weightage must total 100% (currently ${totalWeight}%)`,
+        color: 'orange',
+      });
+      return;
+    }
+
     const items = selectedItems.map((item, idx) => ({
       item_type: item.item_type,
       item_id: item.item_id,
       order_index: idx,
+      weight: item.weight,
     }));
 
     setSaving(true);
@@ -430,8 +476,23 @@ export function AssessmentForm({ mode, initial }: Props) {
         <Paper withBorder p="md" radius="sm">
           <Group justify="space-between" mb="sm">
             <Title order={5}>Selected Items</Title>
-            <Badge variant="light">{selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</Badge>
+            <Group gap="xs">
+              <Badge variant="light">{selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</Badge>
+              <Badge variant="light" color={weightValid ? 'green' : 'red'} title="Total weightage">
+                {totalWeight}%
+              </Badge>
+            </Group>
           </Group>
+          {selectedItems.length > 0 && (
+            <Group justify="space-between" mb="sm">
+              <Text size="xs" c={weightValid ? 'dimmed' : 'red'}>
+                Weightage must total 100%.
+              </Text>
+              <Button variant="subtle" size="compact-xs" onClick={distributeEvenly}>
+                Distribute evenly
+              </Button>
+            </Group>
+          )}
           <Divider mb="sm" />
 
           {selectedItems.length === 0 && (
@@ -451,7 +512,12 @@ export function AssessmentForm({ mode, initial }: Props) {
               strategy={verticalListSortingStrategy}
             >
               {selectedItems.map((item) => (
-                <SortableAssessmentItem key={item.uid} item={item} onRemove={removeItem} />
+                <SortableAssessmentItem
+                  key={item.uid}
+                  item={item}
+                  onRemove={removeItem}
+                  onWeightChange={updateWeight}
+                />
               ))}
             </SortableContext>
           </DndContext>

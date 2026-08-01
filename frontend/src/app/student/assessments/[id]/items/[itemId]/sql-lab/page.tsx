@@ -14,6 +14,7 @@ export default function AssessmentSqlLabPage() {
   const assessmentId = Number(params.id);
   const itemId = Number(params.itemId);
   const resourceId = Number(searchParams.get('resourceId'));
+  const weight = Number(searchParams.get('weight')) || undefined;
   const backUrl = `/student/assessments/${assessmentId}/overview`;
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function AssessmentSqlLabPage() {
 
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
-      <LabWorkspace labId={resourceId} backUrl={backUrl} inAssessment />
+      <LabWorkspace labId={resourceId} backUrl={backUrl} inAssessment weight={weight} />
     </ProtectedRoute>
   );
 }

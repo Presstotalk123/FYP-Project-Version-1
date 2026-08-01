@@ -31,6 +31,7 @@ import { UserRole } from '@/types/user.types';
 import { StudentAssessmentDetail, StudentAssessmentItemView, AssessmentItemType } from '@/types/assessment.types';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
 
 function itemTypeLabel(type: AssessmentItemType): string {
   switch (type) {
@@ -61,7 +62,9 @@ function itemTypeIcon(type: AssessmentItemType) {
 
 function itemWorkspaceUrl(assessmentId: number, item: StudentAssessmentItemView): string {
   const base = `/student/assessments/${assessmentId}/items/${item.id}`;
-  const rid = `?resourceId=${item.item_id}`;
+  // weight is carried in the URL (like resourceId) so the workspace can show it
+  // without a second fetch. Display-only, so URL-passing is safe here.
+  const rid = `?resourceId=${item.item_id}&weight=${item.weight}`;
   switch (item.item_type) {
     case 'sql_question': return `${base}/sql-question${rid}`;
     case 'sql_lab':      return `${base}/sql-lab${rid}`;
@@ -208,6 +211,8 @@ export default function AssessmentOverviewPage() {
                             {item.item_title}
                           </Text>
                         </Group>
+
+                        <QuestionWeightBadge weight={item.weight} size="sm" />
                       </Stack>
                     </Card>
                   </Grid.Col>

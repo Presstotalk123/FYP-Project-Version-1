@@ -27,7 +27,7 @@ from app.schemas.assessment import (
     AssessmentItemComponentScore,
 )
 from app.dependencies import get_current_user, require_staff_role
-from app.services import assessment_clone, assessment_reset
+from app.services import assessment_clone, assessment_reset, assessment_scoring
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -56,8 +56,27 @@ def _build_item_response(item: AssessmentItem, db: Session) -> AssessmentItemRes
         item_type=item.item_type,
         item_id=item.item_id,
         order_index=item.order_index,
+        weight=item.weight,
         item_title=_resolve_item_title(item, db),
     )
+
+
+def _equal_weights(n: int) -> List[int]:
+    """Integer percentages summing to 100, remainder given to the earliest items.
+    n=1 -> [100], n=3 -> [34, 33, 33], n=4 -> [25, 25, 25, 25]."""
+    if n <= 0:
+        return []
+    base = 100 // n
+    remainder = 100 - base * n
+    return [base + 1 if i < remainder else base for i in range(n)]
+
+
+def _resolve_weights(items_in) -> List[int]:
+    """Return the weight to persist for each item. If every incoming weight is 0
+    (legacy/unweighted), auto-distribute equally; otherwise honour the given weights."""
+    if items_in and all((item.weight or 0) == 0 for item in items_in):
+        return _equal_weights(len(items_in))
+    return [item.weight for item in items_in]
 
 
 def _replace_items(assessment: Assessment, items_in, db: Session) -> None:
@@ -66,12 +85,14 @@ def _replace_items(assessment: Assessment, items_in, db: Session) -> None:
         AssessmentItem.assessment_id == assessment.id
     ).delete(synchronize_session=False)
 
+    weights = _resolve_weights(items_in)
     for idx, item_data in enumerate(items_in):
         db.add(AssessmentItem(
             assessment_id=assessment.id,
             item_type=item_data.item_type,
             item_id=item_data.item_id,
             order_index=item_data.order_index if item_data.order_index is not None else idx,
+            weight=weights[idx],
         ))
 
 
@@ -98,12 +119,14 @@ def create_assessment(
     db.add(assessment)
     db.flush()
 
+    weights = _resolve_weights(data.items)
     for idx, item_data in enumerate(data.items):
         db.add(AssessmentItem(
             assessment_id=assessment.id,
             item_type=item_data.item_type,
             item_id=item_data.item_id,
             order_index=item_data.order_index if item_data.order_index is not None else idx,
+            weight=weights[idx],
         ))
 
     db.commit()
@@ -488,6 +511,7 @@ def list_assessment_students(
             is_active=bool(session.is_active),
             joined_at=session.joined_at,
             submitted_at=session.submitted_at,
+            weighted_score=assessment_scoring.compute_weighted_score(db, assessment, session.user_id),
         )
         for session, email in seen.values()
     ]
@@ -535,6 +559,8 @@ def get_student_component_scores(
     )
 
     component_scores: List[AssessmentItemComponentScore] = []
+    total_weight = 0
+    earned_weight = 0.0
 
     for item in items:
         title = _resolve_item_title(item, db)
@@ -544,7 +570,11 @@ def get_student_component_scores(
             item_id=item.item_id,
             item_title=title,
             order_index=item.order_index,
+            weight=item.weight,
         )
+
+        # Correctness fraction (0.0-1.0), reusing the per-type data below where possible.
+        fraction = 0.0
 
         if item.item_type == "sql_question":
             attempts = (
@@ -554,6 +584,7 @@ def get_student_component_scores(
             )
             score.attempt_count = len(attempts)
             score.has_correct_attempt = any(bool(a.is_correct) for a in attempts)
+            fraction = 1.0 if score.has_correct_attempt else 0.0
 
         elif item.item_type == "er_question":
             visited = False
@@ -567,6 +598,9 @@ def get_student_component_scores(
                     .first()
                 ) is not None
             score.visited = visited
+            # ER grade comes from the LLM-graded ERD-tutor conversation (percent / 100).
+            pct = assessment_scoring.er_percent(db, item.item_id, student_id)
+            fraction = (pct / 100.0) if pct is not None else 0.0
 
         elif item.item_type in ("sql_lab", "graph_lab"):
             total_tasks = (
@@ -589,8 +623,18 @@ def get_student_component_scores(
             ) or 0
             score.tasks_correct = correct_count
             score.tasks_total = total_tasks
+            fraction = (correct_count / total_tasks) if total_tasks > 0 else 0.0
+
+        score.score_fraction = round(fraction, 4)
+        score.weighted_points = round(item.weight * fraction, 2)
+        total_weight += item.weight
+        earned_weight += item.weight * fraction
 
         component_scores.append(score)
+
+    total_weighted_score = (
+        round(earned_weight / total_weight * 100, 1) if total_weight > 0 else None
+    )
 
     return StudentComponentScoresResponse(
         student_id=student_id,
@@ -598,6 +642,7 @@ def get_student_component_scores(
         assessment_id=assessment.id,
         assessment_title=assessment.title,
         items=component_scores,
+        total_weighted_score=total_weighted_score,
     )
 
 

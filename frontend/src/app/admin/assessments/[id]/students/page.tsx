@@ -134,6 +134,19 @@ export default function AssessmentStudentsPage() {
     graph_lab: 'Graph Lab',
   };
 
+  // Colour a weighted score (0-100) green/yellow/red like a gradebook.
+  const scoreColor = (score: number) =>
+    score >= 75 ? 'green' : score >= 50 ? 'yellow' : 'red';
+
+  const renderWeightedScore = (score: number | null | undefined, size: 'sm' | 'lg' = 'sm') =>
+    score == null ? (
+      <Text size="sm" c="dimmed">—</Text>
+    ) : (
+      <Badge color={scoreColor(score)} variant="light" size={size}>
+        {score}%
+      </Badge>
+    );
+
   const renderItemScore = (item: AssessmentItemComponentScore, studentId: number) => {
     if (item.item_type === 'sql_question') {
       const correct = item.has_correct_attempt;
@@ -225,6 +238,7 @@ export default function AssessmentStudentsPage() {
                     <Table.Tr>
                       <Table.Th>Email</Table.Th>
                       <Table.Th>Status</Table.Th>
+                      <Table.Th>Score</Table.Th>
                       <Table.Th>Joined At</Table.Th>
                       <Table.Th>Submitted At</Table.Th>
                       <Table.Th>Actions</Table.Th>
@@ -240,6 +254,9 @@ export default function AssessmentStudentsPage() {
                           <Badge color={student.is_active ? 'blue' : 'green'} variant="light">
                             {student.is_active ? 'Active' : 'Submitted'}
                           </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                          {renderWeightedScore(student.weighted_score)}
                         </Table.Td>
                         <Table.Td>
                           <Text size="sm">{new Date(student.joined_at).toLocaleString()}</Text>
@@ -333,6 +350,25 @@ export default function AssessmentStudentsPage() {
 
           {scores && (
             <Stack gap="sm">
+              <Card withBorder padding="md" radius="md" bg="var(--mantine-color-default-hover)">
+                <Group justify="space-between" align="center">
+                  <Stack gap={2}>
+                    <Text size="sm" fw={600}>Weighted Score</Text>
+                    <Text size="xs" c="dimmed">
+                      Based on each question&rsquo;s weightage and this student&rsquo;s activity.
+                    </Text>
+                  </Stack>
+                  {scores.total_weighted_score == null ? (
+                    <Text size="sm" c="dimmed">Not weighted</Text>
+                  ) : (
+                    <Text size="xl" fw={700} c={scoreColor(scores.total_weighted_score)}>
+                      {scores.total_weighted_score}
+                      <Text span size="sm" c="dimmed"> / 100</Text>
+                    </Text>
+                  )}
+                </Group>
+              </Card>
+
               {scores.items.map((item, idx) => (
                 <Card key={item.assessment_item_id} withBorder padding="sm" radius="md">
                   <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -346,11 +382,21 @@ export default function AssessmentStudentsPage() {
                         >
                           {itemTypeLabel[item.item_type] ?? item.item_type}
                         </Badge>
+                        {!!item.weight && (
+                          <Badge size="xs" color="indigo" variant="light">
+                            {item.weight}% weight
+                          </Badge>
+                        )}
                       </Group>
                       <Text size="sm" fw={500} lineClamp={2}>{item.item_title}</Text>
                     </Stack>
                     <Stack gap={4} align="flex-end">
                       {renderItemScore(item, activityStudent!.user_id)}
+                      {item.weighted_points != null && !!item.weight && (
+                        <Text size="xs" c="dimmed">
+                          {item.weighted_points} / {item.weight} pts
+                        </Text>
+                      )}
                     </Stack>
                   </Group>
                 </Card>

@@ -2,7 +2,7 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Group, Text, Badge, ActionIcon } from '@mantine/core';
+import { Group, Text, Badge, ActionIcon, NumberInput } from '@mantine/core';
 import { IconGripVertical, IconTrash } from '@tabler/icons-react';
 import { AssessmentItemType } from '@/types/assessment.types';
 
@@ -25,14 +25,16 @@ export interface SortableItem {
   item_type: AssessmentItemType;
   item_id: number;
   item_title: string;
+  weight: number;
 }
 
 interface Props {
   item: SortableItem;
   onRemove: (uid: string) => void;
+  onWeightChange: (uid: string, weight: number) => void;
 }
 
-export function SortableAssessmentItem({ item, onRemove }: Props) {
+export function SortableAssessmentItem({ item, onRemove, onWeightChange }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.uid });
 
@@ -67,6 +69,22 @@ export function SortableAssessmentItem({ item, onRemove }: Props) {
         <Text size="sm" style={{ flex: 1 }} lineClamp={1}>
           {item.item_title}
         </Text>
+        <NumberInput
+          value={item.weight}
+          onChange={(v) =>
+            onWeightChange(item.uid, v === '' || v === null ? 0 : Number(v))
+          }
+          min={0}
+          max={100}
+          allowDecimal={false}
+          allowNegative={false}
+          suffix="%"
+          size="xs"
+          w={72}
+          styles={{ input: { textAlign: 'right' } }}
+          aria-label={`Weight for ${item.item_title}`}
+          title="Weightage (%)"
+        />
         <ActionIcon
           color="red"
           variant="light"

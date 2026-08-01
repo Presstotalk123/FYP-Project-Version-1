@@ -82,6 +82,7 @@ export const API_ENDPOINTS = {
     STOP: (id: number) => `/assessments/${id}/stop`,
     STUDENTS: (id: number) => `/assessments/${id}/students`,
     STUDENT_SCORES: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/component-scores`,
+    RESET_STUDENT: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/reset`,
   },
   STUDENT_ASSESSMENTS: {
     BASE: '/student-assessments',

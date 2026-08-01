@@ -63,4 +63,8 @@ export const assessmentService = {
     const response = await api.get(API_ENDPOINTS.ASSESSMENTS.STUDENT_SCORES(assessmentId, studentId));
     return response.data;
   },
+
+  async resetStudentAttempt(assessmentId: number, studentId: number): Promise<void> {
+    await api.post(API_ENDPOINTS.ASSESSMENTS.RESET_STUDENT(assessmentId, studentId));
+  },
 };

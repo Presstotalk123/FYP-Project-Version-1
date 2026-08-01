@@ -15,12 +15,15 @@ import {
   Drawer,
   Card,
   ScrollArea,
+  Modal,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconArrowLeft,
   IconActivity,
   IconEye,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -48,22 +51,52 @@ export default function AssessmentStudentsPage() {
   const [scoresLoading, setScoresLoading] = useState(false);
   const [scoresError, setScoresError] = useState<string | null>(null);
 
+  // Reset-attempt confirmation
+  const [resetStudent, setResetStudent] = useState<AssessmentStudentRow | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const fetchStudents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await assessmentService.getAssessmentStudents(assessmentId);
+      setData(result);
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setError(e.response?.data?.detail || 'Failed to load students');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await assessmentService.getAssessmentStudents(assessmentId);
-        setData(result);
-      } catch (err) {
-        const e = err as { response?: { data?: { detail?: string } } };
-        setError(e.response?.data?.detail || 'Failed to load students');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assessmentId]);
+
+  const handleResetConfirm = async () => {
+    if (!resetStudent) return;
+    setResetting(true);
+    try {
+      await assessmentService.resetStudentAttempt(assessmentId, resetStudent.user_id);
+      notifications.show({
+        color: 'green',
+        title: 'Attempt reset',
+        message: `${resetStudent.email} has a clean slate and can retake this assessment.`,
+      });
+      setResetStudent(null);
+      await fetchStudents();
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        color: 'red',
+        title: 'Reset failed',
+        message: e.response?.data?.detail || 'Could not reset the attempt.',
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const openActivityDrawer = async (student: AssessmentStudentRow) => {
     setActivityStudent(student);
@@ -219,15 +252,26 @@ export default function AssessmentStudentsPage() {
                           </Text>
                         </Table.Td>
                         <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="light"
-                            color="teal"
-                            leftSection={<IconActivity size={14} />}
-                            onClick={() => openActivityDrawer(student)}
-                          >
-                            View Activity
-                          </Button>
+                          <Group gap="xs">
+                            <Button
+                              size="xs"
+                              variant="light"
+                              color="teal"
+                              leftSection={<IconActivity size={14} />}
+                              onClick={() => openActivityDrawer(student)}
+                            >
+                              View Activity
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="light"
+                              color="red"
+                              leftSection={<IconRefresh size={14} />}
+                              onClick={() => setResetStudent(student)}
+                            >
+                              Reset
+                            </Button>
+                          </Group>
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -237,6 +281,30 @@ export default function AssessmentStudentsPage() {
             </>
           )}
         </Stack>
+
+        {/* Reset-attempt confirmation */}
+        <Modal
+          opened={!!resetStudent}
+          onClose={() => (resetting ? null : setResetStudent(null))}
+          title={<Text fw={600}>Reset attempt?</Text>}
+          centered
+        >
+          <Stack gap="md">
+            <Text size="sm">
+              This permanently erases <b>{resetStudent?.email}</b>&rsquo;s work on this assessment
+              (all submissions, query history, and progress) and removes their session, giving them a
+              clean slate to retake it. Their standalone practice is not affected. This cannot be undone.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="default" onClick={() => setResetStudent(null)} disabled={resetting}>
+                Cancel
+              </Button>
+              <Button color="red" loading={resetting} onClick={handleResetConfirm}>
+                Reset attempt
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
 
         {/* Component-wise activity drawer */}
         <Drawer

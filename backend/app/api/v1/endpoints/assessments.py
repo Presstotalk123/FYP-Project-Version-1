@@ -27,7 +27,7 @@ from app.schemas.assessment import (
     AssessmentItemComponentScore,
 )
 from app.dependencies import get_current_user, require_staff_role
-from app.services import assessment_clone
+from app.services import assessment_clone, assessment_reset
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -585,3 +585,36 @@ def get_student_component_scores(
         assessment_title=assessment.title,
         items=component_scores,
     )
+
+
+@router.post("/{assessment_id}/students/{student_id}/reset")
+def reset_student_attempt(
+    assessment_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Erase a student's attempt data for this assessment and clear their completion lock,
+    giving them a clean slate to retake it."""
+    assessment = db.query(Assessment).filter(
+        Assessment.id == assessment_id,
+        Assessment.is_deleted == 0,
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
+    # Reset is only safe while published: item_id points to assessment-private clones. If
+    # unpublished, item_id reverts to master content and a purge would wipe practice data.
+    if not assessment.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Publish the assessment before resetting a student's attempt.",
+        )
+
+    summary = assessment_reset.reset_student_attempt(db, assessment, student_id)
+    db.commit()
+    return {"detail": "Attempt reset", "student_id": student_id, "deleted": summary}

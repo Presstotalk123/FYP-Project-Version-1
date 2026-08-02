@@ -14,6 +14,9 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_staff_role
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.user import User, UserRole
+from app.models.assessment import Assessment
+from app.models.assessment_item import AssessmentItem
+from app.models.assessment_session import AssessmentSession
 from app.schemas.er_diagram import (
     DifficultyLabel,
     ERDiagramQuestionResponse,
@@ -40,6 +43,27 @@ from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
+
+
+def _er_question_accessible_via_assessment(question_id: int, user_id: int, db: Session) -> bool:
+    """Return True if the student has an active session in a running assessment that contains this
+    ER question. Mirrors labs._lab_accessible_via_assessment — assessment content is cloned
+    (owner_assessment_id set, is_published=0) and AssessmentItem.item_id is repointed to the clone,
+    so a participant is authorized while a random ID-guesser is not."""
+    result = (
+        db.query(AssessmentSession)
+        .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
+        .join(AssessmentItem, AssessmentItem.assessment_id == Assessment.id)
+        .filter(
+            AssessmentSession.user_id == user_id,
+            AssessmentSession.is_active == 1,
+            Assessment.is_running == 1,
+            AssessmentItem.item_id == question_id,
+            AssessmentItem.item_type == "er_question",
+        )
+        .first()
+    )
+    return result is not None
 MAX_ER_XML_CHARS = 500_000
 MAX_ER_DESC_CHARS = 5_000
 RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
@@ -990,14 +1014,17 @@ def get_er_question(
     question, creator_role = row
     role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
 
-    # Never leak an unpublished staff-created ER question to students by direct ID.
-    # Student-created questions remain accessible (they are not publish-gated).
+    # Publish gate applies only to staff-created BANK ER questions. Student-created questions are
+    # never gated. For a gated (unpublished, staff-created) question — which includes assessment
+    # clones (is_published=0) — a student may load it only as an active participant in a running
+    # assessment that contains it; a random ID-guesser is rejected. Mirrors labs.get_lab.
     if (
         current_user.role.value == "student"
         and role_value in {"staff", "admin"}
         and not question.is_published
     ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        if not _er_question_accessible_via_assessment(question_id, current_user.id, db):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
     return _to_response(question)
 

@@ -4,6 +4,9 @@ from typing import List, Optional
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.question import Question, Difficulty
+from app.models.assessment import Assessment
+from app.models.assessment_item import AssessmentItem
+from app.models.assessment_session import AssessmentSession
 from app.schemas.question import (
     QuestionCreate,
     QuestionUpdate,
@@ -28,6 +31,27 @@ from app.core.advanced_sql_grader import (
 )
 
 router = APIRouter(prefix="/questions", tags=["questions"])
+
+
+def _question_accessible_via_assessment(question_id: int, user_id: int, db: Session) -> bool:
+    """Return True if the student has an active session in a running assessment that contains
+    this question. Mirrors labs._lab_accessible_via_assessment — assessment content is cloned
+    (owner_assessment_id set, is_published=0) and the AssessmentItem.item_id is repointed to the
+    clone, so a participant is authorized while a random ID-guesser is not."""
+    result = (
+        db.query(AssessmentSession)
+        .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
+        .join(AssessmentItem, AssessmentItem.assessment_id == Assessment.id)
+        .filter(
+            AssessmentSession.user_id == user_id,
+            AssessmentSession.is_active == 1,
+            Assessment.is_running == 1,
+            AssessmentItem.item_id == question_id,
+            AssessmentItem.item_type == "sql_question",
+        )
+        .first()
+    )
+    return result is not None
 
 _ADVANCED_STAGE_LABELS = {
     "student": "Reference implementation",
@@ -256,12 +280,16 @@ def get_question(
             detail="Question not found"
         )
 
-    # Never leak unpublished (draft) questions to students by direct ID. Mirrors labs.get_lab.
+    # Students may only load an unpublished question if they are an active participant in a
+    # running assessment that contains it (assessment clones are unpublished by design). This
+    # mirrors labs.get_lab and blocks students who guess a draft/clone question id. Published
+    # bank questions stay open to all students.
     if current_user.role not in {UserRole.STAFF, UserRole.ADMIN} and not question.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Question not found"
-        )
+        if not _question_accessible_via_assessment(question_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Question not found"
+            )
 
     # Students need the database setup, but must never receive the model answer
     # or any trace of Advanced SQL Testing (toggle state, Test Script, Check Query).

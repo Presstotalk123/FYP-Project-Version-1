@@ -32,6 +32,7 @@ import { StudentAssessmentDetail, StudentAssessmentItemView, AssessmentItemType 
 import { studentAssessmentService } from '@/services/studentAssessment.service';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
+import { itemWorkspaceUrl } from '@/utils/assessmentItemUrl';
 
 function itemTypeLabel(type: AssessmentItemType): string {
   switch (type) {
@@ -57,19 +58,6 @@ function itemTypeIcon(type: AssessmentItemType) {
     case 'er_question':  return <IconTopologyComplex size={20} />;
     case 'sql_lab':      return <IconDatabase size={20} />;
     case 'graph_lab':    return <IconDatabase size={20} />;
-  }
-}
-
-function itemWorkspaceUrl(assessmentId: number, item: StudentAssessmentItemView): string {
-  const base = `/student/assessments/${assessmentId}/items/${item.id}`;
-  // weight is carried in the URL (like resourceId) so the workspace can show it
-  // without a second fetch. Display-only, so URL-passing is safe here.
-  const rid = `?resourceId=${item.item_id}&weight=${item.weight}`;
-  switch (item.item_type) {
-    case 'sql_question': return `${base}/sql-question${rid}`;
-    case 'sql_lab':      return `${base}/sql-lab${rid}`;
-    case 'graph_lab':    return `${base}/graph-lab${rid}`;
-    case 'er_question':  return `${base}/er-question${rid}`;
   }
 }
 

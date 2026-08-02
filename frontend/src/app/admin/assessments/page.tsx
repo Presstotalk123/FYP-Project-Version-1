@@ -68,6 +68,9 @@ export default function AdminAssessmentsPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [assessmentToDelete, setAssessmentToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [stopModalOpen, setStopModalOpen] = useState(false);
+  const [assessmentToStop, setAssessmentToStop] = useState<number | null>(null);
+  const [stopping, setStopping] = useState(false);
 
   useEffect(() => {
     fetchAssessments();
@@ -107,15 +110,10 @@ export default function AdminAssessmentsPage() {
     }
   };
 
-  const handleStartStop = async (id: number, isRunning: boolean) => {
+  const handleStart = async (id: number) => {
     try {
-      if (isRunning) {
-        await assessmentService.stopAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment stopped successfully', color: 'green' });
-      } else {
-        await assessmentService.startAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment started successfully', color: 'green' });
-      }
+      await assessmentService.startAssessment(id);
+      notifications.show({ title: 'Success', message: 'Assessment started successfully', color: 'green' });
       fetchAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
@@ -124,6 +122,33 @@ export default function AdminAssessmentsPage() {
         message: e.response?.data?.detail || 'Failed to update assessment',
         color: 'red',
       });
+    }
+  };
+
+  const openStopModal = (id: number) => {
+    setAssessmentToStop(id);
+    setStopModalOpen(true);
+  };
+
+  // Stopping now force-ends & submits every active student, so confirm before firing.
+  const handleConfirmStop = async () => {
+    if (assessmentToStop === null) return;
+    setStopping(true);
+    try {
+      await assessmentService.stopAssessment(assessmentToStop);
+      notifications.show({ title: 'Success', message: 'Assessment stopped. All active students were submitted.', color: 'green' });
+      setStopModalOpen(false);
+      setAssessmentToStop(null);
+      fetchAssessments();
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: e.response?.data?.detail || 'Failed to stop assessment',
+        color: 'red',
+      });
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -249,7 +274,7 @@ export default function AdminAssessmentsPage() {
                           <button
                             className="icon-btn"
                             title={a.is_running ? 'Stop' : 'Start'}
-                            onClick={() => handleStartStop(a.id, a.is_running)}
+                            onClick={() => (a.is_running ? openStopModal(a.id) : handleStart(a.id))}
                             style={{ color: a.is_running ? '#ef4444' : '#2563eb' }}
                           >
                             {a.is_running ? <IconStop /> : <IconPlay />}
@@ -289,6 +314,20 @@ export default function AdminAssessmentsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Stop modal */}
+        {stopModalOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stop-assessment-title">
+            <div className="modal">
+              <h3 id="stop-assessment-title">Stop Assessment</h3>
+              <p>This will immediately <strong>end and submit all active students</strong>, regardless of their time remaining. This cannot be undone.</p>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setStopModalOpen(false)} disabled={stopping}>Cancel</button>
+                <button className="btn btn-danger" onClick={handleConfirmStop} disabled={stopping}>{stopping ? 'Stopping…' : 'Stop & Submit All'}</button>
+              </div>
+            </div>
           </div>
         )}
 

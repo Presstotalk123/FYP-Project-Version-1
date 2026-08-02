@@ -38,7 +38,9 @@ import { LabEditorPanel } from './LabEditorPanel';
 import { LabResultsPanel } from './LabResultsPanel';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
+import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
+import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
 
 interface LabWorkspaceProps {
@@ -65,6 +67,7 @@ export function LabWorkspace({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const taskOrderChanged = useRef(false);
   const timer = useAssessmentTimer();
+  const progress = useAssessmentProgress();
 
   // State
   const [lab, setLab] = useState<LabDetail | null>(null);
@@ -227,6 +230,9 @@ export function LabWorkspace({
           progressData.tasks.map(p => [p.task_id, p])
         );
         setTaskProgress(progressMap);
+        if (progressData.tasks.some(t => t.attempt_count > 0)) {
+          progress.markAttempted();
+        }
       } catch (err) {
         if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
         console.error('Failed to fetch task progress:', err);
@@ -235,6 +241,7 @@ export function LabWorkspace({
 
     fetchProgress();
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labId, reviewMode, reviewStudentId]);
 
   // Fetch student query history in review mode
@@ -700,6 +707,10 @@ export function LabWorkspace({
         row_count: result.row_count,
       });
 
+      // The submission round-tripped successfully — counts as an attempt for the
+      // navigator regardless of whether the task answer was correct.
+      progress.markAttempted();
+
       if (response.is_correct === null) {
         notifications.show({
           title: 'Submitted',
@@ -824,6 +835,9 @@ export function LabWorkspace({
           Save and Exit
         </button>
       </div>
+
+      {/* Question Navigator */}
+      <QuestionNavigator />
 
       {/* Review Mode Banner */}
       {reviewMode && (

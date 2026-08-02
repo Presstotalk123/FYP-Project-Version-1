@@ -33,6 +33,15 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+    // The assessment was ended (by staff Stop, timer expiry, or already submitted): the student's
+    // session is finalized server-side. These detail strings only come from assessment endpoints,
+    // so route the student back to their list instead of stranding them on a dead question page.
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+    if (detail === 'Assessment has ended.' || detail === 'No active session to submit') {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/student/assessments';
+      }
+    }
     return Promise.reject(error);
   }
 );

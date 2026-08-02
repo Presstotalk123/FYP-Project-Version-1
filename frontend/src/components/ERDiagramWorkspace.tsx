@@ -24,6 +24,8 @@ import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
 import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
+import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
+import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import {
@@ -149,6 +151,7 @@ const readDraftFromSessionStorage = (questionId: number, labContext?: LabContext
 
 export function ERDiagramWorkspace({ question, labContext, weight }: WorkspaceProps) {
   const router = useRouter();
+  const progress = useAssessmentProgress();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
   const [chatSending, setChatSending] = useState(false);
@@ -194,6 +197,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
         if (restoredResult) {
           setLatestStructuredOutput(restoredResult);
           setHasSubmittedAttempt(true);
+          progress.markAttempted();
           if (restoredResult.student_message?.trim()) {
             setLatestStudentMessage(restoredResult.student_message.trim());
           }
@@ -306,6 +310,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
         throw new Error("Submission stream interrupted before completion.");
       }
       setHasSubmittedAttempt(true);
+      progress.markAttempted();
       try {
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(draftStorageKey(question.id, labContext));
@@ -721,6 +726,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
           </Text>
           <QuestionWeightBadge weight={weight} />
         </Group>
+        <QuestionNavigator />
         <Box
           ref={containerRef}
           style={{

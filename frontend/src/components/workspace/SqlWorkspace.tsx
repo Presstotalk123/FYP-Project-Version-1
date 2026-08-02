@@ -25,7 +25,9 @@ import { EditorPanel } from './EditorPanel';
 import { ResultsPanel } from './ResultsPanel';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
+import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
+import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
 
 interface SqlWorkspaceProps {
@@ -39,6 +41,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timer = useAssessmentTimer();
+  const progress = useAssessmentProgress();
 
   // State
   const [question, setQuestion] = useState<QuestionDetail | null>(null);
@@ -72,6 +75,9 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
         ]);
         setQuestion(questionData);
         setAttempts(attemptsData);
+        if (attemptsData.length > 0) {
+          progress.markAttempted();
+        }
       } catch (err) {
         const error = err as { response?: { data?: { detail?: string } } };
         setError(error.response?.data?.detail || 'Failed to load question');
@@ -81,6 +87,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
     };
 
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionId]);
 
   // Execute query
@@ -111,6 +118,9 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       });
       creditedEndTime = response.assessment_end_time;
       setResult(response);
+      // The request round-tripped successfully — this counts as an attempt for the
+      // navigator regardless of whether the query was correct or had a SQL error.
+      progress.markAttempted();
 
       if (response.is_correct === null) {
         // Correctness is hidden for this question — show a neutral confirmation only.
@@ -229,6 +239,8 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
           </Group>
           <AssessmentTimer />
         </Group>
+
+        <QuestionNavigator />
 
         {/* 3-Panel Layout */}
         <Box

@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import { AssessmentTimerProvider } from '@/contexts/AssessmentTimerContext';
+import { AssessmentProgressProvider } from '@/contexts/AssessmentProgressContext';
 
 /**
  * Wraps the whole assessment subtree (overview + per-item workspaces) in a single
@@ -15,7 +16,9 @@ export default function StudentAssessmentLayout({ children }: { children: ReactN
 
   return (
     <AssessmentTimerProvider assessmentId={assessmentId}>
-      {children}
+      <AssessmentProgressProvider assessmentId={assessmentId}>
+        {children}
+      </AssessmentProgressProvider>
     </AssessmentTimerProvider>
   );
 }

@@ -457,8 +457,18 @@ def stop_assessment(
     if not assessment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
-    assessment.is_running = 0
+    assessment.is_running = 0  # blocks new joins / hides items on reload (unchanged)
     assessment.updated_at = datetime.utcnow()
+    # Force-end & submit everyone still active, regardless of their remaining time. Sets the
+    # same end-state as finalize_session (is_active=0, attempt_complete=1, submitted_at). The
+    # is_active==1 filter makes this idempotent and covers untimed attempts (end_time NULL) too.
+    db.query(AssessmentSession).filter(
+        AssessmentSession.assessment_id == assessment_id,
+        AssessmentSession.is_active == 1,
+    ).update(
+        {"is_active": 0, "attempt_complete": 1, "submitted_at": datetime.utcnow()},
+        synchronize_session=False,
+    )
     db.commit()
     db.refresh(assessment)
 

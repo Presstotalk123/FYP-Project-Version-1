@@ -26,6 +26,7 @@ interface LabEditorPanelProps {
   isExecuting: boolean;
   executionTime: number | null;
   labType?: 'sql' | 'graph';
+  isCoolingDown?: boolean;
 }
 
 export function LabEditorPanel({
@@ -36,6 +37,7 @@ export function LabEditorPanel({
   isExecuting,
   executionTime,
   labType = 'sql',
+  isCoolingDown = false,
 }: LabEditorPanelProps) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -54,7 +56,7 @@ export function LabEditorPanel({
             className="btn btn-brand"
             style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
             onClick={onExecute}
-            disabled={isExecuting}
+            disabled={isExecuting || isCoolingDown}
           >
             <IconPlay />
             {isExecuting ? 'Running…' : 'Run Query'}
@@ -67,6 +69,11 @@ export function LabEditorPanel({
             <IconTrash />
             Clear
           </button>
+          {isCoolingDown && (
+            <span style={{ fontSize: 13, color: 'var(--text-muted, #888)', alignSelf: 'center' }}>
+              Please wait before running another query
+            </span>
+          )}
         </div>
         {executionTime !== null && (
           <span className="badge neutral">{executionTime.toFixed(2)}ms</span>

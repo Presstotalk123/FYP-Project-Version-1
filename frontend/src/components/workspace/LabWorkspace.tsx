@@ -39,6 +39,7 @@ import { LabResultsPanel } from './LabResultsPanel';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
+import { useRunCooldown } from '@/hooks/use-run-cooldown';
 
 interface LabWorkspaceProps {
   labId: number;
@@ -82,6 +83,17 @@ export function LabWorkspace({
   const [tasks, setTasks] = useState<LabTask[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [taskProgress, setTaskProgress] = useState<Record<number, LabTaskProgress>>({});
+
+  // Progressive cooldown to throttle rapid Run clicks. Thresholds scale with the
+  // number of tasks in the lab; persisted per lab across navigation/reload.
+  const taskCount = Math.max(1, tasks.length); // guard the pre-load window (tasks starts [])
+  const { isCoolingDown: cooldownActive, registerRunComplete } = useRunCooldown({
+    freeLimit: taskCount * 3, // first T×3 runs → no cooldown
+    tier1Limit: taskCount * 3 + taskCount * 2, // next T×2 → 10s; rest → 20s
+    storageKey: `run-cooldown:lab:${labId}`,
+  });
+  // Instructors reviewing a submission shouldn't be throttled.
+  const isCoolingDown = cooldownActive && !reviewMode;
 
   // Review mode state
   const [studentQueries, setStudentQueries] = useState<LabQueryHistoryResponse[]>([]);
@@ -267,6 +279,11 @@ export function LabWorkspace({
 
   // Execute query
   const handleExecute = async () => {
+    // Defensive guard: never run while a request is in flight or the cooldown is
+    // active, even if the button somehow wasn't disabled.
+    if (isExecuting || isCoolingDown) {
+      return;
+    }
     if (!sessionId || !query.trim()) {
       notifications.show({
         title: 'Empty Query',
@@ -323,6 +340,8 @@ export function LabWorkspace({
     } finally {
       setIsExecuting(false);
       timer.resume(creditedEndTime);
+      // Begin the cooldown after the request has completed (result returned).
+      if (!reviewMode) registerRunComplete();
     }
   };
 
@@ -333,6 +352,11 @@ export function LabWorkspace({
 
   // Rerun query from history
   const handleRerunQuery = async (queryText: string) => {
+    // Defensive guard: never run while a request is in flight or the cooldown is
+    // active, even if the triggering control somehow wasn't disabled.
+    if (isExecuting || isCoolingDown) {
+      return;
+    }
     // Set the query in the editor
     setQuery(queryText);
 
@@ -398,6 +422,8 @@ export function LabWorkspace({
     } finally {
       setIsExecuting(false);
       timer.resume(creditedEndTime);
+      // Begin the cooldown after the request has completed (result returned).
+      if (!reviewMode) registerRunComplete();
     }
   };
 
@@ -913,6 +939,7 @@ export function LabWorkspace({
             isExecuting={isExecuting}
             executionTime={result?.execution_time_ms || null}
             labType={lab?.lab_type ?? 'sql'}
+            isCoolingDown={isCoolingDown}
           />
         </Box>
 

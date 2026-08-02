@@ -26,6 +26,7 @@ import { ResultsPanel } from './ResultsPanel';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
+import { useRunCooldown } from '@/hooks/use-run-cooldown';
 
 interface SqlWorkspaceProps {
   questionId: number;
@@ -47,6 +48,12 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   const [isExecuting, setIsExecuting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Progressive cooldown to throttle rapid Run clicks. Scoped per question and
+  // persisted across navigation/reload via sessionStorage.
+  const { isCoolingDown, registerRunComplete } = useRunCooldown({
+    storageKey: `run-cooldown:sql:${questionId}`,
+  });
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);
@@ -78,6 +85,11 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
 
   // Execute query
   const handleExecute = async () => {
+    // Defensive guard: never run while a request is in flight or the cooldown is
+    // active, even if the button somehow wasn't disabled.
+    if (isExecuting || isCoolingDown) {
+      return;
+    }
     if (!query.trim()) {
       notifications.show({
         title: 'Empty Query',
@@ -121,6 +133,8 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
     } finally {
       setIsExecuting(false);
       timer.resume(creditedEndTime);
+      // Begin the cooldown after the request has completed (result returned).
+      registerRunComplete();
     }
   };
 
@@ -290,6 +304,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
               onClear={handleClear}
               isExecuting={isExecuting}
               executionTime={result?.execution_time_ms || null}
+              isCoolingDown={isCoolingDown}
             />
           </Box>
 

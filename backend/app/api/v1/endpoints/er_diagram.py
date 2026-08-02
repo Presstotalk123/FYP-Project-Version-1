@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_staff_role
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.user import User, UserRole
 from app.schemas.er_diagram import (
@@ -698,6 +698,7 @@ def _to_response(question: ERDiagramQuestion, *, hide_rubric_when_disabled: bool
         created_by=question.created_by,
         created_at=question.created_at,
         updated_at=question.updated_at,
+        is_published=bool(question.is_published),
     )
 
 
@@ -924,7 +925,7 @@ def create_er_question(
 @router.get("/questions", response_model=list[ERDiagramQuestionListItem])
 def list_er_questions(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     question_rows = (
         db.query(ERDiagramQuestion, User.role)
@@ -938,6 +939,8 @@ def list_er_questions(
         .all()
     )
 
+    is_student = current_user.role.value == "student"
+
     items: list[ERDiagramQuestionListItem] = []
     for question, creator_role in question_rows:
         role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
@@ -946,6 +949,11 @@ def list_er_questions(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Invalid creator role '{creator_role}' for ER question id={question.id}",
             )
+
+        # Publish gate applies only to staff-created ER questions. Student-created ones stay
+        # visible to students as before, so students never lose sight of their own creations.
+        if is_student and role_value in {"staff", "admin"} and not question.is_published:
+            continue
 
         items.append(
             ERDiagramQuestionListItem(
@@ -956,6 +964,7 @@ def list_er_questions(
                 created_by=question.created_by,
                 created_by_role=role_value,
                 created_at=question.created_at,
+                is_published=bool(question.is_published),
             )
         )
 
@@ -966,8 +975,35 @@ def list_er_questions(
 def get_er_question(
     question_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    row = (
+        db.query(ERDiagramQuestion, User.role)
+        .join(User, ERDiagramQuestion.created_by == User.id)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    question, creator_role = row
+    role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
+
+    # Never leak an unpublished staff-created ER question to students by direct ID.
+    # Student-created questions remain accessible (they are not publish-gated).
+    if (
+        current_user.role.value == "student"
+        and role_value in {"staff", "admin"}
+        and not question.is_published
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    return _to_response(question)
+
+
+def _set_er_published(question_id: int, published: int, db: Session) -> ERDiagramQuestion:
+    """Shared helper for ER publish/unpublish: flip is_published, commit, return the question."""
     question = (
         db.query(ERDiagramQuestion)
         .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
@@ -977,7 +1013,30 @@ def get_er_question(
     if not question:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
-    return _to_response(question)
+    question.is_published = published
+    db.commit()
+    db.refresh(question)
+    return question
+
+
+@router.post("/questions/{question_id}/publish", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)
+def publish_er_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Publish an ER question (staff only). Sets is_published=1 so students can see it."""
+    return _to_response(_set_er_published(question_id, 1, db))
+
+
+@router.post("/questions/{question_id}/unpublish", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)
+def unpublish_er_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Unpublish an ER question (staff only). Sets is_published=0 so students can no longer see it."""
+    return _to_response(_set_er_published(question_id, 0, db))
 
 
 def _stream_with_erd_tutor_state(

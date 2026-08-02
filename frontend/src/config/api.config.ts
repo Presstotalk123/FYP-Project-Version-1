@@ -13,6 +13,8 @@ export const API_ENDPOINTS = {
   QUESTIONS: {
     BASE: '/questions',
     DETAIL: (id: number) => `/questions/${id}`,
+    PUBLISH: (id: number) => `/questions/${id}/publish`,
+    UNPUBLISH: (id: number) => `/questions/${id}/unpublish`,
   },
   EXECUTE: {
     BASE: '/execute',
@@ -27,6 +29,8 @@ export const API_ENDPOINTS = {
     GENERATE_RUBRIC: '/er-diagram/rubric/generate',
     QUESTIONS: '/er-diagram/questions',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
+    QUESTION_PUBLISH: (id: number) => `/er-diagram/questions/${id}/publish`,
+    QUESTION_UNPUBLISH: (id: number) => `/er-diagram/questions/${id}/unpublish`,
     SUBMISSION: '/er-diagram/submission',
     CONVERSATION: '/er-diagram/conversation',
   },

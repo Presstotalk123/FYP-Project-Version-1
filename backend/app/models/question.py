@@ -52,6 +52,10 @@ class Question(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Visibility flag: 0=draft (staff only), 1=published (visible to students).
+    # 0/1 flag, following the same Integer-flag convention as is_deleted. Mirrors labs.is_published.
+    is_published = Column(Integer, nullable=False, default=0)
+
     # Soft delete flag
     is_deleted = Column(Integer, default=0)  # Using Integer for SQLite compatibility
 

@@ -204,6 +204,10 @@ def list_questions(
         Question.owner_assessment_id.is_(None),
     )
 
+    # Students only see published questions; staff/admin see drafts too. Mirrors labs.list_labs.
+    if current_user.role.value == "student":
+        query = query.filter(Question.is_published == 1)
+
     # Apply filters
     if difficulty:
         query = query.filter(Question.difficulty == difficulty)
@@ -247,6 +251,13 @@ def get_question(
     ).first()
 
     if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question not found"
+        )
+
+    # Never leak unpublished (draft) questions to students by direct ID. Mirrors labs.get_lab.
+    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN} and not question.is_published:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Question not found"
@@ -468,3 +479,42 @@ def delete_question(
     db.commit()
 
     return None
+
+
+def _set_published(question_id: int, published: int, db: Session) -> Question:
+    """Shared helper for publish/unpublish: flip is_published, commit, return the question."""
+    question = db.query(Question).filter(
+        Question.id == question_id,
+        Question.is_deleted == 0
+    ).first()
+
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question not found"
+        )
+
+    question.is_published = published
+    db.commit()
+    db.refresh(question)
+    return question
+
+
+@router.post("/{question_id}/publish", response_model=QuestionResponse)
+def publish_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """Publish a question (staff only). Sets is_published=1 so students can see it."""
+    return _set_published(question_id, 1, db)
+
+
+@router.post("/{question_id}/unpublish", response_model=QuestionResponse)
+def unpublish_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role)
+):
+    """Unpublish a question (staff only). Sets is_published=0 so students can no longer see it."""
+    return _set_published(question_id, 0, db)

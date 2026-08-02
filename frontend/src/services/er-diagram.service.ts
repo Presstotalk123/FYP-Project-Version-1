@@ -152,6 +152,16 @@ export const erDiagramService = {
     await api.delete(API_ENDPOINTS.ER_DIAGRAM.QUESTION_DETAIL(id));
   },
 
+  async publishQuestion(id: number): Promise<ERDiagramQuestion> {
+    const response = await api.post<ERDiagramQuestion>(API_ENDPOINTS.ER_DIAGRAM.QUESTION_PUBLISH(id));
+    return response.data;
+  },
+
+  async unpublishQuestion(id: number): Promise<ERDiagramQuestion> {
+    const response = await api.post<ERDiagramQuestion>(API_ENDPOINTS.ER_DIAGRAM.QUESTION_UNPUBLISH(id));
+    return response.data;
+  },
+
   async getConversation(
     ref: { question_id: number } | { er_lab_id: number; er_lab_question_id: number },
   ): Promise<ErdTutorConversationResponse> {

@@ -57,6 +57,7 @@ class QuestionResponse(QuestionBase):
     test_script: Optional[str] = None
     check_query: Optional[str] = None
     hide_correctness: bool = False
+    is_published: bool = False
 
     class Config:
         from_attributes = True
@@ -80,6 +81,7 @@ class QuestionListItem(BaseModel):
     title: str
     difficulty: Difficulty
     created_at: datetime
+    is_published: bool = False
 
     class Config:
         from_attributes = True

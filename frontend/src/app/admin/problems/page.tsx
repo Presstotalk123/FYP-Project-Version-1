@@ -20,9 +20,21 @@ interface Problem {
   problemType: ProblemType;
   difficulty?: string;
   created_by?: number;
+  createdByRole?: string;
+  isPublished?: boolean;
   created_at: string;
   editUrl: string;
 }
+
+// Publish only applies to SQL questions and staff-created ERD questions.
+// Student-created ERDs stay visible to students regardless, so they get no publish control.
+const isPublishable = (p: Problem): boolean => {
+  if (p.problemType === 'sql-question') return true;
+  if (p.problemType === 'erd-question') {
+    return p.createdByRole === 'staff' || p.createdByRole === 'admin';
+  }
+  return false;
+};
 
 const typeBadge: Record<ProblemType, { label: string; className: string }> = {
   'sql-question': { label: 'SQL Question', className: 'badge-success' },
@@ -48,6 +60,19 @@ const IconEdit = () => (
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
   </svg>
 );
+// Upload/paper-plane style icon for "Publish"
+const IconPublish = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>
+  </svg>
+);
+// Eye-off style icon for "Unpublish" (hide from students)
+const IconUnpublish = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
 
 export default function ProblemsPage() {
   const router = useRouter();
@@ -56,6 +81,7 @@ export default function ProblemsPage() {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<Record<string, boolean>>({});
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
@@ -84,6 +110,7 @@ export default function ProblemsPage() {
           problemType: 'sql-question' as ProblemType,
           difficulty: q.difficulty,
           created_by: q.created_by,
+          isPublished: q.is_published,
           created_at: q.created_at,
           editUrl: `/admin/questions/${q.id}`,
         })),
@@ -116,6 +143,8 @@ export default function ProblemsPage() {
           problemType: 'erd-question' as ProblemType,
           difficulty: e.difficulty_label,
           created_by: e.created_by,
+          createdByRole: e.created_by_role,
+          isPublished: e.is_published,
           created_at: e.created_at,
           editUrl: `/er-diagram/${e.id}`,
         })),
@@ -127,6 +156,34 @@ export default function ProblemsPage() {
       setError(e.response?.data?.detail || 'Failed to load problems');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const togglePublish = async (problem: Problem) => {
+    const nextPublished = !problem.isPublished;
+    setPublishing((prev) => ({ ...prev, [problem.uid]: true }));
+    try {
+      if (problem.problemType === 'sql-question') {
+        if (nextPublished) {
+          await questionService.publishQuestion(problem.id);
+        } else {
+          await questionService.unpublishQuestion(problem.id);
+        }
+      } else if (problem.problemType === 'erd-question') {
+        if (nextPublished) {
+          await erDiagramService.publishQuestion(problem.id);
+        } else {
+          await erDiagramService.unpublishQuestion(problem.id);
+        }
+      }
+      setProblems((prev) =>
+        prev.map((p) => (p.uid === problem.uid ? { ...p, isPublished: nextPublished } : p))
+      );
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setError(e.response?.data?.detail || 'Failed to update publish status');
+    } finally {
+      setPublishing((prev) => ({ ...prev, [problem.uid]: false }));
     }
   };
 
@@ -299,6 +356,7 @@ export default function ProblemsPage() {
                           <th>Title</th>
                           <th>Type</th>
                           <th>Difficulty</th>
+                          <th>Status</th>
                           <th>Created</th>
                           <th>Actions</th>
                         </tr>
@@ -323,9 +381,29 @@ export default function ProblemsPage() {
                                   <span style={{ color: 'var(--text-muted)' }}>—</span>
                                 )}
                               </td>
+                              <td>
+                                {isPublishable(problem) ? (
+                                  <span className={`badge ${problem.isPublished ? 'badge-success' : 'badge-warn'}`}>
+                                    {problem.isPublished ? 'Published' : 'Draft'}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
                               <td>{new Date(problem.created_at).toLocaleDateString()}</td>
                               <td>
                                 <div className="actions">
+                                  {isPublishable(problem) && (
+                                    <button
+                                      className="icon-btn"
+                                      title={problem.isPublished ? 'Unpublish (hide from students)' : 'Publish (show to students)'}
+                                      onClick={() => togglePublish(problem)}
+                                      disabled={!!publishing[problem.uid]}
+                                      style={{ color: problem.isPublished ? '#d97706' : '#16a34a' }}
+                                    >
+                                      {problem.isPublished ? <IconUnpublish /> : <IconPublish />}
+                                    </button>
+                                  )}
                                   <button
                                     className="icon-btn"
                                     title="Edit"

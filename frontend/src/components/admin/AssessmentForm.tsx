@@ -114,6 +114,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       item_id: i.item_id,
       item_title: i.item_title,
       weight: i.weight ?? 0,
+      hide_correctness: i.hide_correctness ?? false,
     }));
     // Legacy/unweighted assessments (weights don't total 100) get an equal split so the
     // editor opens in a valid state; staff can then fine-tune.
@@ -185,7 +186,7 @@ export function AssessmentForm({ mode, initial }: Props) {
     setSelectedItems((prev) =>
       withEqualWeights([
         ...prev,
-        { uid: nextUid(), item_type: type, item_id: id, item_title: title, weight: 0 },
+        { uid: nextUid(), item_type: type, item_id: id, item_title: title, weight: 0, hide_correctness: false },
       ])
     );
   };
@@ -197,6 +198,12 @@ export function AssessmentForm({ mode, initial }: Props) {
   const updateWeight = (uid: string, weight: number) => {
     setSelectedItems((prev) =>
       prev.map((i) => (i.uid === uid ? { ...i, weight } : i))
+    );
+  };
+
+  const updateHideCorrectness = (uid: string, value: boolean) => {
+    setSelectedItems((prev) =>
+      prev.map((i) => (i.uid === uid ? { ...i, hide_correctness: value } : i))
     );
   };
 
@@ -246,6 +253,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       item_id: item.item_id,
       order_index: idx,
       weight: item.weight,
+      hide_correctness: item.hide_correctness,
     }));
 
     setSaving(true);
@@ -517,6 +525,7 @@ export function AssessmentForm({ mode, initial }: Props) {
                   item={item}
                   onRemove={removeItem}
                   onWeightChange={updateWeight}
+                  onHideCorrectnessChange={updateHideCorrectness}
                 />
               ))}
             </SortableContext>

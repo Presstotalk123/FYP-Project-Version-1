@@ -56,6 +56,10 @@ async def send_chatbot_message(
     if question.owner_assessment_id is not None and current_user.role.value == "student":
         raise HTTPException(status_code=403, detail="AI tutor is disabled for assessment questions.")
 
+    # AI feedback would reveal correctness the question is meant to hide.
+    if question.hide_correctness and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI tutor is disabled for this question.")
+
     # Get student's latest query attempt for this question
     latest_attempt = (
         db.query(Attempt)
@@ -295,6 +299,10 @@ async def review_query(
 
     if question.owner_assessment_id is not None and current_user.role.value == "student":
         raise HTTPException(status_code=403, detail="AI tutor is disabled for assessment questions.")
+
+    # A wrong-query review would reveal correctness the question is meant to hide.
+    if question.hide_correctness and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI review is disabled for this question.")
 
     context = {
         "question_text": question.description,

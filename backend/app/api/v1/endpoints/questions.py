@@ -140,6 +140,7 @@ def create_question(
             advanced_sql_testing=1 if is_advanced else 0,
             test_script=question_data.test_script if is_advanced else None,
             check_query=question_data.check_query if is_advanced else None,
+            hide_correctness=1 if question_data.hide_correctness else 0,
             db_file_path=db_filename,
             correct_answer_hash=correct_hash,
             created_by=current_user.id
@@ -397,6 +398,9 @@ def update_question(
             question.description = question_data.description
         if question_data.difficulty is not None:
             question.difficulty = question_data.difficulty
+        # hide_correctness is independent of SQL regeneration — apply it on its own.
+        if question_data.hide_correctness is not None:
+            question.hide_correctness = 1 if question_data.hide_correctness else 0
 
         db.commit()
         db.refresh(question)

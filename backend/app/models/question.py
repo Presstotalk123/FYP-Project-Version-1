@@ -41,6 +41,12 @@ class Question(Base):
     test_script = Column(Text, nullable=True)
     check_query = Column(Text, nullable=True)
 
+    # When set, students are not told whether a submission was correct/incorrect —
+    # they just get a generic "submitted successfully" result. Real correctness is
+    # still persisted (Attempt/UserProgress) for staff grading. Mirrors labs.hide_correctness.
+    # 0/1 flag, following the same Integer-flag convention as is_deleted.
+    hide_correctness = Column(Integer, nullable=False, default=0)
+
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -21,6 +21,7 @@ class QuestionCreate(QuestionBase):
     advanced_sql_testing: bool = Field(False, description="Staff-only: grade via hidden Test Script + Check Query instead of direct output comparison")
     test_script: Optional[str] = Field(None, description="Staff-only hidden script that exercises the submission (e.g. an INSERT that fires a trigger)")
     check_query: Optional[str] = Field(None, description="Staff-only hidden SELECT that captures the resulting state to hash")
+    hide_correctness: bool = Field(False, description="When on, students see a neutral 'Submitted' result instead of Correct/Incorrect")
 
     @model_validator(mode="after")
     def _validate_advanced_fields(self):
@@ -43,6 +44,7 @@ class QuestionUpdate(BaseModel):
     advanced_sql_testing: Optional[bool] = None
     test_script: Optional[str] = None
     check_query: Optional[str] = None
+    hide_correctness: Optional[bool] = None
 
 
 class QuestionResponse(QuestionBase):
@@ -54,6 +56,7 @@ class QuestionResponse(QuestionBase):
     advanced_sql_testing: bool = False
     test_script: Optional[str] = None
     check_query: Optional[str] = None
+    hide_correctness: bool = False
 
     class Config:
         from_attributes = True

@@ -22,6 +22,7 @@ export interface QuestionDetail extends Question {
   advanced_sql_testing: boolean;
   test_script?: string | null;
   check_query?: string | null;
+  hide_correctness: boolean;
 }
 
 export interface QuestionCreate {
@@ -34,4 +35,5 @@ export interface QuestionCreate {
   advanced_sql_testing?: boolean;
   test_script?: string | null;
   check_query?: string | null;
+  hide_correctness?: boolean;
 }

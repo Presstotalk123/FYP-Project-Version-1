@@ -19,6 +19,10 @@ class AssessmentItem(Base):
     # Integer percentage (0-100) of the assessment total for this item. Weights across an
     # assessment's items must total 100 (enforced in the API layer / editor). 0 = legacy/unweighted.
     weight = Column(Integer, default=0, nullable=False)
+    # Per-item override written onto the content clone at publish time (see assessment_clone).
+    # 0/1 flag. 0 = students see correctness feedback (default); 1 = neutral "Submitted" only.
+    # Applies to sql_question / sql_lab / graph_lab; ignored for er_question.
+    hide_correctness = Column(Integer, default=0, nullable=False)
     # When the assessment is published, item_id is repointed to a frozen content clone and
     # source_item_id holds the original master content id (used for idempotent re-publish
     # and to restore the master pointer on unpublish). NULL while unpublished.

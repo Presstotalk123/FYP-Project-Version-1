@@ -210,10 +210,15 @@ def execute_query(
         if query_start is not None:
             credit_query_time(db, assessment_session, query_start)
 
+    # Real correctness is always persisted above (Attempt/UserProgress) for grading, but
+    # questions with hide_correctness on don't reveal it to students in the response — they
+    # get is_correct=None and the frontend shows a neutral "Submitted" state.
+    student_hidden = bool(question.hide_correctness) and current_user.role.value == "student"
+
     # Return the response, carrying the freshly-credited deadline so the frontend can resume
     # its countdown without a separate session round-trip.
     return ExecuteResponse(
-        is_correct=is_correct,
+        is_correct=None if student_hidden else is_correct,
         execution_time_ms=result["execution_time_ms"],
         results=result["results"],
         columns=result["columns"],

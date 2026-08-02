@@ -44,12 +44,17 @@ def _copy_file(src: str, dst: str) -> None:
     shutil.copy2(src, dst)
 
 
-def clone_question_for_assessment(db: Session, question_id: int, assessment_id: int) -> int:
+def clone_question_for_assessment(
+    db: Session, question_id: int, assessment_id: int, hide_correctness: int = 0
+) -> int:
     """
     Deep-copy a master SQL question into an assessment-owned clone.
 
     The question's SQLite file is file-copied (not regenerated) so the copied
     correct_answer_hash stays valid without re-running validation.
+
+    hide_correctness is the per-assessment-item override (see AssessmentItem); it is
+    written onto the clone instead of the master's value.
 
     Returns the new clone question id. Raises AssessmentCloneError on failure.
     """
@@ -82,6 +87,7 @@ def clone_question_for_assessment(db: Session, question_id: int, assessment_id: 
             advanced_sql_testing=master.advanced_sql_testing,
             test_script=master.test_script,
             check_query=master.check_query,
+            hide_correctness=hide_correctness,
             created_by=master.created_by,
             is_deleted=0,
             owner_assessment_id=assessment_id,
@@ -99,11 +105,16 @@ def clone_question_for_assessment(db: Session, question_id: int, assessment_id: 
         raise
 
 
-def clone_lab_for_assessment(db: Session, lab_id: int, assessment_id: int) -> int:
+def clone_lab_for_assessment(
+    db: Session, lab_id: int, assessment_id: int, hide_correctness: int = 0
+) -> int:
     """
     Deep-copy a master lab (SQL or graph) plus its non-deleted tasks into an
     assessment-owned clone. The template DB file is file-copied so task
     correct_answer_hashes stay valid. Student submissions are NOT copied.
+
+    hide_correctness is the per-assessment-item override (see AssessmentItem); it is
+    written onto the clone instead of the master's value.
 
     Returns the new clone lab id. Raises AssessmentCloneError on failure.
     """
@@ -119,7 +130,7 @@ def clone_lab_for_assessment(db: Session, lab_id: int, assessment_id: int) -> in
         description=master.description,
         is_published=0,
         is_running=0,
-        hide_correctness=master.hide_correctness,
+        hide_correctness=hide_correctness,
         disable_ai_assist=1,  # assessment labs always have the AI tutor disabled for students
         # Placeholder; rewritten to the clone-id-based filename after we get an id.
         template_db_path=master.template_db_path,
@@ -212,10 +223,11 @@ def clone_item(db: Session, item, assessment_id: int) -> int:
     Dispatch on the polymorphic AssessmentItem.item_type and clone the underlying
     content, returning the new clone's id. Raises AssessmentCloneError for unknown types.
     """
+    hide_correctness = 1 if getattr(item, "hide_correctness", 0) else 0
     if item.item_type == "sql_question":
-        return clone_question_for_assessment(db, item.item_id, assessment_id)
+        return clone_question_for_assessment(db, item.item_id, assessment_id, hide_correctness)
     if item.item_type in ("sql_lab", "graph_lab"):
-        return clone_lab_for_assessment(db, item.item_id, assessment_id)
+        return clone_lab_for_assessment(db, item.item_id, assessment_id, hide_correctness)
     if item.item_type == "er_question":
         return clone_er_question_for_assessment(db, item.item_id, assessment_id)
     raise AssessmentCloneError(f"Unknown assessment item_type: {item.item_type}")

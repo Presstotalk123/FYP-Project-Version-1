@@ -19,6 +19,9 @@ class AssessmentItemIn(BaseModel):
     # "unweighted" and the endpoint auto-distributes equally; otherwise the weights
     # across all items must total exactly 100 (see _validate_weight_total).
     weight: int = Field(0, ge=0, le=100)
+    # Per-item override written onto the content clone at publish. When True, students
+    # see a neutral "Submitted" result instead of Correct/Incorrect. Ignored for er_question.
+    hide_correctness: bool = False
 
 
 def _validate_weight_total(items: Optional[List[AssessmentItemIn]]) -> None:
@@ -74,6 +77,7 @@ class AssessmentItemResponse(BaseModel):
     item_id: int
     order_index: int
     weight: int
+    hide_correctness: bool
     item_title: str
 
     class Config:

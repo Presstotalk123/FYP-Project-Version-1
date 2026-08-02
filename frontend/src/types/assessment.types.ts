@@ -5,6 +5,9 @@ export interface AssessmentItemIn {
   item_id: number;
   order_index: number;
   weight: number;
+  // Per-item override: when true, students see a neutral "Submitted" result instead of
+  // Correct/Incorrect. Applies to sql_question / sql_lab / graph_lab; ignored for er_question.
+  hide_correctness: boolean;
 }
 
 export interface AssessmentItemResponse {
@@ -13,6 +16,7 @@ export interface AssessmentItemResponse {
   item_id: number;
   order_index: number;
   weight: number;
+  hide_correctness: boolean;
   item_title: string;
 }
 

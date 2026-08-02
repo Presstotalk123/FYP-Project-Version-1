@@ -112,7 +112,14 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       creditedEndTime = response.assessment_end_time;
       setResult(response);
 
-      if (response.is_correct) {
+      if (response.is_correct === null) {
+        // Correctness is hidden for this question — show a neutral confirmation only.
+        notifications.show({
+          title: 'Submitted',
+          message: 'Your query was submitted successfully',
+          color: 'blue',
+        });
+      } else if (response.is_correct) {
         notifications.show({
           title: 'Correct!',
           message: 'Your query returned the expected results',

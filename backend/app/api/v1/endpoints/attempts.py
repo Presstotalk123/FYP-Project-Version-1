@@ -42,6 +42,21 @@ def get_user_attempts(
     # Order by most recent first and apply pagination
     attempts = query.order_by(Attempt.submitted_at.desc()).offset(skip).limit(limit).all()
 
+    # Blank correctness for any attempt whose question hides it from students.
+    if attempts and current_user.role.value == "student":
+        hidden_qids = {
+            qid
+            for (qid,) in db.query(Question.id)
+            .filter(
+                Question.id.in_({a.question_id for a in attempts}),
+                Question.hide_correctness == 1,
+            )
+            .all()
+        }
+        for attempt in attempts:
+            if attempt.question_id in hidden_qids:
+                attempt.is_correct = None
+
     return attempts
 
 
@@ -73,7 +88,8 @@ def get_attempt_history_with_details(
             Attempt.query,
             Attempt.is_correct,
             Attempt.execution_time_ms,
-            Attempt.submitted_at
+            Attempt.submitted_at,
+            Question.hide_correctness.label("hide_correctness")
         )
         .join(Question, Attempt.question_id == Question.id)
         .filter(Attempt.user_id == current_user.id)
@@ -83,15 +99,19 @@ def get_attempt_history_with_details(
         .all()
     )
 
+    is_student = current_user.role.value == "student"
+
     # Convert to response format
     result = []
     for attempt in attempts_with_questions:
+        # Hide correctness from students on hide_correctness questions.
+        hidden = is_student and bool(attempt.hide_correctness)
         result.append(AttemptHistory(
             id=attempt.id,
             question_id=attempt.question_id,
             question_title=attempt.question_title,
             query=attempt.query,
-            is_correct=bool(attempt.is_correct),
+            is_correct=None if hidden else bool(attempt.is_correct),
             execution_time_ms=attempt.execution_time_ms,
             submitted_at=attempt.submitted_at
         ))
@@ -122,7 +142,8 @@ def get_user_progress(
             UserProgress.completed,
             UserProgress.attempts_count,
             UserProgress.last_attempted_at,
-            UserProgress.first_completed_at
+            UserProgress.first_completed_at,
+            Question.hide_correctness.label("hide_correctness")
         )
         .join(Question, UserProgress.question_id == Question.id)
         .filter(UserProgress.user_id == current_user.id)
@@ -130,16 +151,21 @@ def get_user_progress(
         .all()
     )
 
+    is_student = current_user.role.value == "student"
+
     # Convert to response format
     result = []
     for progress in progress_with_questions:
+        # On a hide_correctness question, a completed flag (or a first_completed_at
+        # timestamp) would itself reveal the answer was correct — mask both for students.
+        hidden = is_student and bool(progress.hide_correctness)
         result.append(ProgressResponse(
             question_id=progress.question_id,
             question_title=progress.question_title,
-            completed=bool(progress.completed),
+            completed=False if hidden else bool(progress.completed),
             attempts_count=progress.attempts_count,
             last_attempted_at=progress.last_attempted_at,
-            first_completed_at=progress.first_completed_at
+            first_completed_at=None if hidden else progress.first_completed_at
         ))
 
     return result
@@ -193,5 +219,11 @@ def get_question_attempts(
         .limit(limit)
         .all()
     )
+
+    # Never reveal correctness to a student on a hide_correctness question. The real
+    # value stays persisted in the DB; we only blank it in this (uncommitted) response.
+    if question.hide_correctness and current_user.role.value == "student":
+        for attempt in attempts:
+            attempt.is_correct = None
 
     return attempts

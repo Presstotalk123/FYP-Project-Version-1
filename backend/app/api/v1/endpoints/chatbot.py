@@ -53,6 +53,9 @@ async def send_chatbot_message(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
 
+    if question.owner_assessment_id is not None and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI tutor is disabled for assessment questions.")
+
     # Get student's latest query attempt for this question
     latest_attempt = (
         db.query(Attempt)
@@ -289,6 +292,9 @@ async def review_query(
     question = db.query(Question).filter(Question.id == request.question_id).first()
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
+
+    if question.owner_assessment_id is not None and current_user.role.value == "student":
+        raise HTTPException(status_code=403, detail="AI tutor is disabled for assessment questions.")
 
     context = {
         "question_text": question.description,

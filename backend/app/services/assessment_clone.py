@@ -120,7 +120,7 @@ def clone_lab_for_assessment(db: Session, lab_id: int, assessment_id: int) -> in
         is_published=0,
         is_running=0,
         hide_correctness=master.hide_correctness,
-        disable_ai_assist=master.disable_ai_assist,
+        disable_ai_assist=1,  # assessment labs always have the AI tutor disabled for students
         # Placeholder; rewritten to the clone-id-based filename after we get an id.
         template_db_path=master.template_db_path,
         schema_sql=master.schema_sql,

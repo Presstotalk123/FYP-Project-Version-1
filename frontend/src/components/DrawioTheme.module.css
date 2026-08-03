@@ -1,0 +1,69 @@
+/* ============================================================
+   DRAW.IO SUBMISSION THEME (scoped Mantine override)
+
+   Mantine is mounted without a theme (see app/providers.tsx), so its
+   components default to blue and to Mantine's own font stack. This class
+   re-points the Mantine CSS variables at the brand purple (--brand-lilac,
+   defined in app/globals.css) and the Geist fonts for the ER-diagram
+   submission UI only — anything not carrying this class is untouched.
+
+   Applied by DrawioFocusLayout and ERDiagramWorkspace. Portalled components
+   (Menu.Dropdown, Drawer, Modal, Tooltip) render into <body>, outside the
+   workspace tree, so they carry the class directly rather than inheriting it.
+   ============================================================ */
+.drawioTheme {
+  /* Purple scale derived from --brand-lilac. Shade 6 is the brand colour
+     itself, which is the shade Mantine uses for `filled` variants.
+
+     These are named `blue` on purpose: Mantine is mounted without a theme, so
+     its `primaryColor` is the literal string "blue" and its components emit
+     `var(--mantine-color-blue-*)` at render time for every variant except
+     `filled`. Re-pointing the blue family is what actually recolours the
+     light / outline / subtle variants. */
+  --mantine-color-blue-0: #f7f4fb;
+  --mantine-color-blue-1: #ede5f5;
+  --mantine-color-blue-2: #dbccea;
+  --mantine-color-blue-3: #c4addc;
+  --mantine-color-blue-4: #ac8ecd;
+  --mantine-color-blue-5: #9872c0;
+  --mantine-color-blue-6: #8458b3; /* = --brand-lilac */
+  --mantine-color-blue-7: #6f449c;
+  --mantine-color-blue-8: #5b3681;
+  --mantine-color-blue-9: #492a6a;
+
+  /* Every derived variable has to be restated here rather than left to inherit.
+     A `var()` in a custom property is substituted on the element that declares
+     it, and Mantine declares these on <html> — so they would inherit into this
+     scope already resolved to Mantine blue. Re-declaring them makes them
+     resolve against the scale above instead. */
+  --mantine-color-blue-text: var(--mantine-color-blue-filled);
+  --mantine-color-blue-filled: var(--mantine-color-blue-6);
+  --mantine-color-blue-filled-hover: var(--mantine-color-blue-7);
+  --mantine-color-blue-light: rgba(132, 88, 179, 0.1);
+  --mantine-color-blue-light-hover: rgba(132, 88, 179, 0.12);
+  --mantine-color-blue-light-color: var(--mantine-color-blue-6);
+  --mantine-color-blue-outline: var(--mantine-color-blue-6);
+  --mantine-color-blue-outline-hover: rgba(132, 88, 179, 0.05);
+
+  --mantine-primary-color-0: var(--mantine-color-blue-0);
+  --mantine-primary-color-1: var(--mantine-color-blue-1);
+  --mantine-primary-color-2: var(--mantine-color-blue-2);
+  --mantine-primary-color-3: var(--mantine-color-blue-3);
+  --mantine-primary-color-4: var(--mantine-color-blue-4);
+  --mantine-primary-color-5: var(--mantine-color-blue-5);
+  --mantine-primary-color-6: var(--mantine-color-blue-6);
+  --mantine-primary-color-7: var(--mantine-color-blue-7);
+  --mantine-primary-color-8: var(--mantine-color-blue-8);
+  --mantine-primary-color-9: var(--mantine-color-blue-9);
+  --mantine-primary-color-filled: var(--mantine-color-blue-filled);
+  --mantine-primary-color-filled-hover: var(--mantine-color-blue-filled-hover);
+  --mantine-primary-color-light: var(--mantine-color-blue-light);
+  --mantine-primary-color-light-hover: var(--mantine-color-blue-light-hover);
+  --mantine-primary-color-light-color: var(--mantine-color-blue-light-color);
+  --mantine-color-anchor: var(--mantine-color-blue-6);
+
+  /* Same fonts as the rest of the site (loaded in app/layout.tsx). */
+  --mantine-font-family: var(--font-geist-sans);
+  --mantine-font-family-headings: var(--font-geist-sans);
+  --mantine-font-family-monospace: var(--font-geist-mono);
+}

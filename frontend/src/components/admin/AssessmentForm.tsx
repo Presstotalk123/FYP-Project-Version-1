@@ -85,6 +85,57 @@ const DIFFICULTY_COLOR: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Pool row — a single selectable item in the Content Pool with a hover state
+// so it reads like the app's interactive list rows.
+// ---------------------------------------------------------------------------
+
+interface PoolRowProps {
+  title: string;
+  badge?: { label: string; color: string };
+  added: boolean;
+  onAdd: () => void;
+}
+
+function PoolRow({ title, badge, added, onAdd }: PoolRowProps) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Group
+      justify="space-between"
+      wrap="nowrap"
+      gap="xs"
+      px="xs"
+      py={6}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        borderRadius: 'var(--mantine-radius-sm)',
+        backgroundColor: hovered ? 'var(--mantine-color-brand-0)' : 'transparent',
+        transition: 'background-color 120ms ease',
+      }}
+    >
+      <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+        {badge && (
+          <Badge color={badge.color} variant="light" size="xs" style={{ flexShrink: 0 }}>
+            {badge.label}
+          </Badge>
+        )}
+        <Text size="sm" lineClamp={1}>{title}</Text>
+      </Group>
+      <ActionIcon
+        size="sm"
+        variant="light"
+        color={added ? 'gray' : 'green'}
+        onClick={() => !added && onAdd()}
+        disabled={added}
+        title={added ? 'Already added' : 'Add to assessment'}
+      >
+        <IconPlus size={14} />
+      </ActionIcon>
+    </Group>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
@@ -306,27 +357,13 @@ export function AssessmentForm({ mode, initial }: Props) {
   ) => {
     const added = isAlreadySelected(type, id);
     return (
-      <Group key={`${type}-${id}`} justify="space-between" wrap="nowrap" py={4}
-        style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
-        <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-          {badge && (
-            <Badge color={badge.color} variant="light" size="xs" style={{ flexShrink: 0 }}>
-              {badge.label}
-            </Badge>
-          )}
-          <Text size="sm" lineClamp={1}>{title}</Text>
-        </Group>
-        <ActionIcon
-          size="sm"
-          variant="light"
-          color={added ? 'gray' : 'green'}
-          onClick={() => !added && addItem(type, id, title)}
-          disabled={added}
-          title={added ? 'Already added' : 'Add to assessment'}
-        >
-          <IconPlus size={14} />
-        </ActionIcon>
-      </Group>
+      <PoolRow
+        key={`${type}-${id}`}
+        title={title}
+        badge={badge}
+        added={added}
+        onAdd={() => addItem(type, id, title)}
+      />
     );
   };
 
@@ -342,7 +379,8 @@ export function AssessmentForm({ mode, initial }: Props) {
   return (
     <Stack gap="lg">
       {/* Metadata */}
-      <Paper withBorder p="md" radius="sm">
+      <Paper withBorder p="md" radius="md" shadow="xs">
+        <Title order={5} mb="sm">Details</Title>
         <Stack gap="sm">
           <TextInput
             label="Title"
@@ -399,7 +437,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       {/* Content selector */}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
         {/* Left — pool */}
-        <Paper withBorder p="md" radius="sm">
+        <Paper withBorder p="md" radius="md" shadow="xs">
           <Title order={5} mb="sm">Content Pool</Title>
 
           <Input
@@ -481,7 +519,7 @@ export function AssessmentForm({ mode, initial }: Props) {
         </Paper>
 
         {/* Right — selected items */}
-        <Paper withBorder p="md" radius="sm">
+        <Paper withBorder p="md" radius="md" shadow="xs">
           <Group justify="space-between" mb="sm">
             <Title order={5}>Selected Items</Title>
             <Group gap="xs">
@@ -535,10 +573,10 @@ export function AssessmentForm({ mode, initial }: Props) {
 
       {/* Actions */}
       <Group justify="flex-end">
-        <Button variant="default" onClick={() => router.push('/admin/assessments')}>
+        <Button variant="default" size="md" onClick={() => router.push('/admin/assessments')}>
           Cancel
         </Button>
-        <Button onClick={handleSave} loading={saving}>
+        <Button size="md" onClick={handleSave} loading={saving}>
           {mode === 'create' ? 'Create Assessment' : 'Save Changes'}
         </Button>
       </Group>

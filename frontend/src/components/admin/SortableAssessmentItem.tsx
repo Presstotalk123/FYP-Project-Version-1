@@ -51,9 +51,10 @@ export function SortableAssessmentItem({
     opacity: isDragging ? 0.5 : 1,
     background: 'var(--mantine-color-body)',
     border: '1px solid var(--mantine-color-default-border)',
-    borderRadius: 'var(--mantine-radius-sm)',
+    borderRadius: 'var(--mantine-radius-md)',
+    boxShadow: isDragging ? 'var(--mantine-shadow-md)' : 'var(--mantine-shadow-xs)',
     padding: '8px 12px',
-    marginBottom: 6,
+    marginBottom: 8,
     cursor: isDragging ? 'grabbing' : 'default',
   };
 

@@ -15,7 +15,7 @@ import logging
 import re
 import time
 from collections import deque
-from typing import Any, Iterator, Optional
+from typing import Any, AsyncIterator, Iterator, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -420,7 +420,7 @@ def stream_er_submission_grading(
     hint_level: int = 1,
     last_submit_report: Optional[dict[str, Any]] = None,
     submission_description: Optional[str] = None,
-) -> Iterator[str]:
+) -> Union[Iterator[str], AsyncIterator[str]]:
     """Stream Submit-mode grading as SSE, dispatching on the configured engine.
 
     This is the canonical public entrypoint shared by the ER-diagram bank and

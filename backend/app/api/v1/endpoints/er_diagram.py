@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -8,6 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import iterate_in_threadpool
 
 from app.config import settings
 from app.database import get_db
@@ -726,7 +728,7 @@ def _to_response(question: ERDiagramQuestion, *, hide_rubric_when_disabled: bool
     )
 
 
-def _generate_rubric_payload(
+async def _generate_rubric_payload(
     *,
     mode,
     notation: str,
@@ -747,7 +749,7 @@ def _generate_rubric_payload(
                 pass
             image_bytes = model_answer.file.read()
         try:
-            return erd_rubric_runner.generate_rubric(
+            return await erd_rubric_runner.generate_rubric(
                 mode=mode,
                 notation=notation,
                 problem_statement=problem_statement,
@@ -763,19 +765,23 @@ def _generate_rubric_payload(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Rubric generation failed: {exc}",
             ) from exc
-    return _call_dify_generate_rubric(
-        mode=mode,
-        notation=notation,
-        problem_statement=problem_statement,
-        refinement_instruction=refinement_instruction,
-        rubric_previous=rubric_previous,
-        instruction_history=instruction_history,
-        model_answer=model_answer,
+    # Legacy Dify path is a blocking httpx call; offload it so the async endpoint
+    # doesn't block the event loop (it keeps its own timeouts/retries internally).
+    return await asyncio.to_thread(
+        lambda: _call_dify_generate_rubric(
+            mode=mode,
+            notation=notation,
+            problem_statement=problem_statement,
+            refinement_instruction=refinement_instruction,
+            rubric_previous=rubric_previous,
+            instruction_history=instruction_history,
+            model_answer=model_answer,
+        )
     )
 
 
 @router.post("/rubric/generate", response_model=GenerateRubricResponse)
-def generate_er_rubric(
+async def generate_er_rubric(
     mode: GenerateRubricMode = Form(...),
     notation: str = Form("Chen"),
     problem_title: str = Form(...),
@@ -848,7 +854,7 @@ def generate_er_rubric(
             detail="model_answer must be an image file",
         )
 
-    rubric_payload = _generate_rubric_payload(
+    rubric_payload = await _generate_rubric_payload(
         mode=mode,
         notation=notation,
         problem_statement=statement,
@@ -1066,7 +1072,7 @@ def unpublish_er_question(
     return _to_response(_set_er_published(question_id, 0, db))
 
 
-def _stream_with_erd_tutor_state(
+async def _stream_with_erd_tutor_state(
     *,
     stream,
     db: Session,
@@ -1083,12 +1089,18 @@ def _stream_with_erd_tutor_state(
     ``stream_with_lab_persistence``); the persistence happens as a side effect
     after the terminal event is observed. The legacy Dify path never reaches
     here, so its behavior is unchanged.
+
+    The wrapped source is async (LangGraph runners), but a sync source is also
+    accepted defensively and pumped through the threadpool. The one-time
+    persistence writes are offloaded with ``asyncio.to_thread`` so they never
+    block the event loop.
     """
     from app.services.erd_tutor import persistence as erd_persistence
 
+    source = stream if hasattr(stream, "__aiter__") else iterate_in_threadpool(stream)
     buffer = ""
     done_payload: Optional[dict[str, Any]] = None
-    for chunk in stream:
+    async for chunk in source:
         yield chunk
         buffer += chunk
         while "\n\n" in buffer:
@@ -1111,7 +1123,8 @@ def _stream_with_erd_tutor_state(
         return
 
     structured = done_payload.get("structured_output") or {}
-    try:
+
+    def _persist():
         if mode == "Query":
             upd = structured.get("state_update") or {}
             next_stage = upd.get("next_ibl_stage") or conversation.ibl_stage
@@ -1172,6 +1185,10 @@ def _stream_with_erd_tutor_state(
                 mode="submit",
                 content=str(done_payload.get("text") or ""),
             )
+
+    try:
+        # Offload the blocking DB writes so they never block the event loop.
+        await asyncio.to_thread(_persist)
     except Exception:  # never let persistence break the already-delivered stream
         logger.exception("erd_tutor: failed to persist conversation state after %s", mode)
 
@@ -1265,7 +1282,7 @@ def get_erd_tutor_conversation(
 
 
 @router.post("/submission")
-def submit_er_diagram(
+async def submit_er_diagram(
     question_id: Optional[int] = Form(None),
     mode: ERSubmissionMode = Form(...),
     student_query: Optional[str] = Form(None),

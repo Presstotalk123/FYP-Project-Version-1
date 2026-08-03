@@ -33,7 +33,15 @@ export type ChatHistoryMessage = {
 };
 
 type ChatPanelProps = {
-  onSendMessage?: (message: string) => Promise<string>;
+  /**
+   * Send a message and resolve with the final assistant text. If the transport
+   * streams, call `onToken` with the accumulated text as it arrives; the panel
+   * renders it live (no typewriter). Non-streaming callers can ignore `onToken`.
+   */
+  onSendMessage?: (
+    message: string,
+    onToken?: (accumulatedText: string) => void,
+  ) => Promise<string>;
   injectedAssistantMessage?: string | null;
   disabled?: boolean;
   onSendingChange?: (value: boolean) => void;
@@ -162,28 +170,53 @@ export function ChatPanel({
 
     setIsSending(true);
     onSendingChange?.(true);
+    const assistantId = `assistant-${Date.now()}`;
+    let streamed = false;
     try {
-      const responseText = await onSendMessage(trimmed);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: normalizeMessage(responseText || "No response."),
-          animate: true,
-        },
-      ]);
+      // Live-render streamed tokens into a single assistant bubble (created on
+      // the first token). Streamed content is not typewriter-animated — the
+      // tokens themselves provide the incremental reveal.
+      const handleToken = (accumulatedText: string) => {
+        streamed = true;
+        const content = normalizeMessage(accumulatedText);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === assistantId)) {
+            return prev.map((m) => (m.id === assistantId ? { ...m, content } : m));
+          }
+          return [...prev, { id: assistantId, role: "assistant", content, animate: false }];
+        });
+      };
+
+      const responseText = await onSendMessage(trimmed, handleToken);
+      const finalContent = normalizeMessage(responseText || "No response.");
+      setMessages((prev) => {
+        // Streamed: finalize the existing bubble. Otherwise append with the
+        // typewriter animation, preserving the original non-streaming behavior.
+        if (streamed) {
+          return prev.map((m) =>
+            m.id === assistantId ? { ...m, content: finalContent, animate: false } : m,
+          );
+        }
+        return [
+          ...prev,
+          { id: assistantId, role: "assistant", content: finalContent, animate: true },
+        ];
+      });
     } catch (err) {
       const error = err as { message?: string };
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: "assistant",
-          content: error.message || "Failed to send query.",
-          animate: true,
-        },
-      ]);
+      const content = error.message || "Failed to send query.";
+      setMessages((prev) => {
+        // If a streaming bubble was already shown, replace it with the error.
+        if (prev.some((m) => m.id === assistantId)) {
+          return prev.map((m) =>
+            m.id === assistantId ? { ...m, content, animate: false } : m,
+          );
+        }
+        return [
+          ...prev,
+          { id: `assistant-error-${Date.now()}`, role: "assistant", content, animate: true },
+        ];
+      });
     } finally {
       setIsSending(false);
       onSendingChange?.(false);

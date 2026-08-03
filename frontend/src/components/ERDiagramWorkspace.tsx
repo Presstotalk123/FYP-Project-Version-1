@@ -255,13 +255,28 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
     return axiosErr.response?.data?.detail || axiosErr.message || "Request failed";
   };
 
-  const handleQuery = async (message: string): Promise<string> => {
-    const response = await erDiagramService.submit({
+  const handleQuery = async (
+    message: string,
+    onToken?: (accumulatedText: string) => void,
+  ): Promise<string> => {
+    let accumulated = "";
+    let finalText = "";
+    for await (const event of erDiagramService.submitStream({
       ...buildSubmissionRef(),
       mode: "Query",
       student_query: message,
-    });
-    return response.text;
+    })) {
+      const typedEvent = event as ERSubmissionStreamEvent;
+      if (typedEvent.event === "token") {
+        accumulated = typedEvent.data.text || accumulated + (typedEvent.data.chunk || "");
+        onToken?.(accumulated);
+      } else if (typedEvent.event === "done") {
+        finalText = typedEvent.data.text || accumulated;
+      } else if (typedEvent.event === "error") {
+        throw new Error(typedEvent.data.detail || "Query failed");
+      }
+    }
+    return finalText || accumulated;
   };
 
   const runSubmitStream = async (payload: ERSubmissionRequest): Promise<void> => {

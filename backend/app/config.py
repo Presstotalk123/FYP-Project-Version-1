@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     ERD_AZURE_OPENAI_VISION_DEPLOYMENT: str = "gpt-5.4"
     ERD_AZURE_OPENAI_GRADE_DEPLOYMENT: str = "gpt-5.4-mini"
     ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT: str = "gpt-5.4-nano"
+    # Per-request timeout (seconds) for the LangGraph ERD tutor/rubric LLM calls,
+    # mirroring DIFY_ER_*_TIMEOUT_SECONDS. Bounds a hung upstream call so it can't
+    # tie up the request indefinitely (max_retries=3 is set separately on the client).
+    ERD_AZURE_OPENAI_TIMEOUT_SECONDS: int = 60
     
     class Config:
         env_file = ".env"

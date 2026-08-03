@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import json
-import asyncio
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -211,20 +210,20 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
     """
     user_message = f"Review this submission:\n{json.dumps(context, indent=2)}"
 
-    def _call():
+    async def _once():
         provider = settings.AI_PROVIDER.lower()
 
         if provider in ("azure_openai", "openai"):
-            from openai import AzureOpenAI, OpenAI
+            from openai import AsyncAzureOpenAI, AsyncOpenAI
 
             if provider == "azure_openai":
-                client = AzureOpenAI(
+                client = AsyncAzureOpenAI(
                     api_key=settings.AI_API_KEY,
                     azure_endpoint=settings.AI_AZURE_ENDPOINT,
                     api_version=settings.AI_AZURE_API_VERSION,
                 )
             else:
-                client = OpenAI(api_key=settings.AI_API_KEY)
+                client = AsyncOpenAI(api_key=settings.AI_API_KEY)
 
             kwargs = {
                 "model": settings.AI_MODEL,
@@ -241,7 +240,7 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
             else:
                 kwargs["temperature"] = 0.2
 
-            response = client.chat.completions.create(**kwargs)
+            response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content or ""
 
         elif provider == "gemini":
@@ -256,8 +255,8 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
                 gemini_kwargs["temperature"] = settings.AI_TEMPERATURE
             else:
                 gemini_kwargs["temperature"] = 0.2
-                
-            response = model.generate_content(
+
+            response = await model.generate_content_async(
                 user_message,
                 generation_config=gemini_kwargs if gemini_kwargs else None
             )
@@ -278,9 +277,9 @@ async def call_ai_for_review(system_prompt: str, context: dict) -> dict:
 
     # 1 retry
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_call), timeout=35)
+        return await _once()
     except Exception:
-        return await asyncio.wait_for(asyncio.to_thread(_call), timeout=35)
+        return await _once()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

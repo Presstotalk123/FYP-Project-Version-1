@@ -33,6 +33,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ERDiagramWorkspaceQuestion } from "@/components/ERDiagramWorkspace";
+import drawioTheme from "@/components/DrawioTheme.module.css";
 
 type DrawioFocusLayoutProps = {
   question: ERDiagramWorkspaceQuestion;
@@ -60,6 +61,10 @@ export type DrawioFocusLayoutHandle = {
 const TOOLBAR_HEIGHT = 48;
 const DRAWER_SHADOW = "0 8px 24px rgba(15, 23, 42, 0.12)";
 const PILL_WIDTH = 104;
+
+// Scoped brand-purple + Geist override for Mantine (DrawioTheme.module.css).
+// Portalled components render outside this tree, so they carry the class too.
+const BRAND_THEME_CLASS = drawioTheme.drawioTheme;
 
 export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocusLayoutProps>(
   function DrawioFocusLayout(
@@ -181,6 +186,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
 
   return (
     <Box
+      className={BRAND_THEME_CLASS}
       style={{
         position: "fixed",
         inset: 0,
@@ -204,7 +210,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           position: "relative",
         }}
       >
-        <Tooltip label="Exit focus mode" withArrow>
+        <Tooltip label="Exit focus mode" withArrow className={BRAND_THEME_CLASS}>
           <ActionIcon
             variant="subtle"
             size="lg"
@@ -227,7 +233,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
                 File
               </Button>
             </Menu.Target>
-            <Menu.Dropdown>
+            <Menu.Dropdown className={BRAND_THEME_CLASS}>
               <Menu.Item
                 leftSection={<IconDeviceFloppy size={14} />}
                 onClick={onSaveToFile}
@@ -352,7 +358,9 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
                 width: 4,
                 height: 32,
                 borderRadius: 4,
-                background: isResizing ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-gray-4)",
+                background: isResizing
+                  ? "var(--mantine-primary-color-filled)"
+                  : "var(--mantine-color-gray-4)",
                 transition: "background-color 0.2s",
               }}
             />
@@ -387,6 +395,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
             {visibleRightDrawer === "rubric" ? "Rubric" : "AI Chat"}
           </Text>
         }
+        classNames={{ root: BRAND_THEME_CLASS }}
         styles={{
           content: { boxShadow: DRAWER_SHADOW, display: "flex", flexDirection: "column" },
           inner: { pointerEvents: "none" },
@@ -428,6 +437,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
         title="Exit focus mode?"
         centered
         withinPortal
+        classNames={{ root: BRAND_THEME_CLASS }}
       >
         <Stack gap="md">
           <Text size="sm">

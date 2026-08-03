@@ -249,7 +249,10 @@ export function ChatPanel({
                 borderRadius: 12,
                 background:
                   message.role === "user"
-                    ? "var(--mantine-color-blue-filled)"
+                    // Follows the surrounding theme: blue by default, brand
+                    // purple inside the ER-diagram workspace, which scopes it
+                    // via DrawioTheme.module.css.
+                    ? "var(--mantine-primary-color-filled)"
                     : "var(--mantine-color-gray-1)",
                 color:
                   message.role === "user"

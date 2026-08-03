@@ -196,19 +196,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
   const [isDirty, setIsDirty] = useState(false);
   const { user } = useAuth();
   const draftKey = draftStorageKey(user?.id, question.id, labContext);
-  // Seeded once the user is known. Auth resolves in well under a second while
-  // the draw.io iframe takes several to boot, and DrawioBoard only reads this
-  // when the editor reports `init`, so the draft is in place before it is asked
-  // for. If auth somehow lost that race the student simply starts from blank.
   const [initialDrawioXml, setInitialDrawioXml] = useState("");
-  const draftRestoredRef = useRef(false);
-
-  useEffect(() => {
-    if (draftRestoredRef.current || draftKey === null) return;
-    draftRestoredRef.current = true;
-    const draft = readDraft(draftKey);
-    if (draft) setInitialDrawioXml(draft);
-  }, [draftKey]);
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
   const [descText, setDescText] = useState("");
@@ -477,6 +465,17 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
       setIsDirty(true);
     };
     reader.readAsText(file);
+  };
+
+  // The only way into the editor, so the only place the draft needs reading.
+  // Read it here rather than once per page visit: the student can leave focus
+  // mode and come back without a reload, and the draft autosaved in between has
+  // to be the one that returns. Batched with setSubmissionMode so DrawioBoard
+  // mounts with the value already in place, rather than depending on an effect
+  // landing before draw.io boots.
+  const enterDrawioMode = () => {
+    setInitialDrawioXml(readDraft(draftKey));
+    setSubmissionMode("drawio");
   };
 
   const handleExitFocusMode = () => {
@@ -832,7 +831,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
                       radius="md"
                       p="md"
                       style={{ cursor: "pointer" }}
-                      onClick={() => setSubmissionMode("drawio")}
+                      onClick={enterDrawioMode}
                     >
                       <Stack gap={4}>
                         <Text fw={600}>Submit via draw.io</Text>

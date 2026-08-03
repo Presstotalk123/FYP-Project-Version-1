@@ -197,8 +197,11 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
     iframeRef.current?.contentWindow?.postMessage(JSON.stringify(message), "*");
   };
 
+  // `autosave: 1` is what makes the editor emit `autosave` events on every
+  // change. It belongs on the load message — it is not a URL parameter — and
+  // without it onAutosave never fires and no draft is ever captured.
   const sendLoad = () => {
-    postToIframe({ action: "load", xml: initialXmlRef.current });
+    postToIframe({ action: "load", autosave: 1, xml: initialXmlRef.current });
   };
 
   const stopRetry = () => {
@@ -242,7 +245,7 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
         }),
       loadXml: (xml: string) => {
         initialXmlRef.current = xml;
-        postToIframe({ action: "load", xml });
+        postToIframe({ action: "load", autosave: 1, xml });
       },
     }),
     [],

@@ -52,6 +52,8 @@ type ChatPanelProps = {
 const TYPEWRITER_INTERVAL_MS = 12;
 const TYPEWRITER_CHARS_PER_TICK = 4;
 
+const normalizeMessage = (value: string): string => value.replace(/\\n/g, "\n");
+
 function TypewriterMessage({
   message,
   onTextUpdate,
@@ -109,6 +111,14 @@ export function ChatPanel({
       content: m.content,
       animate: false,
     }));
+    // The transcript already ends with the tutor's latest reply, and the parent
+    // passes that same text as `injectedAssistantMessage` (it also feeds the
+    // Problem panel's feedback card). Record it as already shown so the
+    // injection effect below does not append a second identical bubble.
+    const lastAssistant = [...historyMessages].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant) {
+      lastInjectedMessageRef.current = normalizeMessage(lastAssistant.content.trim());
+    }
     // Greeting first, then the persisted transcript, then anything the user
     // already typed this session (normally nothing — history loads on mount).
     setMessages((prev) => [
@@ -118,7 +128,6 @@ export function ChatPanel({
     ]);
   }, [historyMessages]);
 
-  const normalizeMessage = (value: string): string => value.replace(/\\n/g, "\n");
   const scrollToLatest = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;

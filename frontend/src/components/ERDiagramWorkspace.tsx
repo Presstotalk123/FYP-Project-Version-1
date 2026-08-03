@@ -339,6 +339,12 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
         // ignore sessionStorage write failures
       }
       setIsDirty(false);
+      // Reveal the tutor's feedback now that the result is in. Deliberately
+      // here and not when Submit is clicked: this only runs on the success
+      // path, so a failed or interrupted submission leaves the panel alone
+      // rather than opening it on nothing. No-op outside focus mode, where
+      // the chat tab is already the default.
+      focusLayoutRef.current?.openAiChat();
     } catch (err) {
       setSubmitError(getErrorMessage(err));
     } finally {

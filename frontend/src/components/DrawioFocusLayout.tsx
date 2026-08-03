@@ -58,6 +58,8 @@ type ResizingSide = "problem" | "right" | null;
 
 export type DrawioFocusLayoutHandle = {
   requestExit: () => void;
+  /** Reveal the AI Chat panel — used to surface tutor feedback on submit. */
+  openAiChat: () => void;
 };
 
 const TOOLBAR_HEIGHT = 48;
@@ -185,7 +187,14 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     onExit();
   }, [isDirty, onExit]);
 
-  useImperativeHandle(ref, () => ({ requestExit: handleExitClick }), [handleExitClick]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      requestExit: handleExitClick,
+      openAiChat: () => setRightPanel("chat"),
+    }),
+    [handleExitClick],
+  );
 
   const handleConfirmSaveAndExit = () => {
     onSaveToFile();

@@ -3,6 +3,8 @@ import time
 import threading
 from typing import Tuple, List, Dict, Any
 
+from app.core.query_deadline import attach_deadline
+
 
 class LabQueryTimeoutError(Exception):
     """Custom exception for lab query timeout"""
@@ -53,6 +55,7 @@ class LabQueryExecutor:
             try:
                 # Read-write connection for lab sessions
                 conn = sqlite3.connect(self.db_path)
+                attach_deadline(conn, self.timeout_seconds)
                 cursor = conn.cursor()
 
                 # Execute query (all statements allowed)

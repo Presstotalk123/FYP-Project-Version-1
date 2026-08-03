@@ -32,11 +32,21 @@ _ADVANCED_GENERIC_ERROR = (
 )
 
 
-def _grade_advanced_submission(db_path: str, query: str, question: Question):
+def _grade_advanced_submission(
+    db_path: str,
+    query: str,
+    test_script: str,
+    check_query: str,
+    correct_answer_hash: str,
+):
     """
     Grade a student's submission for an Advanced SQL Testing question: apply
     the submission, run the hidden Test Script, run the hidden Check Query,
     and compare its hash to the stored reference hash.
+
+    Takes the question's grading fields as plain values (not the ORM object) so
+    it can run *after* the request has released its Postgres connection back to
+    the pool — the multi-second SQLite pipeline must not pin a DB connection.
 
     Returns:
         Tuple of (is_correct, error_message, execution_time_ms). Never
@@ -46,7 +56,7 @@ def _grade_advanced_submission(db_path: str, query: str, question: Question):
     try:
         is_permissive_but_safe(query, "student")
         columns, results, execution_time_ms = run_advanced_pipeline(
-            db_path, query, question.test_script, question.check_query
+            db_path, query, test_script, check_query
         )
     except AdvancedGradingError as e:
         execution_time_ms = 0.0
@@ -58,7 +68,7 @@ def _grade_advanced_submission(db_path: str, query: str, question: Question):
         # underlying error text (could reveal hidden table/column names).
         return False, _ADVANCED_GENERIC_ERROR, execution_time_ms
 
-    is_correct = compute_advanced_hash(columns, results) == question.correct_answer_hash
+    is_correct = compute_advanced_hash(columns, results) == correct_answer_hash
     return is_correct, None, execution_time_ms
 
 
@@ -83,6 +93,14 @@ def execute_query(
     Raises:
         HTTPException: If question not found or execution fails
     """
+    # Capture the caller's identity up front. After the read phase commits below,
+    # the ORM expires attributes on `current_user`/`question`, so we read everything
+    # we need into plain locals now to avoid triggering surprise reload queries
+    # (each of which would re-check-out a scarce Postgres connection).
+    user_id = current_user.id
+    user_role = current_user.role.value
+
+    # --- READ PHASE (short Postgres transaction) ---
     # Get the question
     question = db.query(Question).filter(
         Question.id == execute_request.question_id,
@@ -95,14 +113,23 @@ def execute_query(
             detail="Question not found"
         )
 
+    # Snapshot the fields needed after the connection is released.
+    q_owner_assessment_id = question.owner_assessment_id
+    q_advanced = question.advanced_sql_testing
+    q_test_script = question.test_script
+    q_check_query = question.check_query
+    q_correct_hash = question.correct_answer_hash
+    q_hide_correctness = bool(question.hide_correctness)
+    db_path = get_question_db_path(question.db_file_path)
+
     # Assessment timer: cloned assessment content carries owner_assessment_id. When set,
     # enforce lazy expiration before running and credit the query time afterwards so the
     # student doesn't lose assessment time while the query executes.
     assessment_session = None
     query_start = None
-    if question.owner_assessment_id:
+    if q_owner_assessment_id:
         assessment_session = get_active_assessment_session(
-            db, question.owner_assessment_id, current_user.id
+            db, q_owner_assessment_id, user_id
         )
         if assessment_session is None:
             # Session already submitted/expired — the assessment is over for this student.
@@ -116,15 +143,21 @@ def execute_query(
         # too — not just the handler's own execution time.
         query_start = getattr(request.state, "received_at", None) or datetime.now(timezone.utc)
 
-    # Get the database file path
-    db_path = get_question_db_path(question.db_file_path)
+    # Release the Postgres connection back to the pool before running the untrusted
+    # SQLite query. That query can take up to 5–15s; holding a connection (and, behind
+    # PgBouncer, a real server backend) for its whole duration is what exhausts the
+    # base-tier connection budget under load. Committing here ends the read transaction
+    # so the connection is freed; the write phase re-checks one out for a few ms.
+    db.commit()
 
+    # --- QUERY PHASE (no Postgres transaction held) ---
     # Execution + persistence run inside try/finally so the query time is credited back even
     # if something raises (e.g. a timeout under load) — the spec credits Error responses too.
     try:
-        if question.advanced_sql_testing:
+        if q_advanced:
             is_correct, error_message, execution_time_ms = _grade_advanced_submission(
-                db_path, execute_request.query, question
+                db_path, execute_request.query,
+                q_test_script, q_check_query, q_correct_hash,
             )
             result = {
                 "columns": [],
@@ -145,15 +178,16 @@ def execute_query(
                 is_correct = validate_answer(
                     result["raw_results"],
                     result["columns"],
-                    question.correct_answer_hash
+                    q_correct_hash
                 )
             else:
                 # Query failed, so it's definitely not correct
                 is_correct = False
 
+        # --- WRITE PHASE (short Postgres transaction) ---
         # Log the attempt
         attempt = Attempt(
-            user_id=current_user.id,
+            user_id=user_id,
             question_id=execute_request.question_id,
             query=execute_request.query,
             is_correct=1 if is_correct else 0,
@@ -164,7 +198,7 @@ def execute_query(
 
         # Update or create user progress
         progress = db.query(UserProgress).filter(
-            UserProgress.user_id == current_user.id,
+            UserProgress.user_id == user_id,
             UserProgress.question_id == execute_request.question_id
         ).first()
 
@@ -180,7 +214,7 @@ def execute_query(
         else:
             # Create new progress record
             progress = UserProgress(
-                user_id=current_user.id,
+                user_id=user_id,
                 question_id=execute_request.question_id,
                 completed=1 if is_correct else 0,
                 attempts_count=1,
@@ -193,7 +227,7 @@ def execute_query(
         old_attempts = (
             db.query(Attempt)
             .filter(
-                Attempt.user_id == current_user.id,
+                Attempt.user_id == user_id,
                 Attempt.question_id == execute_request.question_id
             )
             .order_by(Attempt.submitted_at.desc())
@@ -213,7 +247,7 @@ def execute_query(
     # Real correctness is always persisted above (Attempt/UserProgress) for grading, but
     # questions with hide_correctness on don't reveal it to students in the response — they
     # get is_correct=None and the frontend shows a neutral "Submitted" state.
-    student_hidden = bool(question.hide_correctness) and current_user.role.value == "student"
+    student_hidden = q_hide_correctness and user_role == "student"
 
     # Return the response, carrying the freshly-credited deadline so the frontend can resume
     # its countdown without a separate session round-trip.

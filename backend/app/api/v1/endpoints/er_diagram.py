@@ -1418,6 +1418,14 @@ async def submit_er_diagram(
                 student_query=query_text or "",
                 submission_description=desc_text or None,
             )
+        # Release the pooled Postgres connection before the AI grading stream runs.
+        # The read phase above leaves a transaction open, which otherwise pins a
+        # connection (and, behind PgBouncer, a real backend) for the whole up-to-60s
+        # stream — exhausting the base-tier connection budget under load. Committing
+        # here returns the connection to the pool; the lazy end-of-stream persistence
+        # re-acquires one for its brief write. `erd_conversation` stays attached
+        # (expired, not detached), so its later reload inside _persist is fine.
+        db.commit()
         return StreamingResponse(
             stream,
             media_type="text/event-stream",
@@ -1575,6 +1583,12 @@ async def submit_er_diagram(
                 student_query=query_text or "",
             )
 
+    # Release the pooled Postgres connection before the AI grading stream runs, so it
+    # isn't pinned for the whole up-to-60s stream (see the note in the bank-mode branch
+    # above). The persistence wrappers re-acquire a connection lazily at end-of-stream:
+    # stream_with_lab_persistence uses plain ids, and _stream_with_erd_tutor_state uses
+    # the still-attached `erd_conversation`.
+    db.commit()
     return StreamingResponse(
         wrapped_stream,
         media_type="text/event-stream",

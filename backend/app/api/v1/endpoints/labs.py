@@ -900,20 +900,33 @@ def execute_query(
         lab, current_user, db, getattr(request.state, "received_at", None)
     )
 
+    # Snapshot what the query + write phases need, then release the Postgres connection
+    # before running the up-to-15s SQLite query. Holding a connection (and, behind
+    # PgBouncer, a real server backend) for the whole query is what exhausts the
+    # base-tier connection budget under load. db.commit() ends the read transaction so
+    # the connection returns to the pool; the write phase re-checks one out for a few ms.
+    lab_type = lab.lab_type
+    session_db_path = session.db_file_path
+    sess_id = session.id
+    sess_lab_id = session.lab_id
+    user_id = current_user.id
+    db.commit()
+
     # try/finally so the query time is credited even if execution raises (e.g. timeout).
     try:
-        # Execute query on student's database (dispatch on lab_type)
-        if lab.lab_type == "graph":
-            result = execute_graph_query(session.db_file_path, execute_request.query, timeout=15)
+        # Execute query on student's database (dispatch on lab_type) — no Postgres
+        # transaction is held here.
+        if lab_type == "graph":
+            result = execute_graph_query(session_db_path, execute_request.query, timeout=15)
         else:
-            result = execute_lab_query(session.db_file_path, execute_request.query, timeout=15)
+            result = execute_lab_query(session_db_path, execute_request.query, timeout=15)
 
         # Save attempt to history (skip in review mode)
         if not execute_request.is_review_mode:
             attempt = LabAttempt(
-                session_id=session.id,
-                lab_id=session.lab_id,
-                user_id=current_user.id,
+                session_id=sess_id,
+                lab_id=sess_lab_id,
+                user_id=user_id,
                 query=execute_request.query,
                 success=1 if result["success"] else 0,
                 execution_time_ms=result["execution_time_ms"],
@@ -1700,11 +1713,20 @@ def validate_task_answer(
         validate_lab, current_user, db, getattr(request.state, "received_at", None)
     )
 
+    # Snapshot the values the query + comparison need, then release the Postgres
+    # connection before the up-to-15s SQLite query so it isn't pinned during execution
+    # (see the note in execute_query above). Nothing is written here, so the connection
+    # is only re-acquired for the credit_query_time update in finally.
+    lab_type = validate_lab.lab_type if validate_lab else None
+    session_db_path = session.db_file_path
+    task_correct_hash = task.correct_answer_hash
+    db.commit()
+
     try:
-        if validate_lab and validate_lab.lab_type == "graph":
-            result = execute_graph_query(session.db_file_path, validate_request.user_query, timeout=15)
+        if lab_type == "graph":
+            result = execute_graph_query(session_db_path, validate_request.user_query, timeout=15)
         else:
-            result = execute_lab_query(session.db_file_path, validate_request.user_query, timeout=15)
+            result = execute_lab_query(session_db_path, validate_request.user_query, timeout=15)
     finally:
         if query_start is not None:
             credit_query_time(db, assessment_session, query_start)
@@ -1722,8 +1744,8 @@ def validate_task_answer(
     ]
     user_hash = generate_hash(results_tuples, result["columns"])
 
-    # Compare hashes
-    is_correct = user_hash == task.correct_answer_hash
+    # Compare hashes (task_correct_hash was captured before the connection was released)
+    is_correct = user_hash == task_correct_hash
 
     return LabTaskValidateResponse(
         is_correct=is_correct,

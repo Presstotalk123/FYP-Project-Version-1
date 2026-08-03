@@ -92,6 +92,22 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def _raise_threadpool_limit():
+    """Raise the cap on concurrent sync endpoint handlers.
+
+    Every endpoint here is a synchronous `def`, so FastAPI runs it in AnyIO's
+    threadpool, which defaults to only 40 threads. Under a burst of student
+    submissions the 41st+ request would queue behind that cap even though the
+    DB pool has room. Lift it to settings.THREADPOOL_MAX_THREADS so throughput
+    is bounded by the connection pool (which fails fast) rather than by an
+    invisible thread limit (which just hangs)."""
+    import anyio
+    anyio.to_thread.current_default_thread_limiter().total_tokens = (
+        settings.THREADPOOL_MAX_THREADS
+    )
+
+
 @app.middleware("http")
 async def stamp_received_at(request: Request, call_next):
     """Record when the request entered the app, before it waits for a threadpool worker.

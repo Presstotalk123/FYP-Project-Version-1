@@ -8,6 +8,23 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./sql_learning.db"
 
+    # Connection-pool sizing (PostgreSQL only). Defaults are tuned for Azure
+    # Database for PostgreSQL *Burstable/base* tier, which allows only ~50
+    # max_connections (~35 after Azure's own reservations). With N gunicorn
+    # workers the server sees up to N*(DB_POOL_SIZE + DB_MAX_OVERFLOW)
+    # connections, so keep workers*(pool+overflow) under ~35 unless the
+    # built-in PgBouncer (port 6432, transaction mode) is enabled.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_TIMEOUT: int = 10       # seconds to wait for a free connection, then fail fast
+    DB_POOL_RECYCLE: int = 1800     # recycle before Azure reaps idle connections
+
+    # Upper bound on concurrent sync (`def`) endpoint handlers. FastAPI runs
+    # them in a threadpool that defaults to 40; raised so a burst of student
+    # "Run" clicks queues less. Each concurrent handler may run one SQLite
+    # query, so size this to the App Service instance's CPU headroom.
+    THREADPOOL_MAX_THREADS: int = 100
+
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

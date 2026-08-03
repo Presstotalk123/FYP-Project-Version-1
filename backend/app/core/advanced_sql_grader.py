@@ -21,6 +21,7 @@ import time
 from typing import Tuple, List, Dict, Any
 
 from app.core.answer_validator import generate_hash
+from app.core.query_deadline import attach_deadline
 
 
 class AdvancedGradingError(Exception):
@@ -144,6 +145,8 @@ def run_advanced_pipeline(
             source = sqlite3.connect(f"file:{base_db_path}?mode=ro", uri=True)
             dest = sqlite3.connect(":memory:")
             source.backup(dest)
+            # Bound the student SQL / test script / check query that run on dest.
+            attach_deadline(dest, timeout_seconds)
             source.close()
             source = None
 

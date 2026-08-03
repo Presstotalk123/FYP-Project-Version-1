@@ -30,6 +30,7 @@ export function HeaderNav() {
   }
 
   const studentLinks = [
+    { label: "Course Info", href: "/student/course" },
     { label: "SQL Questions", href: "/student", exact: true },
     { label: "SQL Labs", href: "/student/labs" },
     { label: "SQL Assessments", href: "/student/assessments" },

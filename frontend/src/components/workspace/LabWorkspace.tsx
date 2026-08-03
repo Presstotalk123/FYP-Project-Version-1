@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Box,
   Text,
@@ -32,6 +33,7 @@ import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import { LabDetail, LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
+import { queryKeys } from '@/services/query-keys';
 import { chatbotService, LabQueryReviewResponse } from '@/services/chatbot.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
@@ -64,8 +66,12 @@ export function LabWorkspace({
   weight,
 }: LabWorkspaceProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const taskOrderChanged = useRef(false);
+  // Becomes true once the task list has been seeded from the cache/server, so the
+  // cache-mirror effect below never overwrites the cache with the initial empty [].
+  const tasksSeededRef = useRef(false);
   const timer = useAssessmentTimer();
   const progress = useAssessmentProgress();
 
@@ -186,31 +192,47 @@ export function LabWorkspace({
     return () => controller.abort();
   }, [labId]);
 
-  // Fetch tasks on mount
+  // Task list is static content — cache it (see providers.tsx) so switching
+  // between assessment items and returning does not re-download it. fetchQuery
+  // serves the cached value instantly on revisit; it only hits the network when
+  // the cache is empty or was invalidated by a staff edit (mirror effect below).
   useEffect(() => {
-    const controller = new AbortController();
+    if (!labId) return;
+    let cancelled = false;
 
-    const fetchTasks = async () => {
-      if (!labId) return;
-
+    const loadTasks = async () => {
       setIsLoadingTasks(true);
       try {
-        const tasksData = await labService.getLabTasks(labId, controller.signal);
-        if (controller.signal.aborted) return;
+        const tasksData = await queryClient.fetchQuery({
+          queryKey: queryKeys.labTasks(labId),
+          queryFn: ({ signal }) => labService.getLabTasks(labId, signal),
+          staleTime: Infinity,
+        });
+        if (cancelled) return;
         setTasks(tasksData);
+        tasksSeededRef.current = true;
       } catch (err) {
-        if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
+        if (cancelled) return;
         console.error('Failed to fetch tasks:', err);
       } finally {
-        if (!controller.signal.aborted) {
-          setIsLoadingTasks(false);
-        }
+        if (!cancelled) setIsLoadingTasks(false);
       }
     };
 
-    fetchTasks();
-    return () => controller.abort();
-  }, [labId]);
+    loadTasks();
+    return () => {
+      cancelled = true;
+    };
+  }, [labId, queryClient]);
+
+  // Keep the cached task list in sync with local staff edits (create/delete/
+  // update/reorder/assign-answer) so a later remount reseeds the edited list.
+  // Guarded by the seed ref so the initial empty [] never clobbers the cache.
+  useEffect(() => {
+    if (tasksSeededRef.current) {
+      queryClient.setQueryData(queryKeys.labTasks(labId), tasks);
+    }
+  }, [tasks, labId, queryClient]);
 
   // Fetch task progress on mount
   useEffect(() => {

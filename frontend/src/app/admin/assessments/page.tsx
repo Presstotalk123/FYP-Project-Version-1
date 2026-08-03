@@ -1,18 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
-import { Assessment } from '@/types/assessment.types';
 import { assessmentService } from '@/services/assessment.service';
+import { queryKeys } from '@/services/query-keys';
 
 /* ── SVG icons ── */
 const IconPlus = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
   </svg>
 );
 const IconPublish = () => (
@@ -61,10 +68,8 @@ const IconUsers = () => (
 
 export default function AdminAssessmentsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [assessmentToDelete, setAssessmentToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -72,23 +77,18 @@ export default function AdminAssessmentsPage() {
   const [assessmentToStop, setAssessmentToStop] = useState<number | null>(null);
   const [stopping, setStopping] = useState(false);
 
-  useEffect(() => {
-    fetchAssessments();
-  }, []);
+  // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
+  const assessmentsQuery = useQuery({ queryKey: queryKeys.assessments, queryFn: () => assessmentService.getAssessments() });
+  const assessments = assessmentsQuery.data ?? [];
+  const loading = assessmentsQuery.isLoading;
+  const error = assessmentsQuery.error
+    ? ((assessmentsQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load assessments')
+    : null;
+  const refreshing = assessmentsQuery.isFetching;
+  const refresh = () => assessmentsQuery.refetch();
 
-  const fetchAssessments = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await assessmentService.getAssessments();
-      setAssessments(data);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load assessments');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // After a mutation, mark the cache stale so it re-fetches once.
+  const invalidateAssessments = () => queryClient.invalidateQueries({ queryKey: queryKeys.assessments });
 
   const handlePublishToggle = async (id: number, isPublished: boolean) => {
     try {
@@ -99,7 +99,7 @@ export default function AdminAssessmentsPage() {
         await assessmentService.publishAssessment(id);
         notifications.show({ title: 'Success', message: 'Assessment published successfully', color: 'green' });
       }
-      fetchAssessments();
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -114,7 +114,7 @@ export default function AdminAssessmentsPage() {
     try {
       await assessmentService.startAssessment(id);
       notifications.show({ title: 'Success', message: 'Assessment started successfully', color: 'green' });
-      fetchAssessments();
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -139,7 +139,7 @@ export default function AdminAssessmentsPage() {
       notifications.show({ title: 'Success', message: 'Assessment stopped. All active students were submitted.', color: 'green' });
       setStopModalOpen(false);
       setAssessmentToStop(null);
-      fetchAssessments();
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -165,7 +165,7 @@ export default function AdminAssessmentsPage() {
       notifications.show({ title: 'Success', message: 'Assessment deleted successfully', color: 'green' });
       setDeleteModalOpen(false);
       setAssessmentToDelete(null);
-      fetchAssessments();
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -188,6 +188,10 @@ export default function AdminAssessmentsPage() {
             <p>Create and manage student assessments.</p>
           </div>
           <div className="button-row">
+            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+              <IconRefresh />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
             <button className="btn btn-brand" onClick={() => router.push('/admin/assessments/new')}>
               <IconPlus />
               Create Assessment

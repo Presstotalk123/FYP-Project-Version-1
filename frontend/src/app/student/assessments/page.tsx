@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Title,
   Stack,
@@ -14,43 +14,46 @@ import {
   Alert,
   SimpleGrid,
 } from '@mantine/core';
-import { IconAlertCircle, IconClipboardList, IconPlayerPlay, IconClock } from '@tabler/icons-react';
+import { IconAlertCircle, IconClipboardList, IconPlayerPlay, IconClock, IconRefresh } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
-import { StudentAssessmentListItem } from '@/types/assessment.types';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
+import { queryKeys } from '@/services/query-keys';
 
 export default function StudentAssessmentsPage() {
   const router = useRouter();
 
-  const [assessments, setAssessments] = useState<StudentAssessmentListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchAssessments();
-  }, []);
-
-  const fetchAssessments = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await studentAssessmentService.list();
-      setAssessments(data);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load assessments');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Session-cached (see providers.tsx). Invalidated after submitting an
+  // assessment (see the overview page) so the list reflects the new status.
+  const assessmentsQuery = useQuery({
+    queryKey: queryKeys.studentAssessments,
+    queryFn: () => studentAssessmentService.list(),
+  });
+  const assessments = assessmentsQuery.data ?? [];
+  const loading = assessmentsQuery.isLoading;
+  const error = assessmentsQuery.error
+    ? ((assessmentsQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load assessments')
+    : null;
+  const refreshing = assessmentsQuery.isFetching;
+  const refresh = () => assessmentsQuery.refetch();
 
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
       <DashboardLayout>
         <Stack gap="md">
-          <Title order={2}>Assessments</Title>
+          <Group justify="space-between" align="center">
+            <Title order={2}>Assessments</Title>
+            <Button
+              variant="default"
+              leftSection={<IconRefresh size={16} />}
+              loading={refreshing}
+              onClick={refresh}
+              title="Reload latest data from the server"
+            >
+              Refresh
+            </Button>
+          </Group>
 
           {loading && (
             <Group justify="center" py="xl">

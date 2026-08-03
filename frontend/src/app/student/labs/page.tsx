@@ -1,14 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { notifications } from '@mantine/notifications';
+import { useQuery } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { Lab } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
+import { queryKeys } from '@/services/query-keys';
 
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+  </svg>
+);
 const IconPlay = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polygon points="5 3 19 12 5 21 5 3"/>
@@ -22,25 +28,17 @@ const IconEye = () => (
 
 export default function StudentLabsPage() {
   const router = useRouter();
-  const [labs, setLabs] = useState<Lab[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { fetchLabs(); }, []);
-
-  const fetchLabs = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await labService.getLabs();
-      setLabs(data);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load labs');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Session-cached (see providers.tsx); student-scoped key, separate from the
+  // staff labs cache even though they share the /labs endpoint.
+  const labsQuery = useQuery({ queryKey: queryKeys.studentLabs, queryFn: () => labService.getLabs() });
+  const labs = labsQuery.data ?? [];
+  const loading = labsQuery.isLoading;
+  const error = labsQuery.error
+    ? ((labsQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load labs')
+    : null;
+  const refreshing = labsQuery.isFetching;
+  const refresh = () => labsQuery.refetch();
 
   const handleLabAction = (lab: Lab) => {
     if (lab.is_running) {
@@ -57,6 +55,12 @@ export default function StudentLabsPage() {
           <div>
             <h2>Database Labs</h2>
             <p>Join a running lab or preview the schema of an upcoming one.</p>
+          </div>
+          <div className="button-row">
+            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+              <IconRefresh />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
           </div>
         </div>
 

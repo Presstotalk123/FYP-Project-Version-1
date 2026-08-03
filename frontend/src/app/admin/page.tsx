@@ -1,60 +1,52 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { questionService } from '@/services/question.service';
+import { queryKeys } from '@/services/query-keys';
 import api from '@/services/api.service';
 
-interface Stats {
-  totalQuestions: number;
-  totalStudents: number;
-  totalAttempts: number;
-}
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+  </svg>
+);
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({ totalQuestions: 0, totalStudents: 0, totalAttempts: 0 });
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true);
-        const questions = await questionService.getQuestions();
+  // Cached session-wide (see providers.tsx). `questions` is shared with the
+  // Problems page, so visiting both fetches it only once.
+  const questionsQuery = useQuery({
+    queryKey: queryKeys.questions,
+    queryFn: () => questionService.getQuestions(),
+  });
+  const usersQuery = useQuery({
+    queryKey: queryKeys.users,
+    queryFn: async () => (await api.get('/users')).data as { role: string }[],
+  });
+  const attemptsQuery = useQuery({
+    queryKey: queryKeys.attempts,
+    queryFn: async () => (await api.get('/attempts')).data as unknown[],
+  });
 
-        let studentCount = 0;
-        try {
-          const usersResponse = await api.get('/users');
-          studentCount = usersResponse.data.filter((u: { role: string }) => u.role === 'student').length;
-        } catch {
-          studentCount = 0;
-        }
+  const loading = questionsQuery.isLoading;
+  const stats = {
+    totalQuestions: questionsQuery.data?.length ?? 0,
+    totalStudents: usersQuery.data?.filter((u) => u.role === 'student').length ?? 0,
+    totalAttempts: attemptsQuery.data?.length ?? 0,
+  };
 
-        let attemptCount = 0;
-        try {
-          const attemptsResponse = await api.get('/attempts');
-          attemptCount = attemptsResponse.data.length;
-        } catch {
-          attemptCount = 0;
-        }
-
-        setStats({
-          totalQuestions: questions.length,
-          totalStudents: studentCount,
-          totalAttempts: attemptCount,
-        });
-      } catch (error) {
-        console.error('Failed to fetch stats:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []);
+  const refresh = () => {
+    questionsQuery.refetch();
+    usersQuery.refetch();
+    attemptsQuery.refetch();
+  };
+  const refreshing = questionsQuery.isFetching || usersQuery.isFetching || attemptsQuery.isFetching;
 
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
@@ -63,6 +55,12 @@ export default function AdminDashboard() {
           <div>
             <h2>Admin Dashboard</h2>
             <p>Welcome to the SQL Learning Platform administration panel.</p>
+          </div>
+          <div className="button-row">
+            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+              <IconRefresh />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
           </div>
         </div>
 

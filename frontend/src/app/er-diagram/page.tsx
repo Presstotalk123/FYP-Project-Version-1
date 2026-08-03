@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { notifications } from "@mantine/notifications";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QuestionCard, QuestionCardData } from "@/components/QuestionCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { useERAbility } from "@/hooks/use-er-ability";
 import { toERQuestionSubject } from "@/permissions/er-ability";
 import { erDiagramService } from "@/services/er-diagram.service";
 import { erLabsService } from "@/services/erLabs.service";
+import { queryKeys } from "@/services/query-keys";
 import type { ErLabResponse } from "@/types/er-lab.types";
 
 type ERQuestionCardData = QuestionCardData & {
@@ -21,17 +23,59 @@ const IconPlus = () => (
     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
   </svg>
 );
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+  </svg>
+);
 
 export default function ERDiagramPage() {
   const router = useRouter();
   const ability = useERAbility();
   const { isStaff } = useAuth();
-  const [questions, setQuestions] = useState<ERQuestionCardData[]>([]);
-  const [labs, setLabs] = useState<ErLabResponse[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [deletingQuestionId, setDeletingQuestionId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("student-created");
+
+  // Session-cached (see providers.tsx). `erdQuestions` is shared with the staff
+  // Problems page (identical queryFn); each page maps the raw response its own way.
+  const questionsQuery = useQuery({ queryKey: queryKeys.erdQuestions, queryFn: () => erDiagramService.getQuestions() });
+  const labsQuery = useQuery({ queryKey: queryKeys.erLabs, queryFn: () => erLabsService.list() });
+
+  const questions = useMemo<ERQuestionCardData[]>(
+    () =>
+      (questionsQuery.data ?? []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        summary: item.problem_statement,
+        description: item.problem_statement,
+        difficulty: item.difficulty_label,
+        created_by: item.created_by,
+        created_by_role: item.created_by_role,
+      })),
+    [questionsQuery.data]
+  );
+  const labs = labsQuery.data ?? [];
+
+  const loading = questionsQuery.isLoading || labsQuery.isLoading;
+  const loadError = questionsQuery.error || labsQuery.error;
+  const error =
+    actionError ??
+    (loadError
+      ? ((loadError as { response?: { data?: { detail?: string } }; message?: string }).response?.data?.detail ||
+          (loadError as { message?: string }).message ||
+          "Failed to load ER questions")
+      : null);
+  const refreshing = questionsQuery.isFetching || labsQuery.isFetching;
+  const refresh = () => {
+    setActionError(null);
+    questionsQuery.refetch();
+    labsQuery.refetch();
+  };
+  // After a lab mutation, mark the ER labs cache stale so it re-fetches once.
+  const invalidateLabs = () => queryClient.invalidateQueries({ queryKey: queryKeys.erLabs });
 
   const studentCreatedQuestions = useMemo(
     () => questions.filter((q) => q.created_by_role === "student"),
@@ -42,58 +86,23 @@ export default function ERDiagramPage() {
     [questions]
   );
 
-  const refreshLabs = async () => {
-    try {
-      const ls = await erLabsService.list();
-      setLabs(ls);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
-      notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed to load ER labs" });
-    }
-  };
-
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await erDiagramService.getQuestions();
-        setQuestions(
-          data.map((item) => ({
-            id: item.id,
-            title: item.title,
-            summary: item.problem_statement,
-            description: item.problem_statement,
-            difficulty: item.difficulty_label,
-            created_by: item.created_by,
-            created_by_role: item.created_by_role,
-          }))
-        );
-      } catch (err) {
-        const e = err as { response?: { data?: { detail?: string } }; message?: string };
-        setError(e.response?.data?.detail || e.message || "Failed to load ER questions");
-      } finally {
-        setLoading(false);
-      }
-      refreshLabs();
-    };
-    fetchAll();
-  }, []);
-
   const handleDeleteQuestion = async (questionId: number) => {
     const shouldDelete = window.confirm(`Delete ER question #${questionId}?`);
     if (!shouldDelete) return;
     try {
       setDeletingQuestionId(questionId);
-      setError(null);
+      setActionError(null);
       await erDiagramService.deleteQuestion(questionId);
-      setQuestions((prev) => prev.filter((item) => item.id !== questionId));
+      // Remove from the cached raw list in place — no re-fetch; derived `questions` re-renders.
+      queryClient.setQueryData<typeof questionsQuery.data>(queryKeys.erdQuestions, (old) =>
+        old?.filter((item) => item.id !== questionId)
+      );
     } catch (err) {
       const e = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
       if (e.response?.status === 403) {
-        setError(e.response?.data?.detail || "Only the question owner or staff can delete this question");
+        setActionError(e.response?.data?.detail || "Only the question owner or staff can delete this question");
       } else {
-        setError(e.response?.data?.detail || e.message || "Failed to delete ER question");
+        setActionError(e.response?.data?.detail || e.message || "Failed to delete ER question");
       }
     } finally {
       setDeletingQuestionId(null);
@@ -123,7 +132,7 @@ export default function ERDiagramPage() {
     try {
       if (lab.is_published) await erLabsService.unpublish(lab.id);
       else await erLabsService.publish(lab.id);
-      refreshLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed" });
@@ -134,7 +143,7 @@ export default function ERDiagramPage() {
     try {
       if (lab.is_running) await erLabsService.stop(lab.id);
       else await erLabsService.start(lab.id);
-      refreshLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed" });
@@ -145,7 +154,7 @@ export default function ERDiagramPage() {
     if (!window.confirm(`Delete "${lab.title}"?`)) return;
     try {
       await erLabsService.remove(lab.id);
-      refreshLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       notifications.show({ color: "red", message: e.response?.data?.detail || e.message || "Failed" });
@@ -276,19 +285,25 @@ export default function ERDiagramPage() {
             Pick a question and sketch the entities, relationships, and keys.
           </p>
         </div>
-        {activeTab === "lab" ? (
-          isStaff && (
-            <a href="/er-diagram/lab/new" className="btn btn-brand">
+        <div className="button-row">
+          <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+            <IconRefresh />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+          {activeTab === "lab" ? (
+            isStaff && (
+              <a href="/er-diagram/lab/new" className="btn btn-brand">
+                <IconPlus />
+                New ER Lab
+              </a>
+            )
+          ) : (
+            <a href="/er-diagram/add" className="btn btn-secondary">
               <IconPlus />
-              New ER Lab
+              Add Question
             </a>
-          )
-        ) : (
-          <a href="/er-diagram/add" className="btn btn-secondary">
-            <IconPlus />
-            Add Question
-          </a>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Loading */}

@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebouncedValue } from '@mantine/hooks';
+import { useQuery } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { Question, Difficulty } from '@/types/question.types';
-import { Progress } from '@/types/attempt.types';
 import { questionService } from '@/services/question.service';
 import { attemptService } from '@/services/attempt.service';
+import { queryKeys } from '@/services/query-keys';
 
 interface QuestionWithProgress extends Question {
   completed?: boolean;
@@ -32,48 +33,57 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12"/>
   </svg>
 );
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+  </svg>
+);
 
 export default function StudentDashboard() {
   const router = useRouter();
-  const [questions, setQuestions] = useState<QuestionWithProgress[]>([]);
-  const [progress, setProgress] = useState<Progress[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 500);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const params: { difficulty?: Difficulty; search?: string } = {};
-        if (difficulty && difficulty !== 'all') params.difficulty = difficulty as Difficulty;
-        if (debouncedSearch) params.search = debouncedSearch;
+  // Session-cached (see providers.tsx). The questions key encodes the active
+  // filters, so each difficulty/search combo is fetched once then served from
+  // cache on return. Progress is a separate key, invalidated when a question is
+  // solved in the workspace (see SqlWorkspace.tsx).
+  const questionsQuery = useQuery({
+    queryKey: queryKeys.studentQuestions({ difficulty, search: debouncedSearch }),
+    queryFn: () => {
+      const params: { difficulty?: Difficulty; search?: string } = {};
+      if (difficulty && difficulty !== 'all') params.difficulty = difficulty as Difficulty;
+      if (debouncedSearch) params.search = debouncedSearch;
+      return questionService.getQuestions(params);
+    },
+  });
+  const progressQuery = useQuery({
+    queryKey: queryKeys.studentProgress,
+    queryFn: () => attemptService.getProgress(),
+  });
 
-        const [questionsData, progressData] = await Promise.all([
-          questionService.getQuestions(params),
-          attemptService.getProgress(),
-        ]);
+  const questions = useMemo<QuestionWithProgress[]>(() => {
+    const questionsData = questionsQuery.data ?? [];
+    const progressData = progressQuery.data ?? [];
+    const progressMap = new Map(progressData.map((p) => [p.question_id, p]));
+    return questionsData.map((q) => {
+      const prog = progressMap.get(q.id);
+      return { ...q, completed: prog?.completed || false, attempts_count: prog?.attempts_count || 0 };
+    });
+  }, [questionsQuery.data, progressQuery.data]);
 
-        const progressMap = new Map(progressData.map((p) => [p.question_id, p]));
-        const questionsWithProgress = questionsData.map((q) => {
-          const prog = progressMap.get(q.id);
-          return { ...q, completed: prog?.completed || false, attempts_count: prog?.attempts_count || 0 };
-        });
-
-        setQuestions(questionsWithProgress);
-        setProgress(progressData);
-      } catch (err) {
-        const e = err as { response?: { data?: { detail?: string } } };
-        setError(e.response?.data?.detail || 'Failed to load questions');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [difficulty, debouncedSearch]);
+  const loading = questionsQuery.isLoading || progressQuery.isLoading;
+  const loadError = questionsQuery.error || progressQuery.error;
+  const error = loadError
+    ? ((loadError as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load questions')
+    : null;
+  const refreshing = questionsQuery.isFetching || progressQuery.isFetching;
+  const refresh = () => {
+    questionsQuery.refetch();
+    progressQuery.refetch();
+  };
 
   const handleQuestionClick = (questionId: number) => {
     router.push(`/student/workspace/${questionId}`);
@@ -87,6 +97,12 @@ export default function StudentDashboard() {
           <div>
             <h2>SQL Questions</h2>
             <p>Select a question to start practicing your SQL skills.</p>
+          </div>
+          <div className="button-row">
+            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+              <IconRefresh />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
           </div>
         </div>
 

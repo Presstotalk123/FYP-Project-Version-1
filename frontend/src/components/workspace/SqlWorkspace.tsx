@@ -15,11 +15,12 @@ import {
 } from '@mantine/core';
 import { IconArrowLeft, IconAlertCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { QuestionDetail } from '@/types/question.types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExecuteResponse, Attempt } from '@/types/attempt.types';
 import { questionService } from '@/services/question.service';
 import { executeService } from '@/services/execute.service';
 import { attemptService } from '@/services/attempt.service';
+import { queryKeys } from '@/services/query-keys';
 import { QuestionPanel } from './QuestionPanel';
 import { EditorPanel } from './EditorPanel';
 import { ResultsPanel } from './ResultsPanel';
@@ -39,18 +40,28 @@ interface SqlWorkspaceProps {
 
 export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timer = useAssessmentTimer();
   const progress = useAssessmentProgress();
 
   // State
-  const [question, setQuestion] = useState<QuestionDetail | null>(null);
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Static question content — cached (see providers.tsx) so revisiting this
+  // question (e.g. switching between assessment items) renders it instantly.
+  const questionQuery = useQuery({
+    queryKey: queryKeys.questionById(questionId),
+    queryFn: () => questionService.getQuestionById(questionId),
+  });
+  const question = questionQuery.data ?? null;
+  const loading = questionQuery.isLoading;
+  const error = questionQuery.error
+    ? ((questionQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load question')
+    : null;
 
   // Progressive cooldown to throttle rapid Run clicks. Scoped per question and
   // persisted across navigation/reload via sessionStorage.
@@ -64,29 +75,26 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   const [centerPercent, setCenterPercent] = useState(40);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
 
-  // Fetch question and attempts on mount
+  // Attempts are live session state (not cached): fetch on mount so a revisit
+  // always shows the student's latest history. The static question above loads
+  // from cache instantly while this populates in the background.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [questionData, attemptsData] = await Promise.all([
-          questionService.getQuestionById(questionId),
-          attemptService.getQuestionAttempts(questionId),
-        ]);
-        setQuestion(questionData);
+    let cancelled = false;
+    attemptService
+      .getQuestionAttempts(questionId)
+      .then((attemptsData) => {
+        if (cancelled) return;
         setAttempts(attemptsData);
         if (attemptsData.length > 0) {
           progress.markAttempted();
         }
-      } catch (err) {
-        const error = err as { response?: { data?: { detail?: string } } };
-        setError(error.response?.data?.detail || 'Failed to load question');
-      } finally {
-        setLoading(false);
-      }
+      })
+      .catch(() => {
+        // Non-critical — history simply stays empty if it fails to load.
+      });
+    return () => {
+      cancelled = true;
     };
-
-    fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionId]);
 
@@ -140,6 +148,12 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       // Refresh attempts
       const newAttempts = await attemptService.getQuestionAttempts(questionId);
       setAttempts(newAttempts);
+
+      // The attempt changed this student's progress/completion — drop the cached
+      // dashboard data so it re-fetches fresh on the next visit (prefix match
+      // clears every difficulty/search variant of studentQuestions).
+      queryClient.invalidateQueries({ queryKey: queryKeys.studentProgress });
+      queryClient.invalidateQueries({ queryKey: ['studentQuestions'] });
     } catch (err) {
       const error = err as { response?: { data?: { detail?: string } } };
       notifications.show({

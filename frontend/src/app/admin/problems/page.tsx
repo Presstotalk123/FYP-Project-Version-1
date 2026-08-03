@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
@@ -9,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { questionService } from '@/services/question.service';
 import { labService } from '@/services/lab.service';
 import { erDiagramService } from '@/services/er-diagram.service';
+import { queryKeys } from '@/services/query-keys';
 
 type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question';
 type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph';
@@ -60,6 +62,12 @@ const IconEdit = () => (
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
   </svg>
 );
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+  </svg>
+);
 // Upload/paper-plane style icon for "Publish"
 const IconPublish = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -78,31 +86,38 @@ export default function ProblemsPage() {
   const router = useRouter();
   const { user } = useAuth();
 
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [publishing, setPublishing] = useState<Record<string, boolean>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [authorFilter, setAuthorFilter] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  // Session-cached (see providers.tsx). `questions` is shared with the Dashboard
+  // and `labs` with Manage Labs, so a tour of the admin area fetches each once.
+  const questionsQuery = useQuery({ queryKey: queryKeys.questions, queryFn: () => questionService.getQuestions() });
+  const labsQuery = useQuery({ queryKey: queryKeys.labs, queryFn: () => labService.getLabs() });
+  const erdQuery = useQuery({ queryKey: queryKeys.erdQuestions, queryFn: () => erDiagramService.getQuestions() });
 
-  const fetchAll = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const loading = questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading;
+  const loadFailed = !!(questionsQuery.error || labsQuery.error || erdQuery.error);
+  const error = actionError ?? (loadFailed ? 'Failed to load problems' : null);
+  const refreshing = questionsQuery.isFetching || labsQuery.isFetching || erdQuery.isFetching;
 
-      const [sqlQuestions, labs, erdQuestions] = await Promise.all([
-        questionService.getQuestions(),
-        labService.getLabs(),
-        erDiagramService.getQuestions(),
-      ]);
+  const refresh = () => {
+    setActionError(null);
+    questionsQuery.refetch();
+    labsQuery.refetch();
+    erdQuery.refetch();
+  };
 
-      const merged: Problem[] = [
+  const problems = useMemo<Problem[]>(() => {
+    const sqlQuestions = questionsQuery.data ?? [];
+    const labs = labsQuery.data ?? [];
+    const erdQuestions = erdQuery.data ?? [];
+
+    return [
         ...sqlQuestions.map((q) => ({
           uid: `sql-${q.id}`,
           id: q.id,
@@ -149,19 +164,12 @@ export default function ProblemsPage() {
           editUrl: `/er-diagram/${e.id}`,
         })),
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      setProblems(merged);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load problems');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [questionsQuery.data, labsQuery.data, erdQuery.data]);
 
   const togglePublish = async (problem: Problem) => {
     const nextPublished = !problem.isPublished;
     setPublishing((prev) => ({ ...prev, [problem.uid]: true }));
+    setActionError(null);
     try {
       if (problem.problemType === 'sql-question') {
         if (nextPublished) {
@@ -169,19 +177,24 @@ export default function ProblemsPage() {
         } else {
           await questionService.unpublishQuestion(problem.id);
         }
+        // Update the cached source list in place — keeps the optimistic feel
+        // without a re-fetch, and the derived `problems` list re-renders.
+        queryClient.setQueryData<typeof questionsQuery.data>(queryKeys.questions, (old) =>
+          old?.map((q) => (q.id === problem.id ? { ...q, is_published: nextPublished } : q))
+        );
       } else if (problem.problemType === 'erd-question') {
         if (nextPublished) {
           await erDiagramService.publishQuestion(problem.id);
         } else {
           await erDiagramService.unpublishQuestion(problem.id);
         }
+        queryClient.setQueryData<typeof erdQuery.data>(queryKeys.erdQuestions, (old) =>
+          old?.map((e) => (e.id === problem.id ? { ...e, is_published: nextPublished } : e))
+        );
       }
-      setProblems((prev) =>
-        prev.map((p) => (p.uid === problem.uid ? { ...p, isPublished: nextPublished } : p))
-      );
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to update publish status');
+      setActionError(e.response?.data?.detail || 'Failed to update publish status');
     } finally {
       setPublishing((prev) => ({ ...prev, [problem.uid]: false }));
     }
@@ -275,6 +288,10 @@ export default function ProblemsPage() {
                 <p>All SQL, ER diagram, and SQL-lab questions in one place.</p>
               </div>
               <div className="button-row">
+                <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+                  <IconRefresh />
+                  {refreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
                 <button className="btn btn-brand" onClick={() => router.push('/admin/problems/new')}>
                   <IconPlus />
                   Create Question

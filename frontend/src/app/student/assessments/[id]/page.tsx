@@ -162,9 +162,29 @@ export default function StudentAssessmentDetailPage() {
                 <Divider />
 
                 {assessment.attempt_complete ? (
-                  <Alert icon={<IconCircleCheck size={16} />} color="green" title="Assessment Completed">
-                    You have already submitted this assessment. It is a single attempt, so it cannot be retaken.
-                  </Alert>
+                  <Stack gap="md">
+                    <Alert icon={<IconCircleCheck size={16} />} color="green" title="Assessment Completed">
+                      You have already submitted this assessment. It is a single attempt, so it cannot be retaken.
+                    </Alert>
+                    {assessment.weighted_score != null && (
+                      <Group gap="sm">
+                        <Text fw={500}>Your score:</Text>
+                        <Badge
+                          size="lg"
+                          variant="light"
+                          color={
+                            assessment.weighted_score >= 75
+                              ? 'green'
+                              : assessment.weighted_score >= 50
+                                ? 'yellow'
+                                : 'red'
+                          }
+                        >
+                          {assessment.weighted_score}%
+                        </Badge>
+                      </Group>
+                    )}
+                  </Stack>
                 ) : (
                   <>
                     {!assessment.is_running && (

@@ -101,6 +101,9 @@ export interface StudentAssessmentDetail {
   // True once this student has ended & submitted; UI shows a Completed state and
   // hides Join/Continue (assessments are single-attempt).
   attempt_complete: boolean;
+  // Overall weighted score (0-100). Only set once staff have stopped the assessment
+  // (results released); null while it is still running or when unweighted.
+  weighted_score: number | null;
   items: StudentAssessmentItemView[];
 }
 

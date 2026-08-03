@@ -41,6 +41,10 @@ class StudentAssessmentDetail(BaseModel):
     # True once this student has ended & submitted; the UI shows a "Completed" state
     # and hides the Join/Continue buttons (assessments are single-attempt).
     attempt_complete: bool = False
+    # Overall weighted score (0-100) for this student. Only populated once the assessment
+    # has been stopped by staff (results released); None while the assessment is still
+    # running or for unweighted/legacy assessments.
+    weighted_score: Optional[float] = None
     items: List[StudentAssessmentItemView]
 
     class Config:

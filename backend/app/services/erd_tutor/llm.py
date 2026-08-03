@@ -32,5 +32,6 @@ def make_llm(stage: str) -> ChatOpenAI:
         api_key=settings.ERD_AZURE_OPENAI_API_KEY,
         model=cfg["deployment"](),
         max_retries=3,
+        timeout=settings.ERD_AZURE_OPENAI_TIMEOUT_SECONDS,
         **cfg["params"],
     )

@@ -30,4 +30,10 @@ class ERDiagramQuestion(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Visibility flag: 0=draft (staff only), 1=published (visible to students).
+    # Only gates staff-created ER questions; student-created ones stay visible regardless.
+    is_published = Column(Integer, nullable=False, default=0)
     is_deleted = Column(Integer, default=0)
+    # When set, this row is an assessment-owned clone (created at publish time) rather
+    # than a master bank ER question. Clones are excluded from bank listings/pickers.
+    owner_assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)

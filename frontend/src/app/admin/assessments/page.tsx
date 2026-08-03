@@ -1,18 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
-import { Assessment } from '@/types/assessment.types';
 import { assessmentService } from '@/services/assessment.service';
+import { queryKeys } from '@/services/query-keys';
 
 /* ── SVG icons ── */
 const IconPlus = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
   </svg>
 );
 const IconPublish = () => (
@@ -61,31 +68,27 @@ const IconUsers = () => (
 
 export default function AdminAssessmentsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [assessmentToDelete, setAssessmentToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [stopModalOpen, setStopModalOpen] = useState(false);
+  const [assessmentToStop, setAssessmentToStop] = useState<number | null>(null);
+  const [stopping, setStopping] = useState(false);
 
-  useEffect(() => {
-    fetchAssessments();
-  }, []);
+  // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
+  const assessmentsQuery = useQuery({ queryKey: queryKeys.assessments, queryFn: () => assessmentService.getAssessments() });
+  const assessments = assessmentsQuery.data ?? [];
+  const loading = assessmentsQuery.isLoading;
+  const error = assessmentsQuery.error
+    ? ((assessmentsQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load assessments')
+    : null;
+  const refreshing = assessmentsQuery.isFetching;
+  const refresh = () => assessmentsQuery.refetch();
 
-  const fetchAssessments = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await assessmentService.getAssessments();
-      setAssessments(data);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load assessments');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // After a mutation, mark the cache stale so it re-fetches once.
+  const invalidateAssessments = () => queryClient.invalidateQueries({ queryKey: queryKeys.assessments });
 
   const handlePublishToggle = async (id: number, isPublished: boolean) => {
     try {
@@ -96,7 +99,7 @@ export default function AdminAssessmentsPage() {
         await assessmentService.publishAssessment(id);
         notifications.show({ title: 'Success', message: 'Assessment published successfully', color: 'green' });
       }
-      fetchAssessments();
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -107,16 +110,11 @@ export default function AdminAssessmentsPage() {
     }
   };
 
-  const handleStartStop = async (id: number, isRunning: boolean) => {
+  const handleStart = async (id: number) => {
     try {
-      if (isRunning) {
-        await assessmentService.stopAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment stopped successfully', color: 'green' });
-      } else {
-        await assessmentService.startAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment started successfully', color: 'green' });
-      }
-      fetchAssessments();
+      await assessmentService.startAssessment(id);
+      notifications.show({ title: 'Success', message: 'Assessment started successfully', color: 'green' });
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -124,6 +122,33 @@ export default function AdminAssessmentsPage() {
         message: e.response?.data?.detail || 'Failed to update assessment',
         color: 'red',
       });
+    }
+  };
+
+  const openStopModal = (id: number) => {
+    setAssessmentToStop(id);
+    setStopModalOpen(true);
+  };
+
+  // Stopping now force-ends & submits every active student, so confirm before firing.
+  const handleConfirmStop = async () => {
+    if (assessmentToStop === null) return;
+    setStopping(true);
+    try {
+      await assessmentService.stopAssessment(assessmentToStop);
+      notifications.show({ title: 'Success', message: 'Assessment stopped. All active students were submitted.', color: 'green' });
+      setStopModalOpen(false);
+      setAssessmentToStop(null);
+      invalidateAssessments();
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: e.response?.data?.detail || 'Failed to stop assessment',
+        color: 'red',
+      });
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -140,7 +165,7 @@ export default function AdminAssessmentsPage() {
       notifications.show({ title: 'Success', message: 'Assessment deleted successfully', color: 'green' });
       setDeleteModalOpen(false);
       setAssessmentToDelete(null);
-      fetchAssessments();
+      invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -163,6 +188,10 @@ export default function AdminAssessmentsPage() {
             <p>Create and manage student assessments.</p>
           </div>
           <div className="button-row">
+            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+              <IconRefresh />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
             <button className="btn btn-brand" onClick={() => router.push('/admin/assessments/new')}>
               <IconPlus />
               Create Assessment
@@ -249,7 +278,7 @@ export default function AdminAssessmentsPage() {
                           <button
                             className="icon-btn"
                             title={a.is_running ? 'Stop' : 'Start'}
-                            onClick={() => handleStartStop(a.id, a.is_running)}
+                            onClick={() => (a.is_running ? openStopModal(a.id) : handleStart(a.id))}
                             style={{ color: a.is_running ? '#ef4444' : '#2563eb' }}
                           >
                             {a.is_running ? <IconStop /> : <IconPlay />}
@@ -289,6 +318,20 @@ export default function AdminAssessmentsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Stop modal */}
+        {stopModalOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stop-assessment-title">
+            <div className="modal">
+              <h3 id="stop-assessment-title">Stop Assessment</h3>
+              <p>This will immediately <strong>end and submit all active students</strong>, regardless of their time remaining. This cannot be undone.</p>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setStopModalOpen(false)} disabled={stopping}>Cancel</button>
+                <button className="btn btn-danger" onClick={handleConfirmStop} disabled={stopping}>{stopping ? 'Stopping…' : 'Stop & Submit All'}</button>
+              </div>
+            </div>
           </div>
         )}
 

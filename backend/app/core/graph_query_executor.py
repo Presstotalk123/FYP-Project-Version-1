@@ -4,6 +4,8 @@ from typing import Tuple, List, Dict, Any
 
 from graphqlite import Graph
 
+from app.core.query_deadline import attach_deadline
+
 
 class GraphQueryTimeoutError(Exception):
     pass
@@ -72,6 +74,13 @@ class GraphQueryExecutor:
             g = None
             try:
                 g = Graph(self.db_path)
+                # graphqlite wraps sqlite3; reach the underlying connection to
+                # bound the query. Guarded so a graphqlite internals change can
+                # never break execution — it would just fall back to the old
+                # (abandon-the-thread) timeout behaviour.
+                inner = getattr(getattr(g, "connection", None), "sqlite_connection", None)
+                if inner is not None:
+                    attach_deadline(inner, self.timeout_seconds)
                 raw = g.query(query)
 
                 if raw and isinstance(raw[0], dict):

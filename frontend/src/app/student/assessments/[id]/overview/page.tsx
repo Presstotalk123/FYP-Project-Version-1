@@ -25,11 +25,16 @@ import {
   IconTopologyComplex,
   IconLogout,
 } from '@tabler/icons-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { StudentAssessmentDetail, StudentAssessmentItemView, AssessmentItemType } from '@/types/assessment.types';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
+import { queryKeys } from '@/services/query-keys';
+import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
+import { itemWorkspaceUrl } from '@/utils/assessmentItemUrl';
 
 function itemTypeLabel(type: AssessmentItemType): string {
   switch (type) {
@@ -58,20 +63,10 @@ function itemTypeIcon(type: AssessmentItemType) {
   }
 }
 
-function itemWorkspaceUrl(assessmentId: number, item: StudentAssessmentItemView): string {
-  const base = `/student/assessments/${assessmentId}/items/${item.id}`;
-  const rid = `?resourceId=${item.item_id}`;
-  switch (item.item_type) {
-    case 'sql_question': return `${base}/sql-question${rid}`;
-    case 'sql_lab':      return `${base}/sql-lab${rid}`;
-    case 'graph_lab':    return `${base}/graph-lab${rid}`;
-    case 'er_question':  return `${base}/er-question${rid}`;
-  }
-}
-
 export default function AssessmentOverviewPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const assessmentId = Number(params.id);
 
   const [assessment, setAssessment] = useState<StudentAssessmentDetail | null>(null);
@@ -115,6 +110,8 @@ export default function AssessmentOverviewPage() {
     try {
       setSubmitting(true);
       await studentAssessmentService.submit(assessmentId);
+      // Submitting changes this assessment's status — refresh the list on return.
+      queryClient.invalidateQueries({ queryKey: queryKeys.studentAssessments });
       router.push('/student/assessments');
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
@@ -143,13 +140,16 @@ export default function AssessmentOverviewPage() {
               </Button>
               {assessment && <Title order={2}>{assessment.title}</Title>}
             </Group>
-            <Button
-              color="red"
-              leftSection={<IconLogout size={16} />}
-              onClick={openConfirm}
-            >
-              End &amp; Submit
-            </Button>
+            <Group gap="sm">
+              <AssessmentTimer />
+              <Button
+                color="red"
+                leftSection={<IconLogout size={16} />}
+                onClick={openConfirm}
+              >
+                End &amp; Submit
+              </Button>
+            </Group>
           </Group>
 
           {loading && (
@@ -204,6 +204,8 @@ export default function AssessmentOverviewPage() {
                             {item.item_title}
                           </Text>
                         </Group>
+
+                        <QuestionWeightBadge weight={item.weight} size="sm" />
                       </Stack>
                     </Card>
                   </Grid.Col>

@@ -2,12 +2,14 @@
 an er_lab_submissions row. Used only when the unified submission endpoint
 is called in lab mode."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Iterator, Optional
+from typing import AsyncIterator, Iterator, Optional, Union
 
 from sqlalchemy.orm import Session
+from starlette.concurrency import iterate_in_threadpool
 
 from app.models.er_lab_submission import ErLabSubmission
 
@@ -28,9 +30,9 @@ def _parse_sse_event_block(block: str) -> tuple[Optional[str], Optional[str]]:
     return event_name, "\n".join(data_lines) if data_lines else None
 
 
-def stream_with_lab_persistence(
+async def stream_with_lab_persistence(
     *,
-    stream: Iterator[str],
+    stream: Union[Iterator[str], AsyncIterator[str]],
     db: Session,
     er_lab_id: int,
     er_lab_question_id: int,
@@ -38,17 +40,23 @@ def stream_with_lab_persistence(
     session_id: int,
     submitted_xml: Optional[str],
     submitted_image_storage_key: Optional[str],
-) -> Iterator[str]:
+) -> AsyncIterator[str]:
     """Forward every SSE chunk from `stream` to the caller. When a 'done' event
     arrives with a valid grading payload, insert an ErLabSubmission row using
     the auto-grade snapshot.
+
+    Accepts either an async source (LangGraph engine) or a sync one (legacy Dify
+    engine); a sync source is pumped through Starlette's threadpool so its
+    blocking reads never block the event loop. The DB insert is likewise
+    offloaded with ``asyncio.to_thread``.
 
     On 'error' events, partial streams, or malformed payloads: no row is
     inserted. The caller's UX shows the error; the next submission gets a
     fresh row when grading succeeds.
     """
+    source = stream if hasattr(stream, "__aiter__") else iterate_in_threadpool(stream)
     buffer = ""
-    for chunk in stream:
+    async for chunk in source:
         yield chunk
         buffer += chunk
         while "\n\n" in buffer:
@@ -92,5 +100,9 @@ def stream_with_lab_persistence(
                 auto_checks_json=json.dumps(structured.get("checks", []), ensure_ascii=False),
                 auto_graded_at=datetime.utcnow(),
             )
-            db.add(sub)
-            db.commit()
+
+            def _persist(row=sub):
+                db.add(row)
+                db.commit()
+
+            await asyncio.to_thread(_persist)

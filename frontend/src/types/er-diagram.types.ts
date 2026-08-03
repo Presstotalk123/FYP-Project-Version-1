@@ -93,6 +93,7 @@ export interface ERDiagramQuestionListItem {
   created_by: number;
   created_by_role: "student" | "staff" | "admin";
   created_at: string;
+  is_published: boolean;
 }
 
 export interface ERSubmissionScore {

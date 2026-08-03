@@ -39,8 +39,17 @@ export function ResultsPanel({
   const [reviewData, setReviewData] = useState<QueryReviewResponse | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
 
+  // When on, students never see correct/incorrect — just a neutral "Submitted" state.
+  const hideCorrectness = question.hide_correctness;
+
   // Auto-trigger AI review whenever we get a wrong (but valid) result
   useEffect(() => {
+    // Never trigger review when correctness is hidden — is_correct is null and a
+    // review card would itself reveal that the answer was wrong.
+    if (hideCorrectness) {
+      setReviewData(null);
+      return;
+    }
     // Clear card on correct result, SQL error, or no result
     if (!result || result.is_correct || result.error_message) {
       setReviewData(null);
@@ -78,15 +87,21 @@ export function ResultsPanel({
           </Alert>
         ) : (
           <Stack gap="md">
-            <Alert
-              icon={result.is_correct ? <IconCheck size={16} /> : <IconX size={16} />}
-              color={result.is_correct ? 'green' : 'red'}
-              title={result.is_correct ? 'Correct!' : 'Incorrect'}
-            >
-              {result.is_correct
-                ? 'Your query returned the expected results.'
-                : "Your query results don't match the expected output."}
-            </Alert>
+            {hideCorrectness ? (
+              <Alert icon={<IconCheck size={16} />} color="blue" title="Submitted">
+                Your query was submitted successfully.
+              </Alert>
+            ) : (
+              <Alert
+                icon={result.is_correct ? <IconCheck size={16} /> : <IconX size={16} />}
+                color={result.is_correct ? 'green' : 'red'}
+                title={result.is_correct ? 'Correct!' : 'Incorrect'}
+              >
+                {result.is_correct
+                  ? 'Your query returned the expected results.'
+                  : "Your query results don't match the expected output."}
+              </Alert>
+            )}
 
             {/* Advanced SQL Testing grades on hidden state, not the submission's
                 own output — there's no query-result table to show. */}
@@ -148,9 +163,15 @@ export function ResultsPanel({
               <Card key={attempt.id} withBorder padding="sm">
                 <Stack gap="xs">
                   <Group justify="space-between">
-                    <Badge color={attempt.is_correct ? 'green' : 'red'} variant="light">
-                      {attempt.is_correct ? 'Correct' : 'Incorrect'}
-                    </Badge>
+                    {hideCorrectness ? (
+                      <Badge color="blue" variant="light">
+                        Submitted
+                      </Badge>
+                    ) : (
+                      <Badge color={attempt.is_correct ? 'green' : 'red'} variant="light">
+                        {attempt.is_correct ? 'Correct' : 'Incorrect'}
+                      </Badge>
+                    )}
                     <Text size="xs" c="dimmed">
                       {new Date(attempt.submitted_at).toLocaleString()}
                     </Text>

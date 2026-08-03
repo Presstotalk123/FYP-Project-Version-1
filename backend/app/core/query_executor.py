@@ -3,6 +3,8 @@ import threading
 import time
 from typing import Tuple, List, Dict, Any
 
+from app.core.query_deadline import attach_deadline
+
 
 class QueryTimeoutError(Exception):
     """Custom exception for query timeout"""
@@ -104,6 +106,7 @@ class QueryExecutor:
             try:
                 # Connect to database in read-only mode
                 conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+                attach_deadline(conn, self.timeout_seconds)
                 cursor = conn.cursor()
 
                 # Execute query

@@ -86,6 +86,7 @@ class ERDiagramQuestionResponse(ERDiagramQuestionBase):
     created_by: int
     created_at: datetime
     updated_at: datetime
+    is_published: bool = False
 
     class Config:
         from_attributes = True
@@ -99,6 +100,7 @@ class ERDiagramQuestionListItem(BaseModel):
     created_by: int
     created_by_role: Literal["student", "staff", "admin"]
     created_at: datetime
+    is_published: bool = False
 
     class Config:
         from_attributes = True

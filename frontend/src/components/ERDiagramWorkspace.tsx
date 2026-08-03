@@ -23,6 +23,9 @@ import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
+import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
+import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
+import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import {
@@ -55,6 +58,8 @@ export type LabContext = { er_lab_id: number; er_lab_question_id: number };
 type WorkspaceProps = {
   question: ERDiagramWorkspaceQuestion;
   labContext?: LabContext;
+  /** Assessment weightage (%) for this question; omitted outside assessments. */
+  weight?: number;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -144,8 +149,9 @@ const readDraftFromSessionStorage = (questionId: number, labContext?: LabContext
   }
 };
 
-export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
+export function ERDiagramWorkspace({ question, labContext, weight }: WorkspaceProps) {
   const router = useRouter();
+  const progress = useAssessmentProgress();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
   const [chatSending, setChatSending] = useState(false);
@@ -191,6 +197,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
         if (restoredResult) {
           setLatestStructuredOutput(restoredResult);
           setHasSubmittedAttempt(true);
+          progress.markAttempted();
           if (restoredResult.student_message?.trim()) {
             setLatestStudentMessage(restoredResult.student_message.trim());
           }
@@ -248,13 +255,28 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
     return axiosErr.response?.data?.detail || axiosErr.message || "Request failed";
   };
 
-  const handleQuery = async (message: string): Promise<string> => {
-    const response = await erDiagramService.submit({
+  const handleQuery = async (
+    message: string,
+    onToken?: (accumulatedText: string) => void,
+  ): Promise<string> => {
+    let accumulated = "";
+    let finalText = "";
+    for await (const event of erDiagramService.submitStream({
       ...buildSubmissionRef(),
       mode: "Query",
       student_query: message,
-    });
-    return response.text;
+    })) {
+      const typedEvent = event as ERSubmissionStreamEvent;
+      if (typedEvent.event === "token") {
+        accumulated = typedEvent.data.text || accumulated + (typedEvent.data.chunk || "");
+        onToken?.(accumulated);
+      } else if (typedEvent.event === "done") {
+        finalText = typedEvent.data.text || accumulated;
+      } else if (typedEvent.event === "error") {
+        throw new Error(typedEvent.data.detail || "Query failed");
+      }
+    }
+    return finalText || accumulated;
   };
 
   const runSubmitStream = async (payload: ERSubmissionRequest): Promise<void> => {
@@ -303,6 +325,7 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
         throw new Error("Submission stream interrupted before completion.");
       }
       setHasSubmittedAttempt(true);
+      progress.markAttempted();
       try {
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(draftStorageKey(question.id, labContext));
@@ -716,7 +739,9 @@ export function ERDiagramWorkspace({ question, labContext }: WorkspaceProps) {
           <Text c="dimmed" mt={4}>
             Difficulty: {question.difficulty}
           </Text>
+          <QuestionWeightBadge weight={weight} />
         </Group>
+        <QuestionNavigator />
         <Box
           ref={containerRef}
           style={{

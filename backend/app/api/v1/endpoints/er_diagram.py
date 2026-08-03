@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -8,12 +9,17 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import iterate_in_threadpool
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_staff_role
+from app.core.cache import cache_read, Ns
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.user import User, UserRole
+from app.models.assessment import Assessment
+from app.models.assessment_item import AssessmentItem
+from app.models.assessment_session import AssessmentSession
 from app.schemas.er_diagram import (
     DifficultyLabel,
     ERDiagramQuestionResponse,
@@ -40,6 +46,27 @@ from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
+
+
+def _er_question_accessible_via_assessment(question_id: int, user_id: int, db: Session) -> bool:
+    """Return True if the student has an active session in a running assessment that contains this
+    ER question. Mirrors labs._lab_accessible_via_assessment — assessment content is cloned
+    (owner_assessment_id set, is_published=0) and AssessmentItem.item_id is repointed to the clone,
+    so a participant is authorized while a random ID-guesser is not."""
+    result = (
+        db.query(AssessmentSession)
+        .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
+        .join(AssessmentItem, AssessmentItem.assessment_id == Assessment.id)
+        .filter(
+            AssessmentSession.user_id == user_id,
+            AssessmentSession.is_active == 1,
+            Assessment.is_running == 1,
+            AssessmentItem.item_id == question_id,
+            AssessmentItem.item_type == "er_question",
+        )
+        .first()
+    )
+    return result is not None
 MAX_ER_XML_CHARS = 500_000
 MAX_ER_DESC_CHARS = 5_000
 RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
@@ -698,10 +725,11 @@ def _to_response(question: ERDiagramQuestion, *, hide_rubric_when_disabled: bool
         created_by=question.created_by,
         created_at=question.created_at,
         updated_at=question.updated_at,
+        is_published=bool(question.is_published),
     )
 
 
-def _generate_rubric_payload(
+async def _generate_rubric_payload(
     *,
     mode,
     notation: str,
@@ -722,7 +750,7 @@ def _generate_rubric_payload(
                 pass
             image_bytes = model_answer.file.read()
         try:
-            return erd_rubric_runner.generate_rubric(
+            return await erd_rubric_runner.generate_rubric(
                 mode=mode,
                 notation=notation,
                 problem_statement=problem_statement,
@@ -738,19 +766,23 @@ def _generate_rubric_payload(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Rubric generation failed: {exc}",
             ) from exc
-    return _call_dify_generate_rubric(
-        mode=mode,
-        notation=notation,
-        problem_statement=problem_statement,
-        refinement_instruction=refinement_instruction,
-        rubric_previous=rubric_previous,
-        instruction_history=instruction_history,
-        model_answer=model_answer,
+    # Legacy Dify path is a blocking httpx call; offload it so the async endpoint
+    # doesn't block the event loop (it keeps its own timeouts/retries internally).
+    return await asyncio.to_thread(
+        lambda: _call_dify_generate_rubric(
+            mode=mode,
+            notation=notation,
+            problem_statement=problem_statement,
+            refinement_instruction=refinement_instruction,
+            rubric_previous=rubric_previous,
+            instruction_history=instruction_history,
+            model_answer=model_answer,
+        )
     )
 
 
 @router.post("/rubric/generate", response_model=GenerateRubricResponse)
-def generate_er_rubric(
+async def generate_er_rubric(
     mode: GenerateRubricMode = Form(...),
     notation: str = Form("Chen"),
     problem_title: str = Form(...),
@@ -823,7 +855,7 @@ def generate_er_rubric(
             detail="model_answer must be an image file",
         )
 
-    rubric_payload = _generate_rubric_payload(
+    rubric_payload = await _generate_rubric_payload(
         mode=mode,
         notation=notation,
         problem_statement=statement,
@@ -924,46 +956,114 @@ def create_er_question(
 @router.get("/questions", response_model=list[ERDiagramQuestionListItem])
 def list_er_questions(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    question_rows = (
-        db.query(ERDiagramQuestion, User.role)
-        .join(User, ERDiagramQuestion.created_by == User.id)
-        .filter(ERDiagramQuestion.is_deleted == 0)
-        .order_by(ERDiagramQuestion.created_at.desc())
-        .all()
-    )
+    # Identical across all staff/admin (and, per role, across all students), so cached
+    # in-process and invalidated on any ERDiagramQuestion mutation (see app/core/cache.py).
+    is_student = current_user.role.value == "student"
+    role = "student" if is_student else "staff"
 
-    items: list[ERDiagramQuestionListItem] = []
-    for question, creator_role in question_rows:
-        role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
-        if role_value not in {"student", "staff", "admin"}:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Invalid creator role '{creator_role}' for ER question id={question.id}",
+    def producer():
+        question_rows = (
+            db.query(ERDiagramQuestion, User.role)
+            .join(User, ERDiagramQuestion.created_by == User.id)
+            # Exclude assessment-owned clones (owner_assessment_id set) from the ER bank/picker.
+            .filter(
+                ERDiagramQuestion.is_deleted == 0,
+                ERDiagramQuestion.owner_assessment_id.is_(None),
             )
-
-        items.append(
-            ERDiagramQuestionListItem(
-                id=question.id,
-                title=question.title,
-                problem_statement=question.problem_statement[:200].strip(),
-                difficulty_label=question.difficulty_label,
-                created_by=question.created_by,
-                created_by_role=role_value,
-                created_at=question.created_at,
-            )
+            .order_by(ERDiagramQuestion.created_at.desc())
+            .all()
         )
 
-    return items
+        items: list[ERDiagramQuestionListItem] = []
+        for question, creator_role in question_rows:
+            role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
+            if role_value not in {"student", "staff", "admin"}:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Invalid creator role '{creator_role}' for ER question id={question.id}",
+                )
+
+            # Publish gate applies only to staff-created ER questions. Student-created ones stay
+            # visible to students as before, so students never lose sight of their own creations.
+            if is_student and role_value in {"staff", "admin"} and not question.is_published:
+                continue
+
+            items.append(
+                ERDiagramQuestionListItem(
+                    id=question.id,
+                    title=question.title,
+                    problem_statement=question.problem_statement[:200].strip(),
+                    difficulty_label=question.difficulty_label,
+                    created_by=question.created_by,
+                    created_by_role=role_value,
+                    created_at=question.created_at,
+                    is_published=bool(question.is_published),
+                )
+            )
+
+        return items
+
+    return cache_read(
+        db,
+        Ns.ER_QUESTIONS,
+        key=(f"role={role}",),
+        producer=producer,
+    )
 
 
 @router.get("/questions/{question_id}", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)
 def get_er_question(
     question_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    # Tiny lookup that serves as the 404 check and the per-user authorization gate below
+    # (creator role + is_published, small columns only — not the heavy problem statement /
+    # rubric). The full serialized payload is cached per id.
+    row = (
+        db.query(ERDiagramQuestion.is_published, User.role)
+        .join(User, ERDiagramQuestion.created_by == User.id)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    is_published, creator_role = row
+    role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
+
+    # Publish gate applies only to staff-created BANK ER questions. Student-created questions are
+    # never gated. For a gated (unpublished, staff-created) question — which includes assessment
+    # clones (is_published=0) — a student may load it only as an active participant in a running
+    # assessment that contains it; a random ID-guesser is rejected. Mirrors labs.get_lab.
+    if (
+        current_user.role.value == "student"
+        and role_value in {"staff", "admin"}
+        and not is_published
+    ):
+        if not _er_question_accessible_via_assessment(question_id, current_user.id, db):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    # Payload is identical for every requester (role-independent), so cache per id.
+    # Invalidated on any ERDiagramQuestion mutation.
+    def producer():
+        question = (
+            db.query(ERDiagramQuestion)
+            .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+            .first()
+        )
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        return _to_response(question)
+
+    return cache_read(db, Ns.ER_QUESTIONS, key=("detail", question_id), producer=producer)
+
+
+def _set_er_published(question_id: int, published: int, db: Session) -> ERDiagramQuestion:
+    """Shared helper for ER publish/unpublish: flip is_published, commit, return the question."""
     question = (
         db.query(ERDiagramQuestion)
         .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
@@ -973,10 +1073,33 @@ def get_er_question(
     if not question:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
-    return _to_response(question)
+    question.is_published = published
+    db.commit()
+    db.refresh(question)
+    return question
 
 
-def _stream_with_erd_tutor_state(
+@router.post("/questions/{question_id}/publish", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)
+def publish_er_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Publish an ER question (staff only). Sets is_published=1 so students can see it."""
+    return _to_response(_set_er_published(question_id, 1, db))
+
+
+@router.post("/questions/{question_id}/unpublish", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)
+def unpublish_er_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Unpublish an ER question (staff only). Sets is_published=0 so students can no longer see it."""
+    return _to_response(_set_er_published(question_id, 0, db))
+
+
+async def _stream_with_erd_tutor_state(
     *,
     stream,
     db: Session,
@@ -993,12 +1116,18 @@ def _stream_with_erd_tutor_state(
     ``stream_with_lab_persistence``); the persistence happens as a side effect
     after the terminal event is observed. The legacy Dify path never reaches
     here, so its behavior is unchanged.
+
+    The wrapped source is async (LangGraph runners), but a sync source is also
+    accepted defensively and pumped through the threadpool. The one-time
+    persistence writes are offloaded with ``asyncio.to_thread`` so they never
+    block the event loop.
     """
     from app.services.erd_tutor import persistence as erd_persistence
 
+    source = stream if hasattr(stream, "__aiter__") else iterate_in_threadpool(stream)
     buffer = ""
     done_payload: Optional[dict[str, Any]] = None
-    for chunk in stream:
+    async for chunk in source:
         yield chunk
         buffer += chunk
         while "\n\n" in buffer:
@@ -1021,7 +1150,8 @@ def _stream_with_erd_tutor_state(
         return
 
     structured = done_payload.get("structured_output") or {}
-    try:
+
+    def _persist():
         if mode == "Query":
             upd = structured.get("state_update") or {}
             next_stage = upd.get("next_ibl_stage") or conversation.ibl_stage
@@ -1082,6 +1212,10 @@ def _stream_with_erd_tutor_state(
                 mode="submit",
                 content=str(done_payload.get("text") or ""),
             )
+
+    try:
+        # Offload the blocking DB writes so they never block the event loop.
+        await asyncio.to_thread(_persist)
     except Exception:  # never let persistence break the already-delivered stream
         logger.exception("erd_tutor: failed to persist conversation state after %s", mode)
 
@@ -1175,7 +1309,7 @@ def get_erd_tutor_conversation(
 
 
 @router.post("/submission")
-def submit_er_diagram(
+async def submit_er_diagram(
     question_id: Optional[int] = Form(None),
     mode: ERSubmissionMode = Form(...),
     student_query: Optional[str] = Form(None),
@@ -1311,6 +1445,14 @@ def submit_er_diagram(
                 student_query=query_text or "",
                 submission_description=desc_text or None,
             )
+        # Release the pooled Postgres connection before the AI grading stream runs.
+        # The read phase above leaves a transaction open, which otherwise pins a
+        # connection (and, behind PgBouncer, a real backend) for the whole up-to-60s
+        # stream — exhausting the base-tier connection budget under load. Committing
+        # here returns the connection to the pool; the lazy end-of-stream persistence
+        # re-acquires one for its brief write. `erd_conversation` stays attached
+        # (expired, not detached), so its later reload inside _persist is fine.
+        db.commit()
         return StreamingResponse(
             stream,
             media_type="text/event-stream",
@@ -1468,6 +1610,12 @@ def submit_er_diagram(
                 student_query=query_text or "",
             )
 
+    # Release the pooled Postgres connection before the AI grading stream runs, so it
+    # isn't pinned for the whole up-to-60s stream (see the note in the bank-mode branch
+    # above). The persistence wrappers re-acquire a connection lazily at end-of-stream:
+    # stream_with_lab_persistence uses plain ids, and _stream_with_erd_tutor_state uses
+    # the still-attached `erd_conversation`.
+    db.commit()
     return StreamingResponse(
         wrapped_stream,
         media_type="text/event-stream",

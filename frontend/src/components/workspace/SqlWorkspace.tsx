@@ -15,32 +15,59 @@ import {
 } from '@mantine/core';
 import { IconArrowLeft, IconAlertCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { QuestionDetail } from '@/types/question.types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExecuteResponse, Attempt } from '@/types/attempt.types';
 import { questionService } from '@/services/question.service';
 import { executeService } from '@/services/execute.service';
 import { attemptService } from '@/services/attempt.service';
+import { queryKeys } from '@/services/query-keys';
 import { QuestionPanel } from './QuestionPanel';
 import { EditorPanel } from './EditorPanel';
 import { ResultsPanel } from './ResultsPanel';
+import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
+import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
+import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
+import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
+import { useRunCooldown } from '@/hooks/use-run-cooldown';
 
 interface SqlWorkspaceProps {
   questionId: number;
   backUrl?: string;
+  /** Assessment weightage (%) for this question; omitted outside assessments. */
+  weight?: number;
 }
 
-export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
+export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const timer = useAssessmentTimer();
+  const progress = useAssessmentProgress();
 
   // State
-  const [question, setQuestion] = useState<QuestionDetail | null>(null);
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Static question content — cached (see providers.tsx) so revisiting this
+  // question (e.g. switching between assessment items) renders it instantly.
+  const questionQuery = useQuery({
+    queryKey: queryKeys.questionById(questionId),
+    queryFn: () => questionService.getQuestionById(questionId),
+  });
+  const question = questionQuery.data ?? null;
+  const loading = questionQuery.isLoading;
+  const error = questionQuery.error
+    ? ((questionQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load question')
+    : null;
+
+  // Progressive cooldown to throttle rapid Run clicks. Scoped per question and
+  // persisted across navigation/reload via sessionStorage.
+  const { isCoolingDown, registerRunComplete } = useRunCooldown({
+    storageKey: `run-cooldown:sql:${questionId}`,
+  });
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);
@@ -48,30 +75,36 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
   const [centerPercent, setCenterPercent] = useState(40);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
 
-  // Fetch question and attempts on mount
+  // Attempts are live session state (not cached): fetch on mount so a revisit
+  // always shows the student's latest history. The static question above loads
+  // from cache instantly while this populates in the background.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [questionData, attemptsData] = await Promise.all([
-          questionService.getQuestionById(questionId),
-          attemptService.getQuestionAttempts(questionId),
-        ]);
-        setQuestion(questionData);
+    let cancelled = false;
+    attemptService
+      .getQuestionAttempts(questionId)
+      .then((attemptsData) => {
+        if (cancelled) return;
         setAttempts(attemptsData);
-      } catch (err) {
-        const error = err as { response?: { data?: { detail?: string } } };
-        setError(error.response?.data?.detail || 'Failed to load question');
-      } finally {
-        setLoading(false);
-      }
+        if (attemptsData.length > 0) {
+          progress.markAttempted();
+        }
+      })
+      .catch(() => {
+        // Non-critical — history simply stays empty if it fails to load.
+      });
+    return () => {
+      cancelled = true;
     };
-
-    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionId]);
 
   // Execute query
   const handleExecute = async () => {
+    // Defensive guard: never run while a request is in flight or the cooldown is
+    // active, even if the button somehow wasn't disabled.
+    if (isExecuting || isCoolingDown) {
+      return;
+    }
     if (!query.trim()) {
       notifications.show({
         title: 'Empty Query',
@@ -82,14 +115,29 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
     }
 
     setIsExecuting(true);
+    // Pause the assessment countdown while the query runs; the backend credits this
+    // time to the deadline and resume() picks up the new end_time from the response.
+    timer.pause();
+    let creditedEndTime: string | null | undefined;
     try {
       const response = await executeService.executeQuery({
         question_id: questionId,
         query,
       });
+      creditedEndTime = response.assessment_end_time;
       setResult(response);
+      // The request round-tripped successfully — this counts as an attempt for the
+      // navigator regardless of whether the query was correct or had a SQL error.
+      progress.markAttempted();
 
-      if (response.is_correct) {
+      if (response.is_correct === null) {
+        // Correctness is hidden for this question — show a neutral confirmation only.
+        notifications.show({
+          title: 'Submitted',
+          message: 'Your query was submitted successfully',
+          color: 'blue',
+        });
+      } else if (response.is_correct) {
         notifications.show({
           title: 'Correct!',
           message: 'Your query returned the expected results',
@@ -100,6 +148,12 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
       // Refresh attempts
       const newAttempts = await attemptService.getQuestionAttempts(questionId);
       setAttempts(newAttempts);
+
+      // The attempt changed this student's progress/completion — drop the cached
+      // dashboard data so it re-fetches fresh on the next visit (prefix match
+      // clears every difficulty/search variant of studentQuestions).
+      queryClient.invalidateQueries({ queryKey: queryKeys.studentProgress });
+      queryClient.invalidateQueries({ queryKey: ['studentQuestions'] });
     } catch (err) {
       const error = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -109,6 +163,9 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
       });
     } finally {
       setIsExecuting(false);
+      timer.resume(creditedEndTime);
+      // Begin the cooldown after the request has completed (result returned).
+      registerRunComplete();
     }
   };
 
@@ -181,17 +238,23 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
     <Container fluid px="sm" py="md">
       <Stack gap="md">
         {/* Header */}
-        <Group align="baseline" gap="sm">
-          <ActionIcon
-            onClick={() => router.push(backUrl ?? '/student')}
-            variant="subtle"
-            size="sm"
-            aria-label="Back to dashboard"
-          >
-            <IconArrowLeft size={18} />
-          </ActionIcon>
-          <Title order={2}>SQL Workspace</Title>
+        <Group justify="space-between" align="center">
+          <Group align="baseline" gap="sm">
+            <ActionIcon
+              onClick={() => router.push(backUrl ?? '/student')}
+              variant="subtle"
+              size="sm"
+              aria-label="Back to dashboard"
+            >
+              <IconArrowLeft size={18} />
+            </ActionIcon>
+            <Title order={2}>SQL Workspace</Title>
+            <QuestionWeightBadge weight={weight} />
+          </Group>
+          <AssessmentTimer />
         </Group>
+
+        <QuestionNavigator />
 
         {/* 3-Panel Layout */}
         <Box
@@ -274,6 +337,7 @@ export function SqlWorkspace({ questionId, backUrl }: SqlWorkspaceProps) {
               onClear={handleClear}
               isExecuting={isExecuting}
               executionTime={result?.execution_time_ms || null}
+              isCoolingDown={isCoolingDown}
             />
           </Box>
 

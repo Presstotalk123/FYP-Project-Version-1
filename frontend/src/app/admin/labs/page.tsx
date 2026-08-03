@@ -1,19 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { StudentAttemptsModal } from '@/components/admin/StudentAttemptsModal';
 import { UserRole } from '@/types/user.types';
-import { Lab } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
+import { queryKeys } from '@/services/query-keys';
 
 /* ── SVG icons ── */
 const IconPlus = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
   </svg>
 );
 const IconPublish = () => (
@@ -81,30 +88,25 @@ const IconTrash = () => (
 
 export default function AdminLabsPage() {
   const router = useRouter();
-  const [labs, setLabs] = useState<Lab[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [labToDelete, setLabToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [studentAttemptsModalOpen, setStudentAttemptsModalOpen] = useState(false);
   const [selectedLabForAttempts, setSelectedLabForAttempts] = useState<{ id: number; title: string } | null>(null);
 
-  useEffect(() => { fetchLabs(); }, []);
+  // Session-cached (see providers.tsx); shares the `labs` key with the Problems page.
+  const labsQuery = useQuery({ queryKey: queryKeys.labs, queryFn: () => labService.getLabs() });
+  const labs = labsQuery.data ?? [];
+  const loading = labsQuery.isLoading;
+  const error = labsQuery.error
+    ? ((labsQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load labs')
+    : null;
+  const refreshing = labsQuery.isFetching;
+  const refresh = () => labsQuery.refetch();
 
-  const fetchLabs = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await labService.getLabs();
-      setLabs(data);
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load labs');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // After a mutation, mark the labs cache stale so it re-fetches once.
+  const invalidateLabs = () => queryClient.invalidateQueries({ queryKey: queryKeys.labs });
 
   const handleDelete = async () => {
     if (!labToDelete) return;
@@ -114,7 +116,7 @@ export default function AdminLabsPage() {
       notifications.show({ title: 'Success', message: 'Lab deleted successfully', color: 'green' });
       setDeleteModalOpen(false);
       setLabToDelete(null);
-      fetchLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to delete lab', color: 'red' });
@@ -132,7 +134,7 @@ export default function AdminLabsPage() {
         await labService.publishLab(labId);
         notifications.show({ title: 'Success', message: 'Lab published successfully', color: 'green' });
       }
-      fetchLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to update lab', color: 'red' });
@@ -148,7 +150,7 @@ export default function AdminLabsPage() {
         await labService.startLab(labId);
         notifications.show({ title: 'Success', message: 'Lab started successfully', color: 'green' });
       }
-      fetchLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to update lab', color: 'red' });
@@ -164,7 +166,7 @@ export default function AdminLabsPage() {
         await labService.hideLabResults(labId);
         notifications.show({ title: 'Success', message: 'Correctness feedback hidden from students', color: 'green' });
       }
-      fetchLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to update lab', color: 'red' });
@@ -180,7 +182,7 @@ export default function AdminLabsPage() {
         await labService.disableLabAiAssist(labId);
         notifications.show({ title: 'Success', message: 'AI Tutor disabled for students', color: 'green' });
       }
-      fetchLabs();
+      invalidateLabs();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({ title: 'Error', message: e.response?.data?.detail || 'Failed to update lab', color: 'red' });
@@ -207,6 +209,10 @@ export default function AdminLabsPage() {
             <p>Create and control SQL and graph labs.</p>
           </div>
           <div className="button-row">
+            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+              <IconRefresh />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
             <button className="btn btn-secondary" onClick={() => router.push('/admin/labs/wizard?type=graph')}>
               <IconPlus />
               Create Graph Lab

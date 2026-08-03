@@ -16,11 +16,13 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertCircle } from '@tabler/icons-react';
+import { IconAlertCircle, IconRefresh } from '@tabler/icons-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { erdPromptsService } from '@/services/erd-prompts.service';
+import { queryKeys } from '@/services/query-keys';
 import type { ErdPromptListItem, ErdPromptVersionSummary } from '@/types/erd-prompts.types';
 import { getApiErrorMessage } from '@/utils/api-error';
 
@@ -29,6 +31,7 @@ function activeContent(p: ErdPromptListItem): string {
 }
 
 export default function AdminSettingsPage() {
+  const queryClient = useQueryClient();
   const [prompts, setPrompts] = useState<ErdPromptListItem[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [versions, setVersions] = useState<ErdPromptVersionSummary[]>([]);
@@ -36,6 +39,29 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Cache the prompt list and per-key version history for the session (see
+  // providers.tsx). fetchQuery returns cached data without a network call on
+  // revisits; an invalidated key (after save/restore) is refetched once.
+  const loadPromptList = useCallback(
+    () =>
+      queryClient.fetchQuery({
+        queryKey: queryKeys.erdPrompts,
+        queryFn: () => erdPromptsService.list(),
+        staleTime: Infinity,
+      }),
+    [queryClient],
+  );
+  const loadVersions = useCallback(
+    (key: string) =>
+      queryClient.fetchQuery({
+        queryKey: queryKeys.erdPromptVersions(key),
+        queryFn: () => erdPromptsService.versions(key),
+        staleTime: Infinity,
+      }),
+    [queryClient],
+  );
   // modals
   const [viewModal, setViewModal] = useState<{ title: string; content: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -46,22 +72,26 @@ export default function AdminSettingsPage() {
   const dirty = selected !== null && editorValue !== activeContent(selected);
 
   const refresh = useCallback(async (keepKey?: string | null) => {
-    const list = await erdPromptsService.list();
+    const list = await loadPromptList();
     setPrompts(list);
     const key = keepKey ?? list[0]?.key ?? null;
     setSelectedKey(key);
     const item = list.find((p) => p.key === key);
     if (item) {
       setEditorValue(activeContent(item));
-      setVersions(await erdPromptsService.versions(item.key));
+      setVersions(await loadVersions(item.key));
     }
-  }, []);
+  }, [loadPromptList, loadVersions]);
 
   // Lighter-weight refresh used after save/activate/reset: only the affected
   // prompt's versions are re-fetched instead of the entire prompt list.
   const refreshSelected = useCallback(
     async (key: string) => {
-      const vs = await erdPromptsService.versions(key);
+      // A save/activate/reset changed this prompt: drop the stale cached versions
+      // (and the list, whose override badges just changed) so both re-fetch fresh.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.erdPromptVersions(key) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.erdPrompts });
+      const vs = await loadVersions(key);
       setVersions(vs);
       const active = vs.find((v) => v.is_active) ?? null;
       const current = prompts.find((p) => p.key === key);
@@ -71,7 +101,7 @@ export default function AdminSettingsPage() {
       );
       setEditorValue(active ? active.content : defaultContent);
     },
-    [prompts],
+    [prompts, queryClient, loadVersions],
   );
 
   useEffect(() => {
@@ -107,10 +137,28 @@ export default function AdminSettingsPage() {
     if (item) {
       setEditorValue(activeContent(item));
       try {
-        setVersions(await erdPromptsService.versions(key));
+        setVersions(await loadVersions(key));
       } catch (err) {
         notifications.show({ color: 'red', title: 'Failed to load history', message: getApiErrorMessage(err) });
       }
+    }
+  };
+
+  // Manual refresh: drop caches for the list and current prompt's versions so the
+  // next load pulls fresh data from the server, keeping the current selection.
+  const handleRefresh = async () => {
+    if (busy || refreshing) return;
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.erdPrompts });
+      if (selectedKey) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.erdPromptVersions(selectedKey) });
+      }
+      await refresh(selectedKey);
+    } catch (err) {
+      notifications.show({ color: 'red', title: 'Refresh failed', message: getApiErrorMessage(err) });
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -157,13 +205,25 @@ export default function AdminSettingsPage() {
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Stack gap="md">
-          <div>
-            <Title order={2}>Settings</Title>
-            <Text c="dimmed" size="sm">
-              Tune the AI prompts used by the LangGraph tutor. Changes go live immediately and only
-              affect the LangGraph engine.
-            </Text>
-          </div>
+          <Group justify="space-between" align="flex-start">
+            <div>
+              <Title order={2}>Settings</Title>
+              <Text c="dimmed" size="sm">
+                Tune the AI prompts used by the LangGraph tutor. Changes go live immediately and only
+                affect the LangGraph engine.
+              </Text>
+            </div>
+            <Button
+              variant="default"
+              leftSection={<IconRefresh size={16} />}
+              loading={refreshing}
+              disabled={busy}
+              onClick={handleRefresh}
+              title="Reload latest data from the server"
+            >
+              Refresh
+            </Button>
+          </Group>
 
           {error && (
             <Alert icon={<IconAlertCircle size={16} />} color="red" title="Failed to load prompts">

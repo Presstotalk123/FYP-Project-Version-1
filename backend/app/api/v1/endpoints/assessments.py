@@ -27,6 +27,9 @@ from app.schemas.assessment import (
     AssessmentItemComponentScore,
 )
 from app.dependencies import get_current_user, require_staff_role
+from app.services import assessment_clone, assessment_reset, assessment_scoring
+from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
+from sqlalchemy import func
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -55,8 +58,28 @@ def _build_item_response(item: AssessmentItem, db: Session) -> AssessmentItemRes
         item_type=item.item_type,
         item_id=item.item_id,
         order_index=item.order_index,
+        weight=item.weight,
+        hide_correctness=bool(item.hide_correctness),
         item_title=_resolve_item_title(item, db),
     )
+
+
+def _equal_weights(n: int) -> List[int]:
+    """Integer percentages summing to 100, remainder given to the earliest items.
+    n=1 -> [100], n=3 -> [34, 33, 33], n=4 -> [25, 25, 25, 25]."""
+    if n <= 0:
+        return []
+    base = 100 // n
+    remainder = 100 - base * n
+    return [base + 1 if i < remainder else base for i in range(n)]
+
+
+def _resolve_weights(items_in) -> List[int]:
+    """Return the weight to persist for each item. If every incoming weight is 0
+    (legacy/unweighted), auto-distribute equally; otherwise honour the given weights."""
+    if items_in and all((item.weight or 0) == 0 for item in items_in):
+        return _equal_weights(len(items_in))
+    return [item.weight for item in items_in]
 
 
 def _replace_items(assessment: Assessment, items_in, db: Session) -> None:
@@ -65,13 +88,22 @@ def _replace_items(assessment: Assessment, items_in, db: Session) -> None:
         AssessmentItem.assessment_id == assessment.id
     ).delete(synchronize_session=False)
 
+    weights = _resolve_weights(items_in)
     for idx, item_data in enumerate(items_in):
         db.add(AssessmentItem(
             assessment_id=assessment.id,
             item_type=item_data.item_type,
             item_id=item_data.item_id,
             order_index=item_data.order_index if item_data.order_index is not None else idx,
+            weight=weights[idx],
+            hide_correctness=1 if item_data.hide_correctness else 0,
         ))
+
+    # The bulk delete above bypasses the ORM unit of work, so the after_flush
+    # auto-invalidation listener won't see it. The ORM inserts below normally do
+    # trigger it, but not when items_in is empty — bump explicitly to cover that.
+    bump_version(db, Ns.ASSESSMENTS)
+    bump_version(db, assessment_body_ns(assessment.id))
 
 
 # ---------------------------------------------------------------------------
@@ -92,16 +124,20 @@ def create_assessment(
         is_running=0,
         is_deleted=0,
         password=data.password or None,
+        time_limit_minutes=data.time_limit_minutes,
     )
     db.add(assessment)
     db.flush()
 
+    weights = _resolve_weights(data.items)
     for idx, item_data in enumerate(data.items):
         db.add(AssessmentItem(
             assessment_id=assessment.id,
             item_type=item_data.item_type,
             item_id=item_data.item_id,
             order_index=item_data.order_index if item_data.order_index is not None else idx,
+            weight=weights[idx],
+            hide_correctness=1 if item_data.hide_correctness else 0,
         ))
 
     db.commit()
@@ -117,6 +153,7 @@ def create_assessment(
         created_by=assessment.created_by,
         password=assessment.password,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -127,26 +164,38 @@ def list_assessments(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff_role),
 ):
-    assessments = (
-        db.query(Assessment)
-        .filter(Assessment.is_deleted == 0)
-        .order_by(Assessment.created_at.desc())
-        .all()
-    )
-    return [
-        AssessmentListItem(
-            id=a.id,
-            title=a.title,
-            description=a.description,
-            is_published=bool(a.is_published),
-            is_running=bool(a.is_running),
-            item_count=len(a.items),
-            has_password=bool(a.password),
-            created_at=a.created_at,
-            updated_at=a.updated_at,
+    # Staff-only and identical across all staff/admin, so cached in-process and
+    # invalidated on any Assessment/AssessmentItem mutation (see app/core/cache.py).
+    def producer():
+        assessments = (
+            db.query(Assessment)
+            .filter(Assessment.is_deleted == 0)
+            .order_by(Assessment.created_at.desc())
+            .all()
         )
-        for a in assessments
-    ]
+        # One grouped COUNT instead of a per-row len(a.items) lazy load (avoids N+1).
+        counts = dict(
+            db.query(AssessmentItem.assessment_id, func.count(AssessmentItem.id))
+            .group_by(AssessmentItem.assessment_id)
+            .all()
+        )
+        return [
+            AssessmentListItem(
+                id=a.id,
+                title=a.title,
+                description=a.description,
+                is_published=bool(a.is_published),
+                is_running=bool(a.is_running),
+                item_count=counts.get(a.id, 0),
+                has_password=bool(a.password),
+                time_limit_minutes=a.time_limit_minutes,
+                created_at=a.created_at,
+                updated_at=a.updated_at,
+            )
+            for a in assessments
+        ]
+
+    return cache_read(db, Ns.ASSESSMENTS, key=("staff",), producer=producer)
 
 
 @router.get("/{assessment_id}", response_model=AssessmentResponse)
@@ -173,6 +222,7 @@ def get_assessment(
         created_by=assessment.created_by,
         password=assessment.password,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -199,6 +249,15 @@ def update_assessment(
             detail="Cannot edit assessment while it is running. Stop it first.",
         )
 
+    # A published assessment is frozen (its items point to content clones). Editing the
+    # item list would orphan those clones, so require unpublish first. Metadata edits are
+    # still allowed below.
+    if data.items is not None and assessment.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot edit assessment items while it is published. Unpublish first.",
+        )
+
     if data.title is not None:
         assessment.title = data.title
     if data.description is not None:
@@ -210,6 +269,11 @@ def update_assessment(
         assessment.password = None
     elif data.password:
         assessment.password = data.password
+
+    if data.clear_time_limit:
+        assessment.time_limit_minutes = None
+    elif data.time_limit_minutes is not None:
+        assessment.time_limit_minutes = data.time_limit_minutes
 
     assessment.updated_at = datetime.utcnow()
     db.commit()
@@ -225,6 +289,7 @@ def update_assessment(
         created_by=assessment.created_by,
         password=assessment.password,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -250,6 +315,9 @@ def delete_assessment(
             detail="Cannot delete assessment while it is running. Stop it first.",
         )
 
+    # Reclaim clone SQLite files and soft-delete clone rows before removing the assessment.
+    assessment_clone.delete_cloned_content(db, assessment.id)
+
     assessment.is_deleted = 1
     assessment.updated_at = datetime.utcnow()
     db.commit()
@@ -274,10 +342,28 @@ def publish_assessment(
     if not assessment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
-    assessment.is_published = 1
-    assessment.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(assessment)
+    # Freeze the assessment: deep-copy each item's content into an assessment-owned clone
+    # and repoint item_id to the clone, so student progress/attempts on this assessment are
+    # isolated from the master bank and other assessments. Idempotent: items already frozen
+    # (source_item_id set) are skipped, so re-publishing does not double-clone.
+    try:
+        for item in assessment.items:
+            if item.source_item_id is not None:
+                continue
+            clone_id = assessment_clone.clone_item(db, item, assessment.id)
+            item.source_item_id = item.item_id
+            item.item_id = clone_id
+
+        assessment.is_published = 1
+        assessment.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(assessment)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to publish assessment: {exc}",
+        )
 
     return AssessmentListItem(
         id=assessment.id,
@@ -287,6 +373,7 @@ def publish_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -309,6 +396,14 @@ def unpublish_assessment(
     if assessment.is_running:
         assessment.is_running = 0
 
+    # Tear down the frozen clones (delete SQLite files, soft-delete rows) and restore each
+    # item's pointer to its master content so the assessment becomes editable again.
+    assessment_clone.delete_cloned_content(db, assessment.id)
+    for item in assessment.items:
+        if item.source_item_id is not None:
+            item.item_id = item.source_item_id
+            item.source_item_id = None
+
     assessment.is_published = 0
     assessment.updated_at = datetime.utcnow()
     db.commit()
@@ -322,6 +417,7 @@ def unpublish_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -360,6 +456,7 @@ def start_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -379,8 +476,18 @@ def stop_assessment(
     if not assessment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
-    assessment.is_running = 0
+    assessment.is_running = 0  # blocks new joins / hides items on reload (unchanged)
     assessment.updated_at = datetime.utcnow()
+    # Force-end & submit everyone still active, regardless of their remaining time. Sets the
+    # same end-state as finalize_session (is_active=0, attempt_complete=1, submitted_at). The
+    # is_active==1 filter makes this idempotent and covers untimed attempts (end_time NULL) too.
+    db.query(AssessmentSession).filter(
+        AssessmentSession.assessment_id == assessment_id,
+        AssessmentSession.is_active == 1,
+    ).update(
+        {"is_active": 0, "attempt_complete": 1, "submitted_at": datetime.utcnow()},
+        synchronize_session=False,
+    )
     db.commit()
     db.refresh(assessment)
 
@@ -392,6 +499,7 @@ def stop_assessment(
         is_running=bool(assessment.is_running),
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -435,6 +543,7 @@ def list_assessment_students(
             is_active=bool(session.is_active),
             joined_at=session.joined_at,
             submitted_at=session.submitted_at,
+            weighted_score=assessment_scoring.compute_weighted_score(db, assessment, session.user_id),
         )
         for session, email in seen.values()
     ]
@@ -482,6 +591,8 @@ def get_student_component_scores(
     )
 
     component_scores: List[AssessmentItemComponentScore] = []
+    total_weight = 0
+    earned_weight = 0.0
 
     for item in items:
         title = _resolve_item_title(item, db)
@@ -491,7 +602,11 @@ def get_student_component_scores(
             item_id=item.item_id,
             item_title=title,
             order_index=item.order_index,
+            weight=item.weight,
         )
+
+        # Correctness fraction (0.0-1.0), reusing the per-type data below where possible.
+        fraction = 0.0
 
         if item.item_type == "sql_question":
             attempts = (
@@ -501,6 +616,7 @@ def get_student_component_scores(
             )
             score.attempt_count = len(attempts)
             score.has_correct_attempt = any(bool(a.is_correct) for a in attempts)
+            fraction = 1.0 if score.has_correct_attempt else 0.0
 
         elif item.item_type == "er_question":
             visited = False
@@ -514,6 +630,9 @@ def get_student_component_scores(
                     .first()
                 ) is not None
             score.visited = visited
+            # ER grade comes from the LLM-graded ERD-tutor conversation (percent / 100).
+            pct = assessment_scoring.er_percent(db, item.item_id, student_id)
+            fraction = (pct / 100.0) if pct is not None else 0.0
 
         elif item.item_type in ("sql_lab", "graph_lab"):
             total_tasks = (
@@ -536,8 +655,18 @@ def get_student_component_scores(
             ) or 0
             score.tasks_correct = correct_count
             score.tasks_total = total_tasks
+            fraction = (correct_count / total_tasks) if total_tasks > 0 else 0.0
+
+        score.score_fraction = round(fraction, 4)
+        score.weighted_points = round(item.weight * fraction, 2)
+        total_weight += item.weight
+        earned_weight += item.weight * fraction
 
         component_scores.append(score)
+
+    total_weighted_score = (
+        round(earned_weight / total_weight * 100, 1) if total_weight > 0 else None
+    )
 
     return StudentComponentScoresResponse(
         student_id=student_id,
@@ -545,4 +674,38 @@ def get_student_component_scores(
         assessment_id=assessment.id,
         assessment_title=assessment.title,
         items=component_scores,
+        total_weighted_score=total_weighted_score,
     )
+
+
+@router.post("/{assessment_id}/students/{student_id}/reset")
+def reset_student_attempt(
+    assessment_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Erase a student's attempt data for this assessment and clear their completion lock,
+    giving them a clean slate to retake it."""
+    assessment = db.query(Assessment).filter(
+        Assessment.id == assessment_id,
+        Assessment.is_deleted == 0,
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
+    # Reset is only safe while published: item_id points to assessment-private clones. If
+    # unpublished, item_id reverts to master content and a purge would wipe practice data.
+    if not assessment.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Publish the assessment before resetting a student's attempt.",
+        )
+
+    summary = assessment_reset.reset_student_attempt(db, assessment, student_id)
+    db.commit()
+    return {"detail": "Attempt reset", "student_id": student_id, "deleted": summary}

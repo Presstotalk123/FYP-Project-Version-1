@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import sqlite3
 import os
 import logging
@@ -26,6 +26,7 @@ from app.schemas.lab_task import (
     LabTaskSubmitRequest, LabTaskSubmitResponse, LabTaskProgress, LabTaskProgressResponse
 )
 from app.dependencies import get_current_user, require_staff_role
+from app.core.cache import cache_read, Ns
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
@@ -38,9 +39,37 @@ from app.utils.lab_cleanup import terminate_all_lab_sessions
 from app.core.lab_query_executor import execute_lab_query
 from app.core.graph_query_executor import execute_graph_query
 from app.core.answer_validator import generate_hash
+from app.services.assessment_timer import (
+    get_active_assessment_session,
+    enforce_not_expired,
+    credit_query_time,
+)
 
 router = APIRouter(prefix="/labs", tags=["labs"])
 logger = logging.getLogger(__name__)
+
+
+def _assessment_timer_start(lab, user, db, received_at=None):
+    """For an assessment-clone lab (owner_assessment_id set) opened by a student, enforce lazy
+    expiration on the student's assessment session and return (session, query_start) so the
+    caller can credit the query time afterwards. Returns (None, None) for staff, master labs,
+    or non-assessment sessions (no timer applies).
+
+    query_start is the request's ingress time (received_at, set by the middleware) so time
+    spent queueing for a threadpool worker under load is credited too; falls back to now."""
+    if user.role.value != "student":
+        return None, None
+    if not lab or not lab.owner_assessment_id:
+        return None, None
+    session = get_active_assessment_session(db, lab.owner_assessment_id, user.id)
+    if session is None:
+        # Session already submitted/expired — the assessment is over for this student.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Assessment has ended.",
+        )
+    enforce_not_expired(db, session)  # 403 + finalize if past end_time
+    return session, (received_at or datetime.now(timezone.utc))
 
 
 # ==============================================================================
@@ -123,29 +152,46 @@ def list_labs(
     Students: only published labs (is_published=1)
     Staff: all non-deleted labs
     """
-    query = db.query(Lab).filter(Lab.is_deleted == 0)
+    # Identical across all staff/admin (and, per role, across all students), so cached
+    # in-process and invalidated on any Lab mutation (see app/core/cache.py).
+    role = "student" if current_user.role.value == "student" else "staff"
 
-    # Filter by role
-    if current_user.role.value == "student":
-        query = query.filter(Lab.is_published == 1)
-
-    labs = query.order_by(Lab.created_at.desc()).offset(skip).limit(limit).all()
-
-    return [
-        LabListItem(
-            id=lab.id,
-            title=lab.title,
-            description=lab.description,
-            is_published=bool(lab.is_published),
-            is_running=bool(lab.is_running),
-            hide_correctness=bool(lab.hide_correctness),
-            disable_ai_assist=bool(lab.disable_ai_assist),
-            lab_type=lab.lab_type,
-            created_at=lab.created_at,
-            updated_at=lab.updated_at
+    def producer():
+        # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
+        # the lab bank, the assessment item picker, or the student practice lab list.
+        query = db.query(Lab).filter(
+            Lab.is_deleted == 0,
+            Lab.owner_assessment_id.is_(None),
         )
-        for lab in labs
-    ]
+
+        # Filter by role
+        if role == "student":
+            query = query.filter(Lab.is_published == 1)
+
+        labs = query.order_by(Lab.created_at.desc()).offset(skip).limit(limit).all()
+
+        return [
+            LabListItem(
+                id=lab.id,
+                title=lab.title,
+                description=lab.description,
+                is_published=bool(lab.is_published),
+                is_running=bool(lab.is_running),
+                hide_correctness=bool(lab.hide_correctness),
+                disable_ai_assist=bool(lab.disable_ai_assist),
+                lab_type=lab.lab_type,
+                created_at=lab.created_at,
+                updated_at=lab.updated_at
+            )
+            for lab in labs
+        ]
+
+    return cache_read(
+        db,
+        Ns.LABS,
+        key=(f"role={role}", f"skip={skip}", f"limit={limit}"),
+        producer=producer,
+    )
 
 
 def _lab_accessible_via_assessment(lab_id: int, user_id: int, db: Session) -> bool:
@@ -177,41 +223,49 @@ def get_lab(
     Students: only if published
     Staff: any lab
     """
-    lab = db.query(Lab).filter(
-        Lab.id == lab_id,
-        Lab.is_deleted == 0
-    ).first()
+    # Payload is identical for staff and students, so cache per lab id (invalidated on
+    # any Lab mutation). The per-user authorization gate below stays live.
+    def producer():
+        lab = db.query(Lab).filter(
+            Lab.id == lab_id,
+            Lab.is_deleted == 0
+        ).first()
 
-    if not lab:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
+        if not lab:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lab not found"
+            )
+
+        return LabDetail(
+            id=lab.id,
+            title=lab.title,
+            description=lab.description,
+            is_published=bool(lab.is_published),
+            is_running=bool(lab.is_running),
+            hide_correctness=bool(lab.hide_correctness),
+            disable_ai_assist=bool(lab.disable_ai_assist),
+            lab_type=lab.lab_type,
+            template_db_path=lab.template_db_path,
+            schema_sql=lab.schema_sql,
+            sample_data_sql=lab.sample_data_sql,
+            created_by=lab.created_by,
+            created_at=lab.created_at,
+            updated_at=lab.updated_at
         )
 
-    # Check permissions for students
-    if current_user.role.value == "student" and not lab.is_published:
+    lab_detail = cache_read(db, Ns.LABS, key=("detail", lab_id), producer=producer)
+
+    # Check permissions for students (uses cached is_published; no DB read on hit for
+    # the common published case).
+    if current_user.role.value == "student" and not lab_detail.is_published:
         if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Lab not found"
             )
 
-    return LabDetail(
-        id=lab.id,
-        title=lab.title,
-        description=lab.description,
-        is_published=bool(lab.is_published),
-        is_running=bool(lab.is_running),
-        hide_correctness=bool(lab.hide_correctness),
-        disable_ai_assist=bool(lab.disable_ai_assist),
-        lab_type=lab.lab_type,
-        template_db_path=lab.template_db_path,
-        schema_sql=lab.schema_sql,
-        sample_data_sql=lab.sample_data_sql,
-        created_by=lab.created_by,
-        created_at=lab.created_at,
-        updated_at=lab.updated_at
-    )
+    return lab_detail
 
 
 @router.put("/{lab_id}", response_model=LabResponse)
@@ -808,6 +862,7 @@ def get_session(
 def execute_query(
     session_id: int,
     execute_request: LabExecuteRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -860,26 +915,50 @@ def execute_query(
                 detail="Lab is no longer running"
             )
 
-    # Execute query on student's database (dispatch on lab_type)
-    if lab.lab_type == "graph":
-        result = execute_graph_query(session.db_file_path, execute_request.query, timeout=15)
-    else:
-        result = execute_lab_query(session.db_file_path, execute_request.query, timeout=15)
+    # Assessment timer: enforce lazy expiration before running; credit the query time after.
+    # Credit from the request's ingress time so threadpool-queue wait under load is included.
+    assessment_session, query_start = _assessment_timer_start(
+        lab, current_user, db, getattr(request.state, "received_at", None)
+    )
 
-    # Save attempt to history (skip in review mode)
-    if not execute_request.is_review_mode:
-        attempt = LabAttempt(
-            session_id=session.id,
-            lab_id=session.lab_id,
-            user_id=current_user.id,
-            query=execute_request.query,
-            success=1 if result["success"] else 0,
-            execution_time_ms=result["execution_time_ms"],
-            row_count=result["row_count"],
-            error_message=result["error_message"]
-        )
-        db.add(attempt)
-        db.commit()
+    # Snapshot what the query + write phases need, then release the Postgres connection
+    # before running the up-to-15s SQLite query. Holding a connection (and, behind
+    # PgBouncer, a real server backend) for the whole query is what exhausts the
+    # base-tier connection budget under load. db.commit() ends the read transaction so
+    # the connection returns to the pool; the write phase re-checks one out for a few ms.
+    lab_type = lab.lab_type
+    session_db_path = session.db_file_path
+    sess_id = session.id
+    sess_lab_id = session.lab_id
+    user_id = current_user.id
+    db.commit()
+
+    # try/finally so the query time is credited even if execution raises (e.g. timeout).
+    try:
+        # Execute query on student's database (dispatch on lab_type) — no Postgres
+        # transaction is held here.
+        if lab_type == "graph":
+            result = execute_graph_query(session_db_path, execute_request.query, timeout=15)
+        else:
+            result = execute_lab_query(session_db_path, execute_request.query, timeout=15)
+
+        # Save attempt to history (skip in review mode)
+        if not execute_request.is_review_mode:
+            attempt = LabAttempt(
+                session_id=sess_id,
+                lab_id=sess_lab_id,
+                user_id=user_id,
+                query=execute_request.query,
+                success=1 if result["success"] else 0,
+                execution_time_ms=result["execution_time_ms"],
+                row_count=result["row_count"],
+                error_message=result["error_message"]
+            )
+            db.add(attempt)
+            db.commit()
+    finally:
+        if query_start is not None:
+            credit_query_time(db, assessment_session, query_start)
 
     return LabExecuteResponse(
         success=result["success"],
@@ -887,7 +966,8 @@ def execute_query(
         results=result["results"],
         execution_time_ms=result["execution_time_ms"],
         row_count=result["row_count"],
-        error_message=result["error_message"]
+        error_message=result["error_message"],
+        assessment_end_time=assessment_session.end_time if assessment_session else None,
     )
 
 
@@ -1362,8 +1442,9 @@ def list_lab_tasks(
     Students: Only if lab is published
     Staff: Always
     """
-    # Verify lab exists and check permissions
-    lab = db.query(Lab).filter(
+    # Verify lab exists and check permissions. Tiny single-column lookup that doubles as
+    # the 404 check and the per-user authorization gate; the heavy task list is cached.
+    lab = db.query(Lab.is_published).filter(
         Lab.id == lab_id,
         Lab.is_deleted == 0
     ).first()
@@ -1375,34 +1456,38 @@ def list_lab_tasks(
         )
 
     # Check permissions for students
-    if current_user.role.value == "student" and not lab.is_published:
+    if current_user.role.value == "student" and not lab[0]:
         if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Lab not found"
             )
 
-    # Get tasks
-    tasks = db.query(LabTask).filter(
-        LabTask.lab_id == lab_id,
-        LabTask.is_deleted == 0
-    ).order_by(LabTask.order_index, LabTask.created_at).all()
+    # The task list is identical for staff and students (has_answer is a bool, never the
+    # answer), so cache it per lab id (invalidated on any Lab mutation).
+    def producer():
+        tasks = db.query(LabTask).filter(
+            LabTask.lab_id == lab_id,
+            LabTask.is_deleted == 0
+        ).order_by(LabTask.order_index, LabTask.created_at).all()
 
-    # Return with has_answer computed field
-    return [
-        LabTaskResponse(
-            id=task.id,
-            lab_id=task.lab_id,
-            title=task.title,
-            description=task.description,
-            order_index=task.order_index,
-            has_answer=task.correct_answer_hash is not None,
-            created_by=task.created_by,
-            created_at=task.created_at,
-            updated_at=task.updated_at
-        )
-        for task in tasks
-    ]
+        # Return with has_answer computed field
+        return [
+            LabTaskResponse(
+                id=task.id,
+                lab_id=task.lab_id,
+                title=task.title,
+                description=task.description,
+                order_index=task.order_index,
+                has_answer=task.correct_answer_hash is not None,
+                created_by=task.created_by,
+                created_at=task.created_at,
+                updated_at=task.updated_at
+            )
+            for task in tasks
+        ]
+
+    return cache_read(db, Ns.LABS, key=("tasks", lab_id), producer=producer)
 
 
 @router.post("/{lab_id}/tasks/{task_id}/assign", response_model=LabTaskResponse)
@@ -1605,6 +1690,7 @@ def delete_lab_task(
 @router.post("/tasks/validate", response_model=LabTaskValidateResponse)
 def validate_task_answer(
     validate_request: LabTaskValidateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -1646,10 +1732,30 @@ def validate_task_answer(
 
     # Execute user's query on their session database (dispatch on lab_type)
     validate_lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
-    if validate_lab and validate_lab.lab_type == "graph":
-        result = execute_graph_query(session.db_file_path, validate_request.user_query, timeout=15)
-    else:
-        result = execute_lab_query(session.db_file_path, validate_request.user_query, timeout=15)
+
+    # Assessment timer: enforce lazy expiration before running; credit the query time after
+    # (from the request's ingress time so threadpool-queue wait under load is included).
+    assessment_session, query_start = _assessment_timer_start(
+        validate_lab, current_user, db, getattr(request.state, "received_at", None)
+    )
+
+    # Snapshot the values the query + comparison need, then release the Postgres
+    # connection before the up-to-15s SQLite query so it isn't pinned during execution
+    # (see the note in execute_query above). Nothing is written here, so the connection
+    # is only re-acquired for the credit_query_time update in finally.
+    lab_type = validate_lab.lab_type if validate_lab else None
+    session_db_path = session.db_file_path
+    task_correct_hash = task.correct_answer_hash
+    db.commit()
+
+    try:
+        if lab_type == "graph":
+            result = execute_graph_query(session_db_path, validate_request.user_query, timeout=15)
+        else:
+            result = execute_lab_query(session_db_path, validate_request.user_query, timeout=15)
+    finally:
+        if query_start is not None:
+            credit_query_time(db, assessment_session, query_start)
 
     if not result["success"]:
         return LabTaskValidateResponse(
@@ -1664,8 +1770,8 @@ def validate_task_answer(
     ]
     user_hash = generate_hash(results_tuples, result["columns"])
 
-    # Compare hashes
-    is_correct = user_hash == task.correct_answer_hash
+    # Compare hashes (task_correct_hash was captured before the connection was released)
+    is_correct = user_hash == task_correct_hash
 
     return LabTaskValidateResponse(
         is_correct=is_correct,
@@ -1722,6 +1828,11 @@ def submit_task_answer(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Task does not belong to this lab session"
         )
+
+    # 3b. Assessment timer: reject a submission after the deadline (no query runs here, so
+    # there is nothing to credit — the run/validate calls already credited their time).
+    submit_lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
+    _assessment_timer_start(submit_lab, current_user, db)
 
     # 4. Generate hash from submitted results
     # Convert dict results to tuple format for hash generation

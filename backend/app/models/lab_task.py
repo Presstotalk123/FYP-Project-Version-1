@@ -29,6 +29,9 @@ class LabTask(Base):
     # Soft delete
     is_deleted = Column(Integer, default=0)
 
+    # When set, this task belongs to an assessment-owned clone lab (see Lab.owner_assessment_id).
+    owner_assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)
+
     # Composite indexes
     __table_args__ = (
         Index('idx_lab_order', 'lab_id', 'order_index'),

@@ -29,6 +29,7 @@ from app.models.er_lab_submission import ErLabSubmission
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
 from app.models.erd_prompt_version import ErdPromptVersion
+from app.core.cache import CacheVersion  # register cache_versions on Base
 
 def create_tables():
     print(f"Connecting to: {settings.DATABASE_URL[:50]}...")

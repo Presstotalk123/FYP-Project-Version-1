@@ -18,6 +18,8 @@ from app.schemas.student_assessment import (
 )
 from app.dependencies import get_current_user
 from app.api.v1.endpoints.assessments import _resolve_item_title
+from app.services.assessment_timer import finalize_session
+from app.core.cache import cache_read, assessment_body_ns
 
 router = APIRouter(prefix="/student-assessments", tags=["student-assessments"])
 
@@ -57,12 +59,30 @@ def _get_active_session(assessment_id: int, user_id: int, db: Session) -> Assess
     )
 
 
+def _get_completed_session(assessment_id: int, user_id: int, db: Session) -> AssessmentSession | None:
+    """Return the student's submitted session (attempt_complete=1) if one exists.
+
+    Independent of is_active: assessments are single-attempt, so once a session is
+    completed the student is locked out of retaking it.
+    """
+    return (
+        db.query(AssessmentSession)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.user_id == user_id,
+            AssessmentSession.attempt_complete == 1,
+        )
+        .first()
+    )
+
+
 def _build_item_view(item: AssessmentItem, visited: bool, db: Session) -> StudentAssessmentItemView:
     return StudentAssessmentItemView(
         id=item.id,
         item_type=item.item_type,
         item_id=item.item_id,
         order_index=item.order_index,
+        weight=item.weight,
         item_title=_resolve_item_title(item, db),
         visited=visited,
     )
@@ -103,6 +123,8 @@ def get_student_assessment(
 ):
     assessment = _get_published_assessment(assessment_id, db)
 
+    attempt_complete = _get_completed_session(assessment_id, current_user.id, db) is not None
+
     # If not running, return only metadata with no items
     if not assessment.is_running:
         return StudentAssessmentDetail(
@@ -111,10 +133,12 @@ def get_student_assessment(
             description=assessment.description,
             is_running=False,
             has_password=bool(assessment.password),
+            time_limit_minutes=assessment.time_limit_minutes,
+            attempt_complete=attempt_complete,
             items=[],
         )
 
-    # If running, build items with visited flags
+    # If running, build items with visited flags.
     session = _get_active_session(assessment_id, current_user.id, db)
 
     visited_ids: set[int] = set()
@@ -126,9 +150,23 @@ def get_student_assessment(
         )
         visited_ids = {v[0] for v in visits}
 
+    # The item list + resolved titles are identical for every student and frozen for
+    # the run's duration, so cache them under assessment_body:{id} (invalidated on any
+    # Assessment/AssessmentItem change). At exam start this is the heaviest read in the
+    # app hit by the whole cohort at once; caching + single-flight collapses it to one
+    # rebuild. Only the per-student `visited` overlay stays live.
+    def produce_body() -> list[StudentAssessmentItemView]:
+        return [_build_item_view(item, False, db) for item in assessment.items]
+
+    body_items = cache_read(
+        db, assessment_body_ns(assessment_id), key=("body",), producer=produce_body
+    )
+
+    # Overlay this student's visited flags; model_copy avoids mutating the shared
+    # cached instances.
     items = [
-        _build_item_view(item, item.id in visited_ids, db)
-        for item in assessment.items
+        iv.model_copy(update={"visited": True}) if iv.id in visited_ids else iv
+        for iv in body_items
     ]
 
     return StudentAssessmentDetail(
@@ -137,6 +175,8 @@ def get_student_assessment(
         description=assessment.description,
         is_running=True,
         has_password=bool(assessment.password),
+        time_limit_minutes=assessment.time_limit_minutes,
+        attempt_complete=attempt_complete,
         items=items,
     )
 
@@ -156,6 +196,13 @@ def join_assessment(
             detail="Assessment has not been started by staff",
         )
 
+    # Single-attempt: if the student already ended & submitted, block retaking.
+    if _get_completed_session(assessment_id, current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You have already submitted this assessment and cannot retake it.",
+        )
+
     # Return existing active session if already joined (skip password check)
     existing = _get_active_session(assessment_id, current_user.id, db)
     if existing:
@@ -166,6 +213,7 @@ def join_assessment(
             is_active=bool(existing.is_active),
             joined_at=existing.joined_at,
             submitted_at=existing.submitted_at,
+            end_time=existing.end_time,
         )
 
     if assessment.password:
@@ -175,9 +223,15 @@ def join_assessment(
                 detail="Incorrect assessment password",
             )
 
+    from datetime import datetime, timedelta, timezone
+    end_time = None
+    if assessment.time_limit_minutes:
+        end_time = datetime.now(timezone.utc) + timedelta(minutes=assessment.time_limit_minutes)
+
     session = AssessmentSession(
         assessment_id=assessment_id,
         user_id=current_user.id,
+        end_time=end_time,
     )
     db.add(session)
     db.commit()
@@ -190,6 +244,7 @@ def join_assessment(
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
+        end_time=session.end_time,
     )
 
 
@@ -212,6 +267,7 @@ def get_session(
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
+        end_time=session.end_time,
     )
 
 
@@ -283,10 +339,7 @@ def submit_assessment(
             detail="No active session to submit",
         )
 
-    from datetime import datetime, timezone
-    session.is_active = 0
-    session.submitted_at = datetime.now(timezone.utc)
-    db.commit()
+    finalize_session(db, session)
     db.refresh(session)
 
     return AssessmentSessionResponse(
@@ -296,4 +349,5 @@ def submit_assessment(
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
+        end_time=session.end_time,
     )

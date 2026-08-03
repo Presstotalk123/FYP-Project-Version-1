@@ -21,6 +21,8 @@ class StudentAssessmentItemView(BaseModel):
     item_type: AssessmentItemType
     item_id: int
     order_index: int
+    # Integer percentage (0-100) this question contributes to the assessment total.
+    weight: int
     item_title: str
     visited: bool
 
@@ -34,6 +36,11 @@ class StudentAssessmentDetail(BaseModel):
     description: Optional[str]
     is_running: bool
     has_password: bool
+    # Optional whole-minute time limit; None = untimed. Shown on the Begin screen.
+    time_limit_minutes: Optional[int] = None
+    # True once this student has ended & submitted; the UI shows a "Completed" state
+    # and hides the Join/Continue buttons (assessments are single-attempt).
+    attempt_complete: bool = False
     items: List[StudentAssessmentItemView]
 
     class Config:
@@ -47,6 +54,8 @@ class AssessmentSessionResponse(BaseModel):
     is_active: bool
     joined_at: datetime
     submitted_at: Optional[datetime]
+    # Deadline for this attempt; None = untimed. The frontend countdown ticks toward this.
+    end_time: Optional[datetime] = None
 
     class Config:
         from_attributes = True

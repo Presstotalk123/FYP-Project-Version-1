@@ -4,12 +4,16 @@ export interface ExecuteRequest {
 }
 
 export interface ExecuteResponse {
-  is_correct: boolean;
+  // null when the question hides correctness from students — render a neutral "Submitted" state.
+  is_correct: boolean | null;
   execution_time_ms: number;
   results: Array<Record<string, unknown>>;
   columns: string[];
   error_message: string | null;
   row_count: number;
+  // Assessment deadline after crediting this query's time; null/undefined outside a timed
+  // assessment. The countdown resumes from this without a separate session request.
+  assessment_end_time?: string | null;
 }
 
 export interface Attempt {
@@ -17,7 +21,8 @@ export interface Attempt {
   user_id: number;
   question_id: number;
   query: string;
-  is_correct: boolean;
+  // null when the question hides correctness from students.
+  is_correct: boolean | null;
   execution_time_ms: number | null;
   error_message: string | null;
   submitted_at: string;
@@ -28,7 +33,8 @@ export interface AttemptHistory {
   question_id: number;
   question_title: string;
   query: string;
-  is_correct: boolean;
+  // null when the question hides correctness from students.
+  is_correct: boolean | null;
   execution_time_ms: number | null;
   submitted_at: string;
 }

@@ -13,6 +13,7 @@ interface EditorPanelProps {
   onClear: () => void;
   isExecuting: boolean;
   executionTime: number | null;
+  isCoolingDown?: boolean;
 }
 
 export function EditorPanel({
@@ -22,6 +23,7 @@ export function EditorPanel({
   onClear,
   isExecuting,
   executionTime,
+  isCoolingDown = false,
 }: EditorPanelProps) {
   return (
     <Stack gap="md" p="md" style={{ height: '100%' }}>
@@ -31,6 +33,7 @@ export function EditorPanel({
             leftSection={<IconPlayerPlay size={16} />}
             onClick={onExecute}
             loading={isExecuting}
+            disabled={isCoolingDown}
           >
             Run Query
           </Button>
@@ -42,6 +45,11 @@ export function EditorPanel({
           >
             Clear
           </Button>
+          {isCoolingDown && (
+            <Text size="sm" c="dimmed">
+              Please wait before running another query
+            </Text>
+          )}
         </Group>
         {executionTime !== null && (
           <Text size="sm" c="dimmed">

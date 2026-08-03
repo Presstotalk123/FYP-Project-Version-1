@@ -15,12 +15,15 @@ import {
   Drawer,
   Card,
   ScrollArea,
+  Modal,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconArrowLeft,
   IconActivity,
   IconEye,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -48,22 +51,52 @@ export default function AssessmentStudentsPage() {
   const [scoresLoading, setScoresLoading] = useState(false);
   const [scoresError, setScoresError] = useState<string | null>(null);
 
+  // Reset-attempt confirmation
+  const [resetStudent, setResetStudent] = useState<AssessmentStudentRow | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const fetchStudents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await assessmentService.getAssessmentStudents(assessmentId);
+      setData(result);
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setError(e.response?.data?.detail || 'Failed to load students');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await assessmentService.getAssessmentStudents(assessmentId);
-        setData(result);
-      } catch (err) {
-        const e = err as { response?: { data?: { detail?: string } } };
-        setError(e.response?.data?.detail || 'Failed to load students');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assessmentId]);
+
+  const handleResetConfirm = async () => {
+    if (!resetStudent) return;
+    setResetting(true);
+    try {
+      await assessmentService.resetStudentAttempt(assessmentId, resetStudent.user_id);
+      notifications.show({
+        color: 'green',
+        title: 'Attempt reset',
+        message: `${resetStudent.email} has a clean slate and can retake this assessment.`,
+      });
+      setResetStudent(null);
+      await fetchStudents();
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        color: 'red',
+        title: 'Reset failed',
+        message: e.response?.data?.detail || 'Could not reset the attempt.',
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const openActivityDrawer = async (student: AssessmentStudentRow) => {
     setActivityStudent(student);
@@ -100,6 +133,19 @@ export default function AssessmentStudentsPage() {
     sql_lab: 'SQL Lab',
     graph_lab: 'Graph Lab',
   };
+
+  // Colour a weighted score (0-100) green/yellow/red like a gradebook.
+  const scoreColor = (score: number) =>
+    score >= 75 ? 'green' : score >= 50 ? 'yellow' : 'red';
+
+  const renderWeightedScore = (score: number | null | undefined, size: 'sm' | 'lg' = 'sm') =>
+    score == null ? (
+      <Text size="sm" c="dimmed">—</Text>
+    ) : (
+      <Badge color={scoreColor(score)} variant="light" size={size}>
+        {score}%
+      </Badge>
+    );
 
   const renderItemScore = (item: AssessmentItemComponentScore, studentId: number) => {
     if (item.item_type === 'sql_question') {
@@ -192,6 +238,7 @@ export default function AssessmentStudentsPage() {
                     <Table.Tr>
                       <Table.Th>Email</Table.Th>
                       <Table.Th>Status</Table.Th>
+                      <Table.Th>Score</Table.Th>
                       <Table.Th>Joined At</Table.Th>
                       <Table.Th>Submitted At</Table.Th>
                       <Table.Th>Actions</Table.Th>
@@ -209,6 +256,9 @@ export default function AssessmentStudentsPage() {
                           </Badge>
                         </Table.Td>
                         <Table.Td>
+                          {renderWeightedScore(student.weighted_score)}
+                        </Table.Td>
+                        <Table.Td>
                           <Text size="sm">{new Date(student.joined_at).toLocaleString()}</Text>
                         </Table.Td>
                         <Table.Td>
@@ -219,15 +269,26 @@ export default function AssessmentStudentsPage() {
                           </Text>
                         </Table.Td>
                         <Table.Td>
-                          <Button
-                            size="xs"
-                            variant="light"
-                            color="teal"
-                            leftSection={<IconActivity size={14} />}
-                            onClick={() => openActivityDrawer(student)}
-                          >
-                            View Activity
-                          </Button>
+                          <Group gap="xs">
+                            <Button
+                              size="xs"
+                              variant="light"
+                              color="teal"
+                              leftSection={<IconActivity size={14} />}
+                              onClick={() => openActivityDrawer(student)}
+                            >
+                              View Activity
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="light"
+                              color="red"
+                              leftSection={<IconRefresh size={14} />}
+                              onClick={() => setResetStudent(student)}
+                            >
+                              Reset
+                            </Button>
+                          </Group>
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -237,6 +298,30 @@ export default function AssessmentStudentsPage() {
             </>
           )}
         </Stack>
+
+        {/* Reset-attempt confirmation */}
+        <Modal
+          opened={!!resetStudent}
+          onClose={() => (resetting ? null : setResetStudent(null))}
+          title={<Text fw={600}>Reset attempt?</Text>}
+          centered
+        >
+          <Stack gap="md">
+            <Text size="sm">
+              This permanently erases <b>{resetStudent?.email}</b>&rsquo;s work on this assessment
+              (all submissions, query history, and progress) and removes their session, giving them a
+              clean slate to retake it. Their standalone practice is not affected. This cannot be undone.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="default" onClick={() => setResetStudent(null)} disabled={resetting}>
+                Cancel
+              </Button>
+              <Button color="red" loading={resetting} onClick={handleResetConfirm}>
+                Reset attempt
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
 
         {/* Component-wise activity drawer */}
         <Drawer
@@ -265,6 +350,25 @@ export default function AssessmentStudentsPage() {
 
           {scores && (
             <Stack gap="sm">
+              <Card withBorder padding="md" radius="md" bg="var(--mantine-color-default-hover)">
+                <Group justify="space-between" align="center">
+                  <Stack gap={2}>
+                    <Text size="sm" fw={600}>Weighted Score</Text>
+                    <Text size="xs" c="dimmed">
+                      Based on each question&rsquo;s weightage and this student&rsquo;s activity.
+                    </Text>
+                  </Stack>
+                  {scores.total_weighted_score == null ? (
+                    <Text size="sm" c="dimmed">Not weighted</Text>
+                  ) : (
+                    <Text size="xl" fw={700} c={scoreColor(scores.total_weighted_score)}>
+                      {scores.total_weighted_score}
+                      <Text span size="sm" c="dimmed"> / 100</Text>
+                    </Text>
+                  )}
+                </Group>
+              </Card>
+
               {scores.items.map((item, idx) => (
                 <Card key={item.assessment_item_id} withBorder padding="sm" radius="md">
                   <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -278,11 +382,21 @@ export default function AssessmentStudentsPage() {
                         >
                           {itemTypeLabel[item.item_type] ?? item.item_type}
                         </Badge>
+                        {!!item.weight && (
+                          <Badge size="xs" color="indigo" variant="light">
+                            {item.weight}% weight
+                          </Badge>
+                        )}
                       </Group>
                       <Text size="sm" fw={500} lineClamp={2}>{item.item_title}</Text>
                     </Stack>
                     <Stack gap={4} align="flex-end">
                       {renderItemScore(item, activityStudent!.user_id)}
+                      {item.weighted_points != null && !!item.weight && (
+                        <Text size="xs" c="dimmed">
+                          {item.weighted_points} / {item.weight} pts
+                        </Text>
+                      )}
                     </Stack>
                   </Group>
                 </Card>

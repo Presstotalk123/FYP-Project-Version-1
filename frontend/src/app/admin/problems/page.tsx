@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
@@ -9,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { questionService } from '@/services/question.service';
 import { labService } from '@/services/lab.service';
 import { erDiagramService } from '@/services/er-diagram.service';
+import { queryKeys } from '@/services/query-keys';
 
 type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question';
 type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph';
@@ -20,9 +22,21 @@ interface Problem {
   problemType: ProblemType;
   difficulty?: string;
   created_by?: number;
+  createdByRole?: string;
+  isPublished?: boolean;
   created_at: string;
   editUrl: string;
 }
+
+// Publish only applies to SQL questions and staff-created ERD questions.
+// Student-created ERDs stay visible to students regardless, so they get no publish control.
+const isPublishable = (p: Problem): boolean => {
+  if (p.problemType === 'sql-question') return true;
+  if (p.problemType === 'erd-question') {
+    return p.createdByRole === 'staff' || p.createdByRole === 'admin';
+  }
+  return false;
+};
 
 const typeBadge: Record<ProblemType, { label: string; className: string }> = {
   'sql-question': { label: 'SQL Question', className: 'badge-success' },
@@ -48,35 +62,62 @@ const IconEdit = () => (
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
   </svg>
 );
+const IconRefresh = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+  </svg>
+);
+// Upload/paper-plane style icon for "Publish"
+const IconPublish = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>
+  </svg>
+);
+// Eye-off style icon for "Unpublish" (hide from students)
+const IconUnpublish = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
 
 export default function ProblemsPage() {
   const router = useRouter();
   const { user } = useAuth();
 
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [publishing, setPublishing] = useState<Record<string, boolean>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [authorFilter, setAuthorFilter] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  // Session-cached (see providers.tsx). `questions` is shared with the Dashboard
+  // and `labs` with Manage Labs, so a tour of the admin area fetches each once.
+  const questionsQuery = useQuery({ queryKey: queryKeys.questions, queryFn: () => questionService.getQuestions() });
+  const labsQuery = useQuery({ queryKey: queryKeys.labs, queryFn: () => labService.getLabs() });
+  const erdQuery = useQuery({ queryKey: queryKeys.erdQuestions, queryFn: () => erDiagramService.getQuestions() });
 
-  const fetchAll = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const loading = questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading;
+  const loadFailed = !!(questionsQuery.error || labsQuery.error || erdQuery.error);
+  const error = actionError ?? (loadFailed ? 'Failed to load problems' : null);
+  const refreshing = questionsQuery.isFetching || labsQuery.isFetching || erdQuery.isFetching;
 
-      const [sqlQuestions, labs, erdQuestions] = await Promise.all([
-        questionService.getQuestions(),
-        labService.getLabs(),
-        erDiagramService.getQuestions(),
-      ]);
+  const refresh = () => {
+    setActionError(null);
+    questionsQuery.refetch();
+    labsQuery.refetch();
+    erdQuery.refetch();
+  };
 
-      const merged: Problem[] = [
+  const problems = useMemo<Problem[]>(() => {
+    const sqlQuestions = questionsQuery.data ?? [];
+    const labs = labsQuery.data ?? [];
+    const erdQuestions = erdQuery.data ?? [];
+
+    return [
         ...sqlQuestions.map((q) => ({
           uid: `sql-${q.id}`,
           id: q.id,
@@ -84,6 +125,7 @@ export default function ProblemsPage() {
           problemType: 'sql-question' as ProblemType,
           difficulty: q.difficulty,
           created_by: q.created_by,
+          isPublished: q.is_published,
           created_at: q.created_at,
           editUrl: `/admin/questions/${q.id}`,
         })),
@@ -116,17 +158,45 @@ export default function ProblemsPage() {
           problemType: 'erd-question' as ProblemType,
           difficulty: e.difficulty_label,
           created_by: e.created_by,
+          createdByRole: e.created_by_role,
+          isPublished: e.is_published,
           created_at: e.created_at,
           editUrl: `/er-diagram/${e.id}`,
         })),
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [questionsQuery.data, labsQuery.data, erdQuery.data]);
 
-      setProblems(merged);
+  const togglePublish = async (problem: Problem) => {
+    const nextPublished = !problem.isPublished;
+    setPublishing((prev) => ({ ...prev, [problem.uid]: true }));
+    setActionError(null);
+    try {
+      if (problem.problemType === 'sql-question') {
+        if (nextPublished) {
+          await questionService.publishQuestion(problem.id);
+        } else {
+          await questionService.unpublishQuestion(problem.id);
+        }
+        // Update the cached source list in place — keeps the optimistic feel
+        // without a re-fetch, and the derived `problems` list re-renders.
+        queryClient.setQueryData<typeof questionsQuery.data>(queryKeys.questions, (old) =>
+          old?.map((q) => (q.id === problem.id ? { ...q, is_published: nextPublished } : q))
+        );
+      } else if (problem.problemType === 'erd-question') {
+        if (nextPublished) {
+          await erDiagramService.publishQuestion(problem.id);
+        } else {
+          await erDiagramService.unpublishQuestion(problem.id);
+        }
+        queryClient.setQueryData<typeof erdQuery.data>(queryKeys.erdQuestions, (old) =>
+          old?.map((e) => (e.id === problem.id ? { ...e, is_published: nextPublished } : e))
+        );
+      }
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to load problems');
+      setActionError(e.response?.data?.detail || 'Failed to update publish status');
     } finally {
-      setLoading(false);
+      setPublishing((prev) => ({ ...prev, [problem.uid]: false }));
     }
   };
 
@@ -218,6 +288,10 @@ export default function ProblemsPage() {
                 <p>All SQL, ER diagram, and SQL-lab questions in one place.</p>
               </div>
               <div className="button-row">
+                <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
+                  <IconRefresh />
+                  {refreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
                 <button className="btn btn-brand" onClick={() => router.push('/admin/problems/new')}>
                   <IconPlus />
                   Create Question
@@ -299,6 +373,7 @@ export default function ProblemsPage() {
                           <th>Title</th>
                           <th>Type</th>
                           <th>Difficulty</th>
+                          <th>Status</th>
                           <th>Created</th>
                           <th>Actions</th>
                         </tr>
@@ -323,9 +398,29 @@ export default function ProblemsPage() {
                                   <span style={{ color: 'var(--text-muted)' }}>—</span>
                                 )}
                               </td>
+                              <td>
+                                {isPublishable(problem) ? (
+                                  <span className={`badge ${problem.isPublished ? 'badge-success' : 'badge-warn'}`}>
+                                    {problem.isPublished ? 'Published' : 'Draft'}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
                               <td>{new Date(problem.created_at).toLocaleDateString()}</td>
                               <td>
                                 <div className="actions">
+                                  {isPublishable(problem) && (
+                                    <button
+                                      className="icon-btn"
+                                      title={problem.isPublished ? 'Unpublish (hide from students)' : 'Publish (show to students)'}
+                                      onClick={() => togglePublish(problem)}
+                                      disabled={!!publishing[problem.uid]}
+                                      style={{ color: problem.isPublished ? '#d97706' : '#16a34a' }}
+                                    >
+                                      {problem.isPublished ? <IconUnpublish /> : <IconPublish />}
+                                    </button>
+                                  )}
                                   <button
                                     className="icon-btn"
                                     title="Edit"

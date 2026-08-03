@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Box,
   Text,
@@ -32,10 +33,17 @@ import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import { LabDetail, LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskCreate, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
+import { queryKeys } from '@/services/query-keys';
 import { chatbotService, LabQueryReviewResponse } from '@/services/chatbot.service';
 import { LabDescriptionPanel } from './LabDescriptionPanel';
 import { LabEditorPanel } from './LabEditorPanel';
 import { LabResultsPanel } from './LabResultsPanel';
+import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
+import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
+import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
+import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
+import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
+import { useRunCooldown } from '@/hooks/use-run-cooldown';
 
 interface LabWorkspaceProps {
   labId: number;
@@ -44,6 +52,8 @@ interface LabWorkspaceProps {
   reviewStudentId?: number;
   backUrl?: string;
   inAssessment?: boolean;
+  /** Assessment weightage (%) for this lab; omitted outside assessments. */
+  weight?: number;
 }
 
 export function LabWorkspace({
@@ -53,10 +63,17 @@ export function LabWorkspace({
   reviewStudentId,
   backUrl,
   inAssessment = false,
+  weight,
 }: LabWorkspaceProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const taskOrderChanged = useRef(false);
+  // Becomes true once the task list has been seeded from the cache/server, so the
+  // cache-mirror effect below never overwrites the cache with the initial empty [].
+  const tasksSeededRef = useRef(false);
+  const timer = useAssessmentTimer();
+  const progress = useAssessmentProgress();
 
   // State
   const [lab, setLab] = useState<LabDetail | null>(null);
@@ -75,6 +92,17 @@ export function LabWorkspace({
   const [tasks, setTasks] = useState<LabTask[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [taskProgress, setTaskProgress] = useState<Record<number, LabTaskProgress>>({});
+
+  // Progressive cooldown to throttle rapid Run clicks. Thresholds scale with the
+  // number of tasks in the lab; persisted per lab across navigation/reload.
+  const taskCount = Math.max(1, tasks.length); // guard the pre-load window (tasks starts [])
+  const { isCoolingDown: cooldownActive, registerRunComplete } = useRunCooldown({
+    freeLimit: taskCount * 3, // first T×3 runs → no cooldown
+    tier1Limit: taskCount * 3 + taskCount * 2, // next T×2 → 10s; rest → 20s
+    storageKey: `run-cooldown:lab:${labId}`,
+  });
+  // Instructors reviewing a submission shouldn't be throttled.
+  const isCoolingDown = cooldownActive && !reviewMode;
 
   // Review mode state
   const [studentQueries, setStudentQueries] = useState<LabQueryHistoryResponse[]>([]);
@@ -164,31 +192,47 @@ export function LabWorkspace({
     return () => controller.abort();
   }, [labId]);
 
-  // Fetch tasks on mount
+  // Task list is static content — cache it (see providers.tsx) so switching
+  // between assessment items and returning does not re-download it. fetchQuery
+  // serves the cached value instantly on revisit; it only hits the network when
+  // the cache is empty or was invalidated by a staff edit (mirror effect below).
   useEffect(() => {
-    const controller = new AbortController();
+    if (!labId) return;
+    let cancelled = false;
 
-    const fetchTasks = async () => {
-      if (!labId) return;
-
+    const loadTasks = async () => {
       setIsLoadingTasks(true);
       try {
-        const tasksData = await labService.getLabTasks(labId, controller.signal);
-        if (controller.signal.aborted) return;
+        const tasksData = await queryClient.fetchQuery({
+          queryKey: queryKeys.labTasks(labId),
+          queryFn: ({ signal }) => labService.getLabTasks(labId, signal),
+          staleTime: Infinity,
+        });
+        if (cancelled) return;
         setTasks(tasksData);
+        tasksSeededRef.current = true;
       } catch (err) {
-        if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
+        if (cancelled) return;
         console.error('Failed to fetch tasks:', err);
       } finally {
-        if (!controller.signal.aborted) {
-          setIsLoadingTasks(false);
-        }
+        if (!cancelled) setIsLoadingTasks(false);
       }
     };
 
-    fetchTasks();
-    return () => controller.abort();
-  }, [labId]);
+    loadTasks();
+    return () => {
+      cancelled = true;
+    };
+  }, [labId, queryClient]);
+
+  // Keep the cached task list in sync with local staff edits (create/delete/
+  // update/reorder/assign-answer) so a later remount reseeds the edited list.
+  // Guarded by the seed ref so the initial empty [] never clobbers the cache.
+  useEffect(() => {
+    if (tasksSeededRef.current) {
+      queryClient.setQueryData(queryKeys.labTasks(labId), tasks);
+    }
+  }, [tasks, labId, queryClient]);
 
   // Fetch task progress on mount
   useEffect(() => {
@@ -208,6 +252,9 @@ export function LabWorkspace({
           progressData.tasks.map(p => [p.task_id, p])
         );
         setTaskProgress(progressMap);
+        if (progressData.tasks.some(t => t.attempt_count > 0)) {
+          progress.markAttempted();
+        }
       } catch (err) {
         if ((err as any).name === 'AbortError' || (err as any).name === 'CanceledError') return;
         console.error('Failed to fetch task progress:', err);
@@ -216,6 +263,7 @@ export function LabWorkspace({
 
     fetchProgress();
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labId, reviewMode, reviewStudentId]);
 
   // Fetch student query history in review mode
@@ -260,6 +308,11 @@ export function LabWorkspace({
 
   // Execute query
   const handleExecute = async () => {
+    // Defensive guard: never run while a request is in flight or the cooldown is
+    // active, even if the button somehow wasn't disabled.
+    if (isExecuting || isCoolingDown) {
+      return;
+    }
     if (!sessionId || !query.trim()) {
       notifications.show({
         title: 'Empty Query',
@@ -270,8 +323,12 @@ export function LabWorkspace({
     }
 
     setIsExecuting(true);
+    // Pause the assessment countdown while the query runs; the backend credits this time.
+    timer.pause();
+    let creditedEndTime: string | null | undefined;
     try {
       const response = await labService.executeQuery(sessionId, query, reviewMode);
+      creditedEndTime = response.assessment_end_time;
       setResult(response);
 
       // Refresh comprehensive query history
@@ -311,6 +368,9 @@ export function LabWorkspace({
       });
     } finally {
       setIsExecuting(false);
+      timer.resume(creditedEndTime);
+      // Begin the cooldown after the request has completed (result returned).
+      if (!reviewMode) registerRunComplete();
     }
   };
 
@@ -321,6 +381,11 @@ export function LabWorkspace({
 
   // Rerun query from history
   const handleRerunQuery = async (queryText: string) => {
+    // Defensive guard: never run while a request is in flight or the cooldown is
+    // active, even if the triggering control somehow wasn't disabled.
+    if (isExecuting || isCoolingDown) {
+      return;
+    }
     // Set the query in the editor
     setQuery(queryText);
 
@@ -339,8 +404,12 @@ export function LabWorkspace({
 
     // Execute the query
     setIsExecuting(true);
+    // Pause the assessment countdown while the query runs; the backend credits this time.
+    timer.pause();
+    let creditedEndTime: string | null | undefined;
     try {
       const response = await labService.executeQuery(sessionId, queryText, reviewMode);
+      creditedEndTime = response.assessment_end_time;
       setResult(response);
 
       // Refresh query history
@@ -381,6 +450,9 @@ export function LabWorkspace({
       });
     } finally {
       setIsExecuting(false);
+      timer.resume(creditedEndTime);
+      // Begin the cooldown after the request has completed (result returned).
+      if (!reviewMode) registerRunComplete();
     }
   };
 
@@ -657,6 +729,10 @@ export function LabWorkspace({
         row_count: result.row_count,
       });
 
+      // The submission round-tripped successfully — counts as an attempt for the
+      // navigator regardless of whether the task answer was correct.
+      progress.markAttempted();
+
       if (response.is_correct === null) {
         notifications.show({
           title: 'Submitted',
@@ -757,6 +833,12 @@ export function LabWorkspace({
     <div style={{ padding: '12px 16px', display: 'grid', gap: 12 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
+        {inAssessment && (
+          <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AssessmentTimer />
+            <QuestionWeightBadge weight={weight} />
+          </div>
+        )}
         <button
           className="btn btn-secondary"
           style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
@@ -775,6 +857,9 @@ export function LabWorkspace({
           Save and Exit
         </button>
       </div>
+
+      {/* Question Navigator */}
+      <QuestionNavigator />
 
       {/* Review Mode Banner */}
       {reviewMode && (
@@ -890,6 +975,7 @@ export function LabWorkspace({
             isExecuting={isExecuting}
             executionTime={result?.execution_time_ms || null}
             labType={lab?.lab_type ?? 'sql'}
+            isCoolingDown={isCoolingDown}
           />
         </Box>
 

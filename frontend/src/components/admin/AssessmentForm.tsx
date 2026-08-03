@@ -7,6 +7,7 @@ import {
   Group,
   TextInput,
   Textarea,
+  NumberInput,
   PasswordInput,
   Switch,
   Button,
@@ -62,6 +63,21 @@ import { labService } from '@/services/lab.service';
 let _uidCounter = 0;
 const nextUid = () => `item-${++_uidCounter}`;
 
+// Integer percentages summing to 100, remainder given to the earliest items.
+// n=1 -> [100], n=3 -> [34, 33, 33], n=4 -> [25, 25, 25, 25]. Mirrors the backend.
+const equalWeights = (n: number): number[] => {
+  if (n <= 0) return [];
+  const base = Math.floor(100 / n);
+  const remainder = 100 - base * n;
+  return Array.from({ length: n }, (_, i) => (i < remainder ? base + 1 : base));
+};
+
+// Return a copy of the items with equal weights applied.
+const withEqualWeights = (items: SortableItem[]): SortableItem[] => {
+  const weights = equalWeights(items.length);
+  return items.map((item, i) => ({ ...item, weight: weights[i] }));
+};
+
 const DIFFICULTY_COLOR: Record<string, string> = {
   easy: 'green', Easy: 'green',
   medium: 'yellow', Medium: 'yellow',
@@ -89,14 +105,22 @@ export function AssessmentForm({ mode, initial }: Props) {
   const [description, setDescription] = useState(initial?.description ?? '');
   const [password, setPassword] = useState(initial?.password ?? '');
   const [clearPassword, setClearPassword] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<SortableItem[]>(() =>
-    (initial?.items ?? []).map((i) => ({
+  // Empty string = no time limit (untimed). Whole minutes otherwise.
+  const [timeLimit, setTimeLimit] = useState<number | ''>(initial?.time_limit_minutes ?? '');
+  const [selectedItems, setSelectedItems] = useState<SortableItem[]>(() => {
+    const items: SortableItem[] = (initial?.items ?? []).map((i) => ({
       uid: nextUid(),
       item_type: i.item_type,
       item_id: i.item_id,
       item_title: i.item_title,
-    }))
-  );
+      weight: i.weight ?? 0,
+      hide_correctness: i.hide_correctness ?? false,
+    }));
+    // Legacy/unweighted assessments (weights don't total 100) get an equal split so the
+    // editor opens in a valid state; staff can then fine-tune.
+    const total = items.reduce((sum, i) => sum + (i.weight || 0), 0);
+    return total === 100 ? items : withEqualWeights(items);
+  });
   const [saving, setSaving] = useState(false);
 
   // Pool data
@@ -158,15 +182,37 @@ export function AssessmentForm({ mode, initial }: Props) {
 
   const addItem = (type: AssessmentItemType, id: number, title: string) => {
     if (isAlreadySelected(type, id)) return;
-    setSelectedItems((prev) => [
-      ...prev,
-      { uid: nextUid(), item_type: type, item_id: id, item_title: title },
-    ]);
+    // Re-distribute equally so the total stays at 100% as items are added; staff can fine-tune.
+    setSelectedItems((prev) =>
+      withEqualWeights([
+        ...prev,
+        { uid: nextUid(), item_type: type, item_id: id, item_title: title, weight: 0, hide_correctness: false },
+      ])
+    );
   };
 
   const removeItem = (uid: string) => {
-    setSelectedItems((prev) => prev.filter((i) => i.uid !== uid));
+    setSelectedItems((prev) => withEqualWeights(prev.filter((i) => i.uid !== uid)));
   };
+
+  const updateWeight = (uid: string, weight: number) => {
+    setSelectedItems((prev) =>
+      prev.map((i) => (i.uid === uid ? { ...i, weight } : i))
+    );
+  };
+
+  const updateHideCorrectness = (uid: string, value: boolean) => {
+    setSelectedItems((prev) =>
+      prev.map((i) => (i.uid === uid ? { ...i, hide_correctness: value } : i))
+    );
+  };
+
+  const distributeEvenly = () => {
+    setSelectedItems((prev) => withEqualWeights(prev));
+  };
+
+  const totalWeight = selectedItems.reduce((sum, i) => sum + (i.weight || 0), 0);
+  const weightValid = selectedItems.length === 0 || totalWeight === 100;
 
   // ---------------------------------------------------------------------------
   // Drag-and-drop
@@ -193,10 +239,21 @@ export function AssessmentForm({ mode, initial }: Props) {
       return;
     }
 
+    if (selectedItems.length > 0 && totalWeight !== 100) {
+      notifications.show({
+        title: 'Validation',
+        message: `Question weightage must total 100% (currently ${totalWeight}%)`,
+        color: 'orange',
+      });
+      return;
+    }
+
     const items = selectedItems.map((item, idx) => ({
       item_type: item.item_type,
       item_id: item.item_id,
       order_index: idx,
+      weight: item.weight,
+      hide_correctness: item.hide_correctness,
     }));
 
     setSaving(true);
@@ -207,6 +264,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           description: description.trim() || undefined,
           items,
           password: password.trim() || undefined,
+          time_limit_minutes: timeLimit === '' ? null : timeLimit,
         };
         await assessmentService.createAssessment(payload);
         notifications.show({ title: 'Success', message: 'Assessment created', color: 'green' });
@@ -217,6 +275,8 @@ export function AssessmentForm({ mode, initial }: Props) {
           items,
           password: password.trim() || undefined,
           clear_password: clearPassword,
+          time_limit_minutes: timeLimit === '' ? undefined : timeLimit,
+          clear_time_limit: timeLimit === '',
         };
         await assessmentService.updateAssessment(initial!.id, payload);
         notifications.show({ title: 'Success', message: 'Assessment saved', color: 'green' });
@@ -297,6 +357,16 @@ export function AssessmentForm({ mode, initial }: Props) {
             value={description}
             onChange={(e) => setDescription(e.currentTarget.value)}
             minRows={3}
+          />
+          <NumberInput
+            label="Time limit (minutes)"
+            description="Optional. Leave blank for no time limit. Students are auto-submitted when time runs out; query execution time is credited back."
+            placeholder="No time limit"
+            value={timeLimit}
+            onChange={(v) => setTimeLimit(v === '' || v === null ? '' : Number(v))}
+            min={1}
+            allowDecimal={false}
+            allowNegative={false}
           />
           <PasswordInput
             label="Assessment Password"
@@ -414,8 +484,23 @@ export function AssessmentForm({ mode, initial }: Props) {
         <Paper withBorder p="md" radius="sm">
           <Group justify="space-between" mb="sm">
             <Title order={5}>Selected Items</Title>
-            <Badge variant="light">{selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</Badge>
+            <Group gap="xs">
+              <Badge variant="light">{selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</Badge>
+              <Badge variant="light" color={weightValid ? 'green' : 'red'} title="Total weightage">
+                {totalWeight}%
+              </Badge>
+            </Group>
           </Group>
+          {selectedItems.length > 0 && (
+            <Group justify="space-between" mb="sm">
+              <Text size="xs" c={weightValid ? 'dimmed' : 'red'}>
+                Weightage must total 100%.
+              </Text>
+              <Button variant="subtle" size="compact-xs" onClick={distributeEvenly}>
+                Distribute evenly
+              </Button>
+            </Group>
+          )}
           <Divider mb="sm" />
 
           {selectedItems.length === 0 && (
@@ -435,7 +520,13 @@ export function AssessmentForm({ mode, initial }: Props) {
               strategy={verticalListSortingStrategy}
             >
               {selectedItems.map((item) => (
-                <SortableAssessmentItem key={item.uid} item={item} onRemove={removeItem} />
+                <SortableAssessmentItem
+                  key={item.uid}
+                  item={item}
+                  onRemove={removeItem}
+                  onWeightChange={updateWeight}
+                  onHideCorrectnessChange={updateHideCorrectness}
+                />
               ))}
             </SortableContext>
           </DndContext>

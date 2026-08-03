@@ -22,6 +22,8 @@ import {
   IconArrowLeft,
   IconClipboardList,
   IconLock,
+  IconCircleCheck,
+  IconClock,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -78,7 +80,9 @@ export default function StudentAssessmentDetailPage() {
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string }; status?: number } };
       const detail = e.response?.data?.detail || 'Failed to join assessment';
-      if (e.response?.status === 403) {
+      // A 403 is either a wrong password or an already-submitted (single-attempt) block.
+      // Only treat it as a password error when the assessment actually has a password.
+      if (e.response?.status === 403 && assessment?.has_password) {
         setPasswordError('Incorrect password. Please try again.');
       } else {
         setError(detail);
@@ -145,49 +149,67 @@ export default function StudentAssessmentDetailPage() {
                   </>
                 )}
 
-                <Divider />
-
-                {!assessment.is_running && (
-                  <Alert icon={<IconInfoCircle size={16} />} color="yellow" title="Waiting for staff">
-                    This assessment has not been started yet. Please wait for your instructor to begin the session.
+                {assessment.time_limit_minutes != null && (
+                  <Alert icon={<IconClock size={16} />} color="blue" title="Timed assessment">
+                    You will have <strong>{assessment.time_limit_minutes} minute
+                    {assessment.time_limit_minutes === 1 ? '' : 's'}</strong> once you begin. The
+                    countdown starts as soon as you click Join, and the assessment is submitted
+                    automatically when time runs out. Time spent waiting for queries to run is
+                    credited back to you.
                   </Alert>
                 )}
 
-                {assessment.is_running && session && (
-                  <Button
-                    size="lg"
-                    leftSection={<IconClipboardList size={18} />}
-                    onClick={handleContinue}
-                  >
-                    Continue Assessment
-                  </Button>
-                )}
+                <Divider />
 
-                {assessment.is_running && !session && (
-                  <Stack gap="sm">
-                    {assessment.has_password && (
-                      <PasswordInput
-                        label="Assessment Password"
-                        placeholder="Enter the password provided by your instructor"
-                        leftSection={<IconLock size={16} />}
-                        value={password}
-                        onChange={(e) => {
-                          setPassword(e.currentTarget.value);
-                          setPasswordError(null);
-                        }}
-                        error={passwordError}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
-                      />
+                {assessment.attempt_complete ? (
+                  <Alert icon={<IconCircleCheck size={16} />} color="green" title="Assessment Completed">
+                    You have already submitted this assessment. It is a single attempt, so it cannot be retaken.
+                  </Alert>
+                ) : (
+                  <>
+                    {!assessment.is_running && (
+                      <Alert icon={<IconInfoCircle size={16} />} color="yellow" title="Waiting for staff">
+                        This assessment has not been started yet. Please wait for your instructor to begin the session.
+                      </Alert>
                     )}
-                    <Button
-                      size="lg"
-                      leftSection={<IconPlayerPlay size={18} />}
-                      loading={joining}
-                      onClick={handleJoin}
-                    >
-                      Join Assessment
-                    </Button>
-                  </Stack>
+
+                    {assessment.is_running && session && (
+                      <Button
+                        size="lg"
+                        leftSection={<IconClipboardList size={18} />}
+                        onClick={handleContinue}
+                      >
+                        Continue Assessment
+                      </Button>
+                    )}
+
+                    {assessment.is_running && !session && (
+                      <Stack gap="sm">
+                        {assessment.has_password && (
+                          <PasswordInput
+                            label="Assessment Password"
+                            placeholder="Enter the password provided by your instructor"
+                            leftSection={<IconLock size={16} />}
+                            value={password}
+                            onChange={(e) => {
+                              setPassword(e.currentTarget.value);
+                              setPasswordError(null);
+                            }}
+                            error={passwordError}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
+                          />
+                        )}
+                        <Button
+                          size="lg"
+                          leftSection={<IconPlayerPlay size={18} />}
+                          loading={joining}
+                          onClick={handleJoin}
+                        >
+                          Join Assessment
+                        </Button>
+                      </Stack>
+                    )}
+                  </>
                 )}
               </Stack>
             </Card>

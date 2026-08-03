@@ -41,10 +41,25 @@ class Question(Base):
     test_script = Column(Text, nullable=True)
     check_query = Column(Text, nullable=True)
 
+    # When set, students are not told whether a submission was correct/incorrect —
+    # they just get a generic "submitted successfully" result. Real correctness is
+    # still persisted (Attempt/UserProgress) for staff grading. Mirrors labs.hide_correctness.
+    # 0/1 flag, following the same Integer-flag convention as is_deleted.
+    hide_correctness = Column(Integer, nullable=False, default=0)
+
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Visibility flag: 0=draft (staff only), 1=published (visible to students).
+    # 0/1 flag, following the same Integer-flag convention as is_deleted. Mirrors labs.is_published.
+    is_published = Column(Integer, nullable=False, default=0)
+
     # Soft delete flag
     is_deleted = Column(Integer, default=0)  # Using Integer for SQLite compatibility
+
+    # When set, this row is an assessment-owned clone (created at publish time) rather
+    # than a master bank question. Clones are excluded from bank listings/pickers and
+    # give each published assessment its own isolated progress/attempt history.
+    owner_assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)

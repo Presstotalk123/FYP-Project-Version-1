@@ -14,5 +14,6 @@ def make_rubric_llm() -> ChatOpenAI:
         api_key=settings.ERD_AZURE_OPENAI_API_KEY,
         model=settings.ERD_AZURE_OPENAI_GRADE_DEPLOYMENT,
         max_retries=3,
+        timeout=settings.ERD_AZURE_OPENAI_TIMEOUT_SECONDS,
         model_kwargs={"verbosity": "low"},
     )

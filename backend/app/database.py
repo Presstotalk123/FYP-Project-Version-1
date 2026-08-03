@@ -5,13 +5,31 @@ from app.config import settings
 
 # Create SQLAlchemy engine with conditional configuration
 if "postgresql" in settings.DATABASE_URL:
-    # PostgreSQL configuration with connection pooling
+    # PostgreSQL configuration with connection pooling.
+    #
+    # Pool sizes come from settings so they can be tuned per deployment without
+    # a code change. Defaults are sized for Azure Postgres Burstable/base tier
+    # (~35 usable connections total): with 2 workers that's 2*(5+5)=20 < 35.
+    # pool_timeout is short so an exhausted pool fails fast with a clear error
+    # instead of hanging the request for 30s.
+    #
+    # keepalives keep otherwise-idle pooled connections from being silently
+    # dropped by Azure's network idle timeout (which later surfaces as a stall
+    # on the next checkout); pool_pre_ping is the second line of defense.
     engine = create_engine(
         settings.DATABASE_URL,
-        pool_pre_ping=True,      # Verify connections before using
-        pool_size=10,            # Number of connections to keep open
-        max_overflow=20,         # Extra connections under load
-        pool_recycle=3600        # Recycle connections every hour
+        pool_pre_ping=True,                      # verify a connection before handing it out
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        connect_args={
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        },
     )
 else:
     # SQLite configuration

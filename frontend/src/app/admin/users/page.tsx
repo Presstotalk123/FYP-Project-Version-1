@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useState, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Title,
   Text,
@@ -16,12 +17,13 @@ import {
   Card,
   Modal,
 } from '@mantine/core';
-import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers, IconUpload } from '@tabler/icons-react';
+import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers, IconUpload, IconRefresh } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import api from '@/services/api.service';
+import { queryKeys } from '@/services/query-keys';
 
 interface WhitelistEntry {
   id: number;
@@ -53,9 +55,7 @@ const ROLE_SECTIONS: RoleSection[] = [
 const emptyForm = (): AddForm => ({ email: '', name: '', class_group: '' });
 
 export default function ManageUsersPage() {
-  const [entries, setEntries] = useState<WhitelistEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [addForm, setAddForm] = useState<Record<UserRole, AddForm>>({
     [UserRole.ADMIN]: emptyForm(),
     [UserRole.STAFF]: emptyForm(),
@@ -80,22 +80,23 @@ export default function ManageUsersPage() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchWhitelist = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await api.get('/whitelist');
-      setEntries(res.data);
-    } catch {
-      setError('Failed to load whitelist.');
-    } finally {
-      setLoading(false);
-    }
+  // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
+  const whitelistQuery = useQuery({
+    queryKey: queryKeys.whitelist,
+    queryFn: async () => (await api.get('/whitelist')).data as WhitelistEntry[],
+  });
+  const entries = whitelistQuery.data ?? [];
+  const loading = whitelistQuery.isLoading;
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const error = !errorDismissed && whitelistQuery.error ? 'Failed to load whitelist.' : null;
+  const refreshing = whitelistQuery.isFetching;
+  const refresh = () => {
+    setErrorDismissed(false);
+    whitelistQuery.refetch();
   };
 
-  useEffect(() => {
-    fetchWhitelist();
-  }, []);
+  // After a mutation, mark the whitelist cache stale so it re-fetches once.
+  const invalidateWhitelist = () => queryClient.invalidateQueries({ queryKey: queryKeys.whitelist });
 
   const setField = (role: UserRole, field: keyof AddForm, value: string) => {
     setAddForm((prev) => ({
@@ -124,7 +125,7 @@ export default function ManageUsersPage() {
         icon: <IconCheck size={16} />,
       });
       setAddForm((prev) => ({ ...prev, [role]: emptyForm() }));
-      fetchWhitelist();
+      invalidateWhitelist();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -148,7 +149,7 @@ export default function ManageUsersPage() {
         color: 'orange',
         icon: <IconCheck size={16} />,
       });
-      fetchWhitelist();
+      invalidateWhitelist();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -185,7 +186,7 @@ export default function ManageUsersPage() {
         icon: <IconCheck size={16} />,
       });
       setEditingEntry(null);
-      fetchWhitelist();
+      invalidateWhitelist();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -212,7 +213,7 @@ export default function ManageUsersPage() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setImportSummary(res.data);
-      fetchWhitelist();
+      invalidateWhitelist();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
@@ -235,15 +236,26 @@ export default function ManageUsersPage() {
     <ProtectedRoute requiredRole={UserRole.ADMIN}>
       <DashboardLayout>
         <Stack gap="lg">
-          <div>
-            <Title order={2}>Manage Users</Title>
-            <Text mt="sm" c="dimmed">
-              Control who can sign in. Only emails on this whitelist can log in via Google SSO.
-            </Text>
-          </div>
+          <Group justify="space-between" align="flex-start">
+            <div>
+              <Title order={2}>Manage Users</Title>
+              <Text mt="sm" c="dimmed">
+                Control who can sign in. Only emails on this whitelist can log in via Google SSO.
+              </Text>
+            </div>
+            <Button
+              variant="default"
+              leftSection={<IconRefresh size={16} />}
+              loading={refreshing}
+              onClick={refresh}
+              title="Reload latest data from the server"
+            >
+              Refresh
+            </Button>
+          </Group>
 
           {error && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" withCloseButton onClose={() => setError(null)}>
+            <Alert icon={<IconAlertCircle size={16} />} color="red" withCloseButton onClose={() => setErrorDismissed(true)}>
               {error}
             </Alert>
           )}

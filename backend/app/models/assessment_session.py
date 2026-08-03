@@ -13,5 +13,11 @@ class AssessmentSession(Base):
     assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False)
     user_id       = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_active     = Column(Integer, default=1)  # 1=ongoing, 0=submitted
+    # 1 once the student has ended & submitted this assessment. Assessments are
+    # single-attempt: a completed session blocks re-joining/retaking regardless of is_active.
+    attempt_complete = Column(Integer, default=0, nullable=False)
     joined_at     = Column(DateTime(timezone=True), server_default=func.now())
     submitted_at  = Column(DateTime(timezone=True), nullable=True)
+    # Deadline for this attempt = join time + assessment.time_limit_minutes, credited forward by
+    # query execution time. NULL = untimed attempt. Backend source of truth for lazy expiration.
+    end_time      = Column(DateTime(timezone=True), nullable=True)

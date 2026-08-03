@@ -31,7 +31,7 @@ def _image_block(image_b64):
     return {"type": "image_url", "image_url": {"url": image_b64, "detail": "high"}}
 
 
-def observe_node(state: dict) -> dict:
+async def observe_node(state: dict) -> dict:
     user = [{"type": "text", "text": prompts.OBSERVE_USER.format(problem_statement=state["problem_statement"])}]
     description = (state.get("submission_description") or "").strip()
     if description:
@@ -40,30 +40,36 @@ def observe_node(state: dict) -> dict:
     if state.get("image_b64"):
         user.append(_image_block(state["image_b64"]))
     llm = make_llm("observe").with_structured_output(ObservationJSON)
-    obs = llm.invoke([SystemMessage(prompts.OBSERVE_SYSTEM), HumanMessage(content=user)])
+    obs = await llm.ainvoke([SystemMessage(prompts.OBSERVE_SYSTEM), HumanMessage(content=user)])
     return {"observation": obs.model_dump()}
 
 
-def normalize_node(state: dict) -> dict:
+async def normalize_node(state: dict) -> dict:
     msg = prompts.NORMALIZE_USER.format(problem_statement=state["problem_statement"],
                                         observation_json=json.dumps(state["observation"], ensure_ascii=False))
     llm = make_llm("normalize").with_structured_output(CanonicalERD)
-    can = llm.invoke([SystemMessage(prompts.NORMALIZE_SYSTEM), HumanMessage(msg)])
+    can = await llm.ainvoke([SystemMessage(prompts.NORMALIZE_SYSTEM), HumanMessage(msg)])
     return {"canonical_erd": can.model_dump()}
 
 
-def grade_node(state: dict) -> dict:
+async def grade_node(state: dict) -> dict:
     msg = prompts.GRADE_USER.format(
         problem_statement=state["problem_statement"], rubric_json=state["rubric_json"],
         canonical_erd=json.dumps(state["canonical_erd"], ensure_ascii=False),
         last_submit_report=json.dumps(state.get("last_submit_report", {}), ensure_ascii=False),
         ibl_stage=state["ibl_stage"], hint_level=state["hint_level"])
     llm = make_llm("grade").with_structured_output(JudgeResult)
-    judge = llm.invoke([SystemMessage(get_prompt("grade_system")), HumanMessage(msg)])
+    judge = await llm.ainvoke([SystemMessage(get_prompt("grade_system")), HumanMessage(msg)])
     return {"judge": judge.model_dump()}
 
 
-def tutor_node(state: dict) -> dict:
+def _tutor_messages(state: dict):
+    """Build the [System, Human] messages for the tutor LLM.
+
+    Shared by ``tutor_node`` (graph path) and the streaming query runner
+    (``runner.stream_er_query``) so both send byte-identical prompts — the only
+    difference is invoke vs. astream.
+    """
     erd_model = state.get("current_erd_model") or None
     report = state.get("last_submit_report") or {}
     # Compact feedback context: skip the bulky per-check JSON string, keep what
@@ -78,13 +84,17 @@ def tutor_node(state: dict) -> dict:
         ibl_stage=state["ibl_stage"], hint_level=state["hint_level"])}]
     if state.get("image_b64"):
         user.append(_image_block(state["image_b64"]))
-    resp = make_llm("tutor").invoke([SystemMessage(get_prompt("tutor_system")), HumanMessage(content=user)])
+    return [SystemMessage(get_prompt("tutor_system")), HumanMessage(content=user)]
+
+
+async def tutor_node(state: dict) -> dict:
+    resp = await make_llm("tutor").ainvoke(_tutor_messages(state))
     return {"tutor_text": resp.content}
 
 
-def state_update_node(state: dict) -> dict:
+async def state_update_node(state: dict) -> dict:
     msg = prompts.STATE_USER.format(prev_stage=state["ibl_stage"], prev_hint=state["hint_level"],
                                     tutor_text=state["tutor_text"], student_query=state.get("student_query", ""))
     llm = make_llm("state").with_structured_output(QueryStateUpdate)
-    upd = llm.invoke([SystemMessage(prompts.STATE_SYSTEM), HumanMessage(msg)])
+    upd = await llm.ainvoke([SystemMessage(prompts.STATE_SYSTEM), HumanMessage(msg)])
     return {"state_update": upd.model_dump()}

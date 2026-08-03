@@ -53,7 +53,7 @@ def _image_b64(image_bytes: Optional[bytes]) -> Optional[str]:
     return f"data:{mime};base64," + base64.b64encode(image_bytes).decode()
 
 
-def generate_rubric(*, mode: str, notation: str, problem_statement: str,
+async def generate_rubric(*, mode: str, notation: str, problem_statement: str,
                     refinement_instruction: Optional[str] = None,
                     rubric_previous=None, instruction_history=None,
                     image_bytes: Optional[bytes] = None) -> dict:
@@ -72,5 +72,5 @@ def generate_rubric(*, mode: str, notation: str, problem_statement: str,
         content.append({"type": "image_url", "image_url": {"url": b64, "detail": "high"}})
 
     llm = make_rubric_llm().with_structured_output(RubricGeneration)
-    result = llm.invoke([SystemMessage(prompts.RUBRIC_SYSTEM), HumanMessage(content=content)])
+    result = await llm.ainvoke([SystemMessage(prompts.RUBRIC_SYSTEM), HumanMessage(content=content)])
     return result.model_dump()

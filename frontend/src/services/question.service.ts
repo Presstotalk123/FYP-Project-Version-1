@@ -15,4 +15,14 @@ export const questionService = {
     const response = await api.get<QuestionDetail>(API_ENDPOINTS.QUESTIONS.DETAIL(id));
     return response.data;
   },
+
+  async publishQuestion(id: number): Promise<Question> {
+    const response = await api.post<Question>(API_ENDPOINTS.QUESTIONS.PUBLISH(id));
+    return response.data;
+  },
+
+  async unpublishQuestion(id: number): Promise<Question> {
+    const response = await api.post<Question>(API_ENDPOINTS.QUESTIONS.UNPUBLISH(id));
+    return response.data;
+  },
 };

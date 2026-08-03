@@ -148,7 +148,7 @@ export function LabResultsPanel({
     { id: 'results', label: 'Results' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
-    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'AI Tutor' }]),
+    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'Bagheera' }]),
   ];
 
   // If the AI Tutor tab gets hidden while it's the active tab, fall back to Results.
@@ -578,7 +578,7 @@ export function LabResultsPanel({
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13, padding: 24, textAlign: 'center' }}>
-              AI Tutor is not available in this mode.
+              Bagheera is not available in this mode.
             </div>
           )
         )}

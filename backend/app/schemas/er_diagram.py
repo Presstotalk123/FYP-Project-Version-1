@@ -104,3 +104,13 @@ class ERDiagramQuestionListItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ERDiagramQuestionCountResponse(BaseModel):
+    """Counts for the student dashboard ERD tile.
+
+    `total` is the size of the student-visible standalone ER-question bank (cached
+    in-process, identical across students of a role); `attempted` is how many of
+    those the current user has a graded standalone submission for (per-user)."""
+    total: int
+    attempted: int

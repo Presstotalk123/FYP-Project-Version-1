@@ -11,6 +11,7 @@ import {
   Modal,
   Stack,
   Table,
+  Tabs,
   Text,
   Textarea,
   Title,
@@ -25,6 +26,7 @@ import { erdPromptsService } from '@/services/erd-prompts.service';
 import { queryKeys } from '@/services/query-keys';
 import type { ErdPromptListItem, ErdPromptVersionSummary } from '@/types/erd-prompts.types';
 import { getApiErrorMessage } from '@/utils/api-error';
+import { CourseInfoSettings } from '@/components/admin/CourseInfoSettings';
 
 function activeContent(p: ErdPromptListItem): string {
   return p.active ? p.active.content : p.default_content;
@@ -205,9 +207,17 @@ export default function AdminSettingsPage() {
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Stack gap="md">
+          <Title order={2}>Settings</Title>
+          <Tabs defaultValue="prompts">
+            <Tabs.List>
+              <Tabs.Tab value="prompts">AI Prompts</Tabs.Tab>
+              <Tabs.Tab value="course">Course Info</Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel value="prompts" pt="md">
+              <Stack gap="md">
           <Group justify="space-between" align="flex-start">
             <div>
-              <Title order={2}>Settings</Title>
               <Text c="dimmed" size="sm">
                 Tune the AI prompts used by the LangGraph tutor. Changes go live immediately and only
                 affect the LangGraph engine.
@@ -396,6 +406,13 @@ export default function AdminSettingsPage() {
               )}
             </Group>
           )}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="course" pt="md">
+              <CourseInfoSettings />
+            </Tabs.Panel>
+          </Tabs>
         </Stack>
 
         {/* View content modal */}

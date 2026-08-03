@@ -35,6 +35,13 @@ export interface GenerateRubricResponse {
   diff_summary: unknown[];
 }
 
+export interface ERDiagramQuestionCount {
+  // Size of the student-visible standalone ER-question bank (backend-cached).
+  total: number;
+  // How many of those the current user has a graded standalone submission for.
+  attempted: number;
+}
+
 export interface SaveERQuestionRequest {
   title: string;
   problem_statement: string;

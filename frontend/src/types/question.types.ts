@@ -26,6 +26,13 @@ export interface QuestionDetail extends Question {
   hide_correctness: boolean;
 }
 
+export interface QuestionCount {
+  // Size of the student-visible published question bank (backend-cached).
+  total: number;
+  // How many of those the current user has attempted at least once.
+  attempted: number;
+}
+
 export interface QuestionCreate {
   title: string;
   description: string;

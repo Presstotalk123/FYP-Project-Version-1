@@ -21,8 +21,14 @@ export const queryKeys = {
   studentQuestions: (params: { difficulty: string; search: string }) =>
     ['studentQuestions', params] as const,
   studentProgress: ['studentProgress'] as const,
+  // Course syllabus — shared by the student Course Info page and the staff editor
+  // (same content). Invalidated after a staff save so the student page refetches.
+  courseInfo: ['courseInfo'] as const,
   studentLabs: ['studentLabs'] as const,
   studentAssessments: ['studentAssessments'] as const,
+  // Dashboard tiles: lightweight {total, attempted} counts (backend-cached totals).
+  studentQuestionCount: ['studentQuestionCount'] as const,
+  studentErdCount: ['studentErdCount'] as const,
   // ER labs list (shared staff/student ER-diagram route); no key existed before.
   erLabs: ['erLabs'] as const,
 

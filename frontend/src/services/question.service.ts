@@ -1,6 +1,6 @@
 import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
-import { Question, QuestionDetail, Difficulty } from '@/types/question.types';
+import { Question, QuestionDetail, QuestionCount, Difficulty } from '@/types/question.types';
 
 export const questionService = {
   async getQuestions(params?: {
@@ -8,6 +8,12 @@ export const questionService = {
     search?: string;
   }): Promise<Question[]> {
     const response = await api.get<Question[]>(API_ENDPOINTS.QUESTIONS.BASE, { params });
+    return response.data;
+  },
+
+  // Dashboard tile: backend-cached total + per-user attempted count (no full list fetch).
+  async getCount(): Promise<QuestionCount> {
+    const response = await api.get<QuestionCount>(API_ENDPOINTS.QUESTIONS.COUNT);
     return response.data;
   },
 

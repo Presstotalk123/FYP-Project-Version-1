@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     # Lab databases path
     LAB_DB_PATH: str = "./lab_databases/"
 
-    # AI Chatbot (existing Dify integration)
-    DIFY_API_KEY: str
+    # AI Chatbot — legacy Dify key (no longer used by SQL-questions tutor;
+    # kept optional so deployments without it still start)
+    DIFY_API_KEY: str = ""
 
     # AI Query Review — configurable provider
     # Supported values: "azure_openai" | "openai" | "gemini"

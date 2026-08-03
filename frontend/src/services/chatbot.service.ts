@@ -1,16 +1,6 @@
 import api from './api.service';
 import { API_ENDPOINTS, API_BASE_URL } from '@/config/api.config';
 
-export interface ChatbotRequest {
-  question_id: number;
-  user_message: string;
-}
-
-export interface ChatbotResponse {
-  answer: string;
-  timestamp: string;
-}
-
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -37,13 +27,20 @@ export interface LabQueryReviewResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const chatbotService = {
-  // Existing: AI Tutor chat for SQL Questions (uses Dify)
-  async sendMessage(request: ChatbotRequest): Promise<ChatbotResponse> {
-    const response = await api.post<ChatbotResponse>(
-      API_ENDPOINTS.CHATBOT.SEND,
-      request
-    );
-    return response.data;
+  // AI Tutor chat for SQL Questions (Streaming, provider-configurable)
+  async streamQuestionChat(
+    question_id: number,
+    user_message: string
+  ): Promise<Response> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    return fetch(`${API_BASE_URL}${API_ENDPOINTS.CHATBOT.SEND}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ question_id, user_message }),
+    });
   },
 
   // NEW: Auto query review for SQL Questions (wrong but valid query)

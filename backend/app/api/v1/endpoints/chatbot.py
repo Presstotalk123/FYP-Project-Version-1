@@ -2,8 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from datetime import datetime
-import httpx
 import json
 import asyncio
 
@@ -29,23 +27,15 @@ class ChatbotRequest(BaseModel):
     user_message: str
 
 
-class ChatbotResponse(BaseModel):
-    answer: str
-    timestamp: str
-
-
-DIFY_API_URL = "https://api.dify.ai/v1/workflows/run"
-
-
-@router.post("/send", response_model=ChatbotResponse)
+@router.post("/send")
 async def send_chatbot_message(
     request: ChatbotRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Send a message to the AI tutor chatbot.
-    Gathers question context and forwards to Dify API.
+    AI Tutor conversational chat for SQL Questions.
+    Provides guidance without revealing answers. (Streaming)
     """
 
     # Fetch question details
@@ -71,64 +61,100 @@ async def send_chatbot_message(
         .first()
     )
 
-    student_query = latest_attempt.query if latest_attempt else ""
+    student_query = latest_attempt.query if latest_attempt else "None yet"
 
-    # Prepare context for Dify API
-    dify_payload = {
-        "inputs": {
-            "question_text": question.description,
-            "database_schema": question.schema_sql,
-            "student_current_query": student_query,
-            "user_message": request.user_message
-        },
-        "user": str(current_user.id),
-        "response_mode": "blocking"
-    }
+    system_prompt = f"""You are a helpful SQL tutor assisting a student working on a SQL question.
 
-    headers = {
-        "Authorization": f"Bearer {settings.DIFY_API_KEY}",
-        "Content-Type": "application/json"
-    }
+Question:
+{question.description}
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                DIFY_API_URL,
-                json=dify_payload,
-                headers=headers
+Database schema:
+{question.schema_sql}
+
+Sample data:
+{question.sample_data_sql}
+
+Student's most recent query:
+{student_query}
+
+Your rules:
+- NEVER give away the answer directly or write the correct SQL for them
+- Explain SQL concepts clearly when asked
+- Point out logical errors in thinking without rewriting queries for them
+- Ask guiding questions to help the student reason through the problem
+- Reference specific table and column names from the schema when relevant
+- Keep responses concise and focused"""
+
+    async def _chat_stream():
+        provider = settings.AI_PROVIDER.lower()
+
+        if provider in ("azure_openai", "openai"):
+            from openai import AsyncAzureOpenAI, AsyncOpenAI
+
+            if provider == "azure_openai":
+                client = AsyncAzureOpenAI(
+                    api_key=settings.AI_API_KEY,
+                    azure_endpoint=settings.AI_AZURE_ENDPOINT,
+                    api_version=settings.AI_AZURE_API_VERSION,
+                )
+            else:
+                client = AsyncOpenAI(api_key=settings.AI_API_KEY)
+
+            kwargs = {
+                "model": settings.AI_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": request.user_message},
+                ],
+                "timeout": 30,
+                "stream": True,
+            }
+            if not settings.AI_ENABLE_TEMPERATURE:
+                pass  # Temperature explicitly disabled via env var
+            elif settings.AI_TEMPERATURE is not None:
+                kwargs["temperature"] = settings.AI_TEMPERATURE
+            else:
+                kwargs["temperature"] = 0.5
+
+            try:
+                response = await client.chat.completions.create(**kwargs)
+                async for chunk in response:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            yield content
+            except Exception as e:
+                yield f"\n[Error connecting to AI Tutor: {str(e)}]"
+
+        elif provider == "gemini":
+            import google.generativeai as genai
+            genai.configure(api_key=settings.AI_API_KEY)
+            model = genai.GenerativeModel(
+                model_name=settings.AI_MODEL,
+                system_instruction=system_prompt,
             )
-            response.raise_for_status()
+            gemini_kwargs = {}
+            if settings.AI_TEMPERATURE is not None:
+                gemini_kwargs["temperature"] = settings.AI_TEMPERATURE
+            else:
+                gemini_kwargs["temperature"] = 0.5
 
-        dify_response = response.json()
+            try:
+                response = await model.generate_content_async(
+                    request.user_message,
+                    generation_config=gemini_kwargs if gemini_kwargs else None,
+                    stream=True
+                )
+                async for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+            except Exception as e:
+                yield f"\n[Error connecting to AI Tutor: {str(e)}]"
 
-        # Extract answer from workflow response
-        # Workflow response format: {"data": {"outputs": {"text": "..."}}}
-        if "data" in dify_response and "outputs" in dify_response["data"]:
-            answer = dify_response["data"]["outputs"].get("text", "")
         else:
-            # Fallback to direct answer field (for compatibility)
-            answer = dify_response.get("answer", "")
+            yield f"\n[Unsupported AI_PROVIDER: {provider}]"
 
-        return ChatbotResponse(
-            answer=answer,
-            timestamp=datetime.utcnow().isoformat()
-        )
-
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=e.response.status_code,
-            detail=f"Dify API error: {e.response.text}"
-        )
-    except httpx.RequestError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to connect to Dify API: {str(e)}"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+    return StreamingResponse(_chat_stream(), media_type="text/plain")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

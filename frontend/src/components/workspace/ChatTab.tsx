@@ -64,23 +64,54 @@ export function ChatTab({ questionId }: ChatTabProps) {
     setIsLoading(true);
 
     try {
-      const response = await chatbotService.sendMessage({
-        question_id: questionId,
-        user_message: inputValue,
-      });
+      const response = await chatbotService.streamQuestionChat(questionId, userMessage.content);
 
-      const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: response.answer,
-        timestamp: response.timestamp,
-      };
+      if (!response.ok) {
+        let errorDetail = 'Failed to get response from AI tutor';
+        try {
+          const errData = await response.json();
+          errorDetail = errData.detail || errorDetail;
+        } catch {
+          // Ignore JSON parse error
+        }
+        throw new Error(errorDetail);
+      }
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      if (!response.body) {
+        throw new Error('No response body stream available.');
+      }
+
+      const aiMsgId = `assistant-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: aiMsgId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let aiContent = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          aiContent += decoder.decode(value, { stream: true });
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsgId ? { ...msg, content: aiContent } : msg
+            )
+          );
+        }
+      }
     } catch (err) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      const errorMessage = error.response?.data?.detail || 'Failed to get response from AI tutor';
-      setError(errorMessage);
+      const e = err as Error;
+      setError(e.message || 'Failed to get response from AI tutor');
     } finally {
       setIsLoading(false);
     }

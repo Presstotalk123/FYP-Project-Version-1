@@ -19,8 +19,10 @@ import {
 } from '@mantine/core';
 import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers, IconUpload, IconRefresh } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { modals } from '@mantine/modals';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
+import { useAuth } from '@/contexts/AuthContext';
 import { UserRole } from '@/types/user.types';
 import api from '@/services/api.service';
 import { queryKeys } from '@/services/query-keys';
@@ -75,6 +77,12 @@ const getErrorMessage = (err: unknown, fallback: string): string => {
 
 export default function ManageUsersPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  // Match a whitelist entry against the logged-in admin by email — WhitelistEntry.id
+  // and User.id live in different namespaces, so email is the reliable join key.
+  const isSelf = (entry: WhitelistEntry) =>
+    !!user && entry.email.toLowerCase() === user.email.toLowerCase();
   const [addForm, setAddForm] = useState<Record<UserRole, AddForm>>({
     [UserRole.ADMIN]: emptyForm(),
     [UserRole.STAFF]: emptyForm(),
@@ -157,7 +165,7 @@ export default function ManageUsersPage() {
     }
   };
 
-  const handleDelete = async (entry: WhitelistEntry) => {
+  const performDelete = async (entry: WhitelistEntry) => {
     setDeleting(entry.id);
     try {
       await api.delete(`/whitelist/${entry.id}`);
@@ -178,6 +186,33 @@ export default function ManageUsersPage() {
     } finally {
       setDeleting(null);
     }
+  };
+
+  const handleDelete = (entry: WhitelistEntry) => {
+    // Guard against admins removing their own access.
+    if (isSelf(entry)) {
+      notifications.show({
+        title: "Can't remove yourself",
+        message: 'You cannot remove your own account from the whitelist.',
+        color: 'orange',
+        icon: <IconAlertCircle size={16} />,
+      });
+      return;
+    }
+
+    // Warn before this destructive, irreversible action.
+    modals.openConfirmModal({
+      title: 'Remove user',
+      children: (
+        <Text size="sm">
+          Are you sure you want to remove <strong>{entry.email}</strong> from the whitelist?
+          This cannot be undone.
+        </Text>
+      ),
+      labels: { confirm: 'Remove', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => performDelete(entry),
+    });
   };
 
   const handleEditOpen = (entry: WhitelistEntry) => {
@@ -361,6 +396,8 @@ export default function ManageUsersPage() {
                                       color="red"
                                       variant="subtle"
                                       loading={deleting === entry.id}
+                                      disabled={isSelf(entry)}
+                                      title={isSelf(entry) ? "You can't remove yourself" : undefined}
                                       onClick={() => handleDelete(entry)}
                                     >
                                       <IconTrash size={16} />

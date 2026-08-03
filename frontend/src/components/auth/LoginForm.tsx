@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { useMsal } from '@azure/msal-react';
 import { useRouter } from 'next/navigation';
@@ -22,9 +22,18 @@ function MicrosoftLogo() {
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [msLoading, setMsLoading] = useState(false);
-  const { googleLogin } = useAuth();
+  const { googleLogin, user, isAuthenticated, loading } = useAuth();
   const { instance } = useMsal();
   const router = useRouter();
+
+  // If the visitor is already logged in, send them straight to their dashboard
+  // instead of showing the login form. Wait for the initial auth check to settle
+  // (loading === false) so genuine logged-out visitors aren't bounced.
+  useEffect(() => {
+    if (!loading && isAuthenticated && user) {
+      router.replace(getPostLoginRedirect(user.role));
+    }
+  }, [loading, isAuthenticated, user, router]);
 
   const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
     setError(null);
@@ -62,6 +71,12 @@ export default function LoginForm() {
       setMsLoading(false);
     }
   };
+
+  // Don't flash the login form while we're still checking auth or about to
+  // redirect an already-authenticated user.
+  if (loading || isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="auth-screen">

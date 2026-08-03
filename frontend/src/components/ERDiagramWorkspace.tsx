@@ -22,7 +22,8 @@ import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
-import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
+import { ChatPanel, TUTOR_NAME, type ChatHistoryMessage } from "@/components/ChatPanel";
+import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
 import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
 import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
@@ -973,7 +974,9 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
               }}
             >
               <Tabs.List>
-                <Tabs.Tab value="ai-chat">AI Chat</Tabs.Tab>
+                <Tabs.Tab value="ai-chat" leftSection={<BalooAvatar size={16} />}>
+                  {TUTOR_NAME}
+                </Tabs.Tab>
                 {showRubricTab ? <Tabs.Tab value="rubric">Rubric</Tabs.Tab> : null}
               </Tabs.List>
 

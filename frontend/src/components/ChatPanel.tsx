@@ -9,6 +9,7 @@ import {
   Text,
   Textarea,
 } from "@mantine/core";
+import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 
 type ChatMessage = {
   id: string;
@@ -17,11 +18,14 @@ type ChatMessage = {
   animate?: boolean;
 };
 
+/** The ER-diagram tutor's name, shown beside every message he sends. */
+export const TUTOR_NAME = "Baloo";
+
 const seedMessages: ChatMessage[] = [
   {
     id: "assistant-1",
     role: "assistant",
-    content: "Hi! Share your entities and relationships, and I will review them.",
+    content: `Hi, I am ${TUTOR_NAME}. Share your entities and relationships, and I will review them.`,
     animate: false,
   },
 ];
@@ -254,29 +258,42 @@ export function ChatPanel({
               style={{
                 alignSelf: message.role === "user" ? "flex-end" : "flex-start",
                 maxWidth: "85%",
-                padding: "10px 12px",
-                borderRadius: 12,
-                background:
-                  message.role === "user"
-                    // Follows the surrounding theme: blue by default, brand
-                    // purple inside the ER-diagram workspace, which scopes it
-                    // via DrawioTheme.module.css.
-                    ? "var(--mantine-primary-color-filled)"
-                    : "var(--mantine-color-gray-1)",
-                color:
-                  message.role === "user"
-                    ? "var(--mantine-color-white)"
-                    : "var(--mantine-color-black)",
               }}
             >
-              <TypewriterMessage message={message} onTextUpdate={scrollToLatest} />
+              {message.role === "assistant" ? (
+                <Group gap={6} align="center" mb={4}>
+                  <BalooAvatar size={20} />
+                  <Text size="xs" fw={600} c="dimmed">
+                    {TUTOR_NAME}
+                  </Text>
+                </Group>
+              ) : null}
+              <Box
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background:
+                    message.role === "user"
+                      // Follows the surrounding theme: blue by default, brand
+                      // purple inside the ER-diagram workspace, which scopes it
+                      // via DrawioTheme.module.css.
+                      ? "var(--mantine-primary-color-filled)"
+                      : "var(--mantine-color-gray-1)",
+                  color:
+                    message.role === "user"
+                      ? "var(--mantine-color-white)"
+                      : "var(--mantine-color-black)",
+                }}
+              >
+                <TypewriterMessage message={message} onTextUpdate={scrollToLatest} />
+              </Box>
             </Box>
           ))}
         </Stack>
       </Box>
       <Group align="stretch" gap="xs">
         <Textarea
-          placeholder="Ask the AI about your ER diagram..."
+          placeholder={`Ask ${TUTOR_NAME} about your ER diagram...`}
           autosize
           minRows={2}
           maxRows={6}

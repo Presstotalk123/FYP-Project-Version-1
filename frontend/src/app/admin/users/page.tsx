@@ -54,6 +54,25 @@ const ROLE_SECTIONS: RoleSection[] = [
 
 const emptyForm = (): AddForm => ({ email: '', name: '', class_group: '' });
 
+// Coerce an axios/FastAPI error into a displayable string. FastAPI returns 422
+// validation errors with `detail` as an array of {type, loc, msg, ...} objects;
+// rendering that array directly crashes React (error #31), so flatten it here.
+const getErrorMessage = (err: unknown, fallback: string): string => {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msg = detail
+      .map((d) => (d && typeof d === 'object' && 'msg' in d ? String((d as { msg: unknown }).msg) : String(d)))
+      .filter(Boolean)
+      .join(', ');
+    return msg || fallback;
+  }
+  if (detail && typeof detail === 'object' && 'msg' in detail) {
+    return String((detail as { msg: unknown }).msg);
+  }
+  return fallback;
+};
+
 export default function ManageUsersPage() {
   const queryClient = useQueryClient();
   const [addForm, setAddForm] = useState<Record<UserRole, AddForm>>({
@@ -127,10 +146,9 @@ export default function ManageUsersPage() {
       setAddForm((prev) => ({ ...prev, [role]: emptyForm() }));
       invalidateWhitelist();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
         title: 'Error',
-        message: axiosErr.response?.data?.detail ?? 'Failed to add entry.',
+        message: getErrorMessage(err, 'Failed to add entry.'),
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -151,10 +169,9 @@ export default function ManageUsersPage() {
       });
       invalidateWhitelist();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
         title: 'Error',
-        message: axiosErr.response?.data?.detail ?? 'Failed to remove entry.',
+        message: getErrorMessage(err, 'Failed to remove entry.'),
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -188,10 +205,9 @@ export default function ManageUsersPage() {
       setEditingEntry(null);
       invalidateWhitelist();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
         title: 'Error',
-        message: axiosErr.response?.data?.detail ?? 'Failed to update entry.',
+        message: getErrorMessage(err, 'Failed to update entry.'),
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -215,10 +231,9 @@ export default function ManageUsersPage() {
       setImportSummary(res.data);
       invalidateWhitelist();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
       notifications.show({
         title: 'Upload Failed',
-        message: axiosErr.response?.data?.detail ?? 'An error occurred during file upload.',
+        message: getErrorMessage(err, 'An error occurred during file upload.'),
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -363,6 +378,7 @@ export default function ManageUsersPage() {
                         <TextInput
                           label="Email"
                           placeholder="user@example.com"
+                          maxLength={255}
                           value={form.email}
                           onChange={(e) => setField(role, 'email', e.currentTarget.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
@@ -374,6 +390,7 @@ export default function ManageUsersPage() {
                         <TextInput
                           label="Name"
                           placeholder="Full name (optional)"
+                          maxLength={255}
                           value={form.name}
                           onChange={(e) => setField(role, 'name', e.currentTarget.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
@@ -382,6 +399,7 @@ export default function ManageUsersPage() {
                         <TextInput
                           label="Class Group"
                           placeholder="e.g. CS3 (optional)"
+                          maxLength={100}
                           value={form.class_group}
                           onChange={(e) => setField(role, 'class_group', e.currentTarget.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
@@ -421,14 +439,22 @@ export default function ManageUsersPage() {
             <TextInput
               label="Name"
               placeholder="Full name"
+              maxLength={255}
               value={editForm.name}
-              onChange={(e) => setEditForm(prev => ({ ...prev, name: e.currentTarget.value }))}
+              onChange={(e) => {
+                const value = e.currentTarget.value;
+                setEditForm(prev => ({ ...prev, name: value }));
+              }}
             />
             <TextInput
               label="Class Group"
               placeholder="e.g. CS3"
+              maxLength={100}
               value={editForm.class_group}
-              onChange={(e) => setEditForm(prev => ({ ...prev, class_group: e.currentTarget.value }))}
+              onChange={(e) => {
+                const value = e.currentTarget.value;
+                setEditForm(prev => ({ ...prev, class_group: value }));
+              }}
             />
             <Group justify="flex-end" mt="md">
               <Button variant="default" onClick={() => setEditingEntry(null)}>

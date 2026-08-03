@@ -14,7 +14,6 @@ import {
   Badge,
   Box,
   Button,
-  Drawer,
   Group,
   Menu,
   Modal,
@@ -33,6 +32,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ERDiagramWorkspaceQuestion } from "@/components/ERDiagramWorkspace";
+import drawioTheme from "@/components/DrawioTheme.module.css";
 
 type DrawioFocusLayoutProps = {
   question: ERDiagramWorkspaceQuestion;
@@ -51,15 +51,30 @@ type DrawioFocusLayoutProps = {
   isDirty: boolean;
 };
 
-type RightDrawer = "chat" | "rubric" | null;
+type RightPanel = "chat" | "rubric" | null;
+
+/** Which side panel a drag is currently resizing, if any. */
+type ResizingSide = "problem" | "right" | null;
 
 export type DrawioFocusLayoutHandle = {
   requestExit: () => void;
+  /** Reveal the AI Chat panel — used to surface tutor feedback on submit. */
+  openAiChat: () => void;
 };
 
 const TOOLBAR_HEIGHT = 48;
-const DRAWER_SHADOW = "0 8px 24px rgba(15, 23, 42, 0.12)";
 const PILL_WIDTH = 104;
+
+// Panel sizing, shared by the left (Problem) and right (AI Chat / Rubric)
+// panels so both resize with identical feel.
+const PANEL_MIN_WIDTH = 280;
+const PANEL_MAX_FRACTION = 0.6;
+// Drag narrower than this and the panel closes, rather than leaving a sliver.
+const PANEL_COLLAPSE_WIDTH = 150;
+
+// Scoped brand-purple + Geist override for Mantine (DrawioTheme.module.css).
+// Portalled components render outside this tree, so they carry the class too.
+const BRAND_THEME_CLASS = drawioTheme.drawioTheme;
 
 export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocusLayoutProps>(
   function DrawioFocusLayout(
@@ -83,38 +98,57 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
   ) {
   const [problemOpen, setProblemOpen] = useState(false);
   const [problemWidth, setProblemWidth] = useState(400);
-  const [isResizing, setIsResizing] = useState(false);
-  const [rightDrawer, setRightDrawer] = useState<RightDrawer>(null);
+  const [rightWidth, setRightWidth] = useState(420);
+  const [resizing, setResizing] = useState<ResizingSide>(null);
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const startResizing = useCallback((e: React.MouseEvent) => {
+  const startResizing = useCallback((side: Exclude<ResizingSide, null>) => (e: React.MouseEvent) => {
     e.preventDefault();
-    setIsResizing(true);
+    setResizing(side);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, []);
 
   useEffect(() => {
-    if (!isResizing) return;
+    if (!resizing) return;
+
+    const releaseCursor = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = e.clientX;
-      if (newWidth < 150) {
-        setProblemOpen(false);
-        setIsResizing(false);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
+      // The right panel grows as the pointer moves left, so measure it from the
+      // viewport's right edge; the left panel measures straight from clientX.
+      const newWidth = resizing === "problem" ? e.clientX : window.innerWidth - e.clientX;
+
+      if (newWidth < PANEL_COLLAPSE_WIDTH) {
+        if (resizing === "problem") {
+          setProblemOpen(false);
+        } else {
+          setRightPanel(null);
+        }
+        setResizing(null);
+        releaseCursor();
         return;
       }
-      const clampedWidth = Math.min(Math.max(newWidth, 250), window.innerWidth * 0.6);
-      setProblemWidth(clampedWidth);
+
+      const clamped = Math.min(
+        Math.max(newWidth, PANEL_MIN_WIDTH),
+        window.innerWidth * PANEL_MAX_FRACTION,
+      );
+      if (resizing === "problem") {
+        setProblemWidth(clamped);
+      } else {
+        setRightWidth(clamped);
+      }
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      setResizing(null);
+      releaseCursor();
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -123,13 +157,12 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      releaseCursor();
     };
-  }, [isResizing]);
+  }, [resizing]);
 
-  const visibleRightDrawer: RightDrawer =
-    rightDrawer === "rubric" && !showRubricToggle ? null : rightDrawer;
+  const visibleRightPanel: RightPanel =
+    rightPanel === "rubric" && !showRubricToggle ? null : rightPanel;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -154,7 +187,14 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     onExit();
   }, [isDirty, onExit]);
 
-  useImperativeHandle(ref, () => ({ requestExit: handleExitClick }), [handleExitClick]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      requestExit: handleExitClick,
+      openAiChat: () => setRightPanel("chat"),
+    }),
+    [handleExitClick],
+  );
 
   const handleConfirmSaveAndExit = () => {
     onSaveToFile();
@@ -167,8 +207,8 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     onExit();
   };
 
-  const toggleRightDrawer = (next: Exclude<RightDrawer, null>) => {
-    setRightDrawer((current) => (current === next ? null : next));
+  const toggleRightPanel = (next: Exclude<RightPanel, null>) => {
+    setRightPanel((current) => (current === next ? null : next));
   };
 
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,6 +221,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
 
   return (
     <Box
+      className={BRAND_THEME_CLASS}
       style={{
         position: "fixed",
         inset: 0,
@@ -204,7 +245,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           position: "relative",
         }}
       >
-        <Tooltip label="Exit focus mode" withArrow>
+        <Tooltip label="Exit focus mode" withArrow className={BRAND_THEME_CLASS}>
           <ActionIcon
             variant="subtle"
             size="lg"
@@ -227,7 +268,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
                 File
               </Button>
             </Menu.Target>
-            <Menu.Dropdown>
+            <Menu.Dropdown className={BRAND_THEME_CLASS}>
               <Menu.Item
                 leftSection={<IconDeviceFloppy size={14} />}
                 onClick={onSaveToFile}
@@ -253,9 +294,9 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           </Button>
           <Button
             size="xs"
-            variant={visibleRightDrawer === "chat" ? "filled" : "light"}
+            variant={visibleRightPanel === "chat" ? "filled" : "light"}
             leftSection={<IconMessageCircle size={14} />}
-            onClick={() => toggleRightDrawer("chat")}
+            onClick={() => toggleRightPanel("chat")}
             w={PILL_WIDTH}
           >
             AI Chat
@@ -263,9 +304,9 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           {showRubricToggle ? (
             <Button
               size="xs"
-              variant={visibleRightDrawer === "rubric" ? "filled" : "light"}
+              variant={visibleRightPanel === "rubric" ? "filled" : "light"}
               leftSection={<IconReportAnalytics size={14} />}
-              onClick={() => toggleRightDrawer("rubric")}
+              onClick={() => toggleRightPanel("rubric")}
               w={PILL_WIDTH}
             >
               Rubric
@@ -333,7 +374,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
 
         {problemOpen && (
           <Box
-            onMouseDown={startResizing}
+            onMouseDown={startResizing("problem")}
             style={{
               width: 12,
               cursor: "col-resize",
@@ -352,7 +393,10 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
                 width: 4,
                 height: 32,
                 borderRadius: 4,
-                background: isResizing ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-gray-4)",
+                background:
+                  resizing === "problem"
+                    ? "var(--mantine-primary-color-filled)"
+                    : "var(--mantine-color-gray-4)",
                 transition: "background-color 0.2s",
               }}
             />
@@ -361,7 +405,94 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
 
         <Box style={{ flex: 1, minWidth: 0, position: "relative" }}>
           {canvas}
-          {isResizing && <Box style={{ position: "absolute", inset: 0, zIndex: 999 }} />}
+          {/* The canvas is a cross-origin iframe, which swallows pointer events
+              mid-drag. This catches them so a resize can start over the canvas
+              and keep tracking once the pointer moves across it. */}
+          {resizing && <Box style={{ position: "absolute", inset: 0, zIndex: 999 }} />}
+        </Box>
+
+        {visibleRightPanel !== null && (
+          <Box
+            onMouseDown={startResizing("right")}
+            style={{
+              width: 12,
+              cursor: "col-resize",
+              zIndex: 11,
+              position: "absolute",
+              right: rightWidth - 6,
+              top: 0,
+              bottom: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Box
+              style={{
+                width: 4,
+                height: 32,
+                borderRadius: 4,
+                background:
+                  resizing === "right"
+                    ? "var(--mantine-primary-color-filled)"
+                    : "var(--mantine-color-gray-4)",
+                transition: "background-color 0.2s",
+              }}
+            />
+          </Box>
+        )}
+
+        {/* Always mounted, hidden with display:none rather than unmounted — this
+            is what the Drawer's `keepMounted` used to give us, and it keeps the
+            AI chat's messages and half-typed input alive across toggles. */}
+        <Box
+          style={{
+            width: rightWidth,
+            flexShrink: 0,
+            background: "var(--mantine-color-body)",
+            borderLeft: "1px solid var(--mantine-color-gray-3)",
+            display: visibleRightPanel === null ? "none" : "flex",
+            flexDirection: "column",
+            zIndex: 10,
+          }}
+        >
+          <Box
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--mantine-color-gray-3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexShrink: 0,
+            }}
+          >
+            <Text fw={600}>{visibleRightPanel === "rubric" ? "Rubric" : "AI Chat"}</Text>
+            <ActionIcon onClick={() => setRightPanel(null)} size="sm" variant="subtle">
+              <IconX size={16} />
+            </ActionIcon>
+          </Box>
+          <Box style={{ padding: 16, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <Box
+              style={{
+                display: visibleRightPanel === "chat" ? "flex" : "none",
+                flex: 1,
+                minHeight: 0,
+                flexDirection: "column",
+              }}
+            >
+              {aiChatContent}
+            </Box>
+            <Box
+              style={{
+                display: visibleRightPanel === "rubric" ? "flex" : "none",
+                flex: 1,
+                minHeight: 0,
+                flexDirection: "column",
+              }}
+            >
+              {rubricContent}
+            </Box>
+          </Box>
         </Box>
       </Box>
 
@@ -373,61 +504,13 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
         style={{ display: "none" }}
       />
 
-      <Drawer
-        opened={visibleRightDrawer !== null}
-        onClose={() => setRightDrawer(null)}
-        position="right"
-        size="lg"
-        withOverlay={false}
-        lockScroll={false}
-        withCloseButton
-        keepMounted
-        title={
-          <Text fw={600}>
-            {visibleRightDrawer === "rubric" ? "Rubric" : "AI Chat"}
-          </Text>
-        }
-        styles={{
-          content: { boxShadow: DRAWER_SHADOW, display: "flex", flexDirection: "column" },
-          inner: { pointerEvents: "none" },
-          body: {
-            pointerEvents: "auto",
-            display: "flex",
-            flexDirection: "column",
-            flex: 1,
-            minHeight: 0,
-          },
-          header: { pointerEvents: "auto" },
-        }}
-      >
-        <Box
-          style={{
-            display: visibleRightDrawer === "chat" ? "flex" : "none",
-            flex: 1,
-            minHeight: 0,
-            flexDirection: "column",
-          }}
-        >
-          {aiChatContent}
-        </Box>
-        <Box
-          style={{
-            display: visibleRightDrawer === "rubric" ? "flex" : "none",
-            flex: 1,
-            minHeight: 0,
-            flexDirection: "column",
-          }}
-        >
-          {rubricContent}
-        </Box>
-      </Drawer>
-
       <Modal
         opened={exitConfirmOpen}
         onClose={() => setExitConfirmOpen(false)}
         title="Exit focus mode?"
         centered
         withinPortal
+        classNames={{ root: BRAND_THEME_CLASS }}
       >
         <Stack gap="md">
           <Text size="sm">

@@ -28,6 +28,7 @@ import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
 import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
+import drawioTheme from "@/components/DrawioTheme.module.css";
 import {
   buildRubricDisplayGroups,
   formatScoreValue,
@@ -54,6 +55,10 @@ export type ERDiagramWorkspaceQuestion = {
 };
 
 export type LabContext = { er_lab_id: number; er_lab_question_id: number };
+
+// Scoped brand-purple + Geist override for Mantine (DrawioTheme.module.css).
+// Portalled components render outside this tree, so they carry the class too.
+const BRAND_THEME_CLASS = drawioTheme.drawioTheme;
 
 type WorkspaceProps = {
   question: ERDiagramWorkspaceQuestion;
@@ -334,6 +339,12 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
         // ignore sessionStorage write failures
       }
       setIsDirty(false);
+      // Reveal the tutor's feedback now that the result is in. Deliberately
+      // here and not when Submit is clicked: this only runs on the success
+      // path, so a failed or interrupted submission leaves the panel alone
+      // rather than opening it on nothing. No-op outside focus mode, where
+      // the chat tab is already the default.
+      focusLayoutRef.current?.openAiChat();
     } catch (err) {
       setSubmitError(getErrorMessage(err));
     } finally {
@@ -607,7 +618,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
                           <Badge variant="outline" color="gray" radius="xl">
                             ID {item.id}
                           </Badge>
-                          <Badge variant="outline" color="blue" radius="xl">
+                          <Badge variant="outline" radius="xl">
                             {item.requirementLevelLabel}
                           </Badge>
                           <Badge variant="outline" color="gray" radius="xl">
@@ -660,6 +671,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
       onClose={cancelSubmitDescription}
       title="Describe your submission (optional)"
       centered
+      classNames={{ root: BRAND_THEME_CLASS }}
     >
       <Text size="sm" c="dimmed" mb="sm">
         Add anything that helps the tutor read your diagram correctly (for
@@ -724,7 +736,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
   }
 
   return (
-    <Container fluid px="sm" py="md">
+    <Container fluid px="sm" py="md" className={BRAND_THEME_CLASS}>
       <Stack gap="md">
         <Group align="baseline" gap="sm">
           <ActionIcon
@@ -828,15 +840,15 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
                       accept={IMAGE_MIME_TYPE}
                       multiple={false}
                       style={{
-                        border: "2px dashed var(--mantine-color-blue-4)",
+                        border: "2px dashed var(--mantine-primary-color-3)",
                         borderRadius: 12,
                         cursor: "pointer",
-                        background: "var(--mantine-color-blue-0)",
+                        background: "var(--mantine-primary-color-0)",
                       }}
                     >
                       <Group justify="center" gap="xl" mih={180}>
                         <Dropzone.Accept>
-                          <IconUpload size={52} color="var(--mantine-color-blue-6)" stroke={1.5} />
+                          <IconUpload size={52} color="var(--mantine-primary-color-6)" stroke={1.5} />
                         </Dropzone.Accept>
                         <Dropzone.Reject>
                           <IconX size={52} color="var(--mantine-color-red-6)" stroke={1.5} />

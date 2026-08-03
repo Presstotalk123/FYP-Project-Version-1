@@ -46,6 +46,13 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  // Per-question query cap (assessment SQL questions only). null = uncapped / not yet known.
+  // Populated from the execute response after each run; a 403 also flips limitReached on.
+  const [maxQueries, setMaxQueries] = useState<number | null>(null);
+  const [attemptsUsed, setAttemptsUsed] = useState<number | null>(null);
+  const [limitHit, setLimitHit] = useState(false);
+  const limitReached =
+    limitHit || (maxQueries != null && attemptsUsed != null && attemptsUsed >= maxQueries);
 
   // Static question content — cached (see providers.tsx) so revisiting this
   // question (e.g. switching between assessment items) renders it instantly.
@@ -101,6 +108,15 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
     if (isExecuting || isCoolingDown) {
       return;
     }
+    // The student has used up their allotted queries for this question.
+    if (limitReached) {
+      notifications.show({
+        title: 'Query limit reached',
+        message: 'You have reached the maximum number of queries allowed for this question.',
+        color: 'red',
+      });
+      return;
+    }
     if (!query.trim()) {
       notifications.show({
         title: 'Empty Query',
@@ -122,6 +138,12 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       });
       creditedEndTime = response.assessment_end_time;
       setResult(response);
+      // Track the per-question query cap so the UI can show "X of N used" and disable Run
+      // once it's hit. Both fields are null when the question is uncapped.
+      if (response.max_queries != null) {
+        setMaxQueries(response.max_queries);
+        setAttemptsUsed(response.attempts_used ?? null);
+      }
       // The request round-tripped successfully — this counts as an attempt for the
       // navigator regardless of whether the query was correct or had a SQL error.
       progress.markAttempted();
@@ -151,10 +173,16 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       queryClient.invalidateQueries({ queryKey: queryKeys.studentProgress });
       queryClient.invalidateQueries({ queryKey: ['studentQuestions'] });
     } catch (err) {
-      const error = err as { response?: { data?: { detail?: string } } };
+      const error = err as { response?: { status?: number; data?: { detail?: string } } };
+      const detail = error.response?.data?.detail;
+      // The server rejects a run over the cap with a 403; lock the editor so the student
+      // can't keep trying. (Covers the reload case where the cap was hit in a prior session.)
+      if (error.response?.status === 403 && detail?.includes('maximum number of queries')) {
+        setLimitHit(true);
+      }
       notifications.show({
         title: 'Execution Error',
-        message: error.response?.data?.detail || 'Failed to execute query',
+        message: detail || 'Failed to execute query',
         color: 'red',
       });
     } finally {
@@ -336,6 +364,9 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
               isExecuting={isExecuting}
               executionTime={result?.execution_time_ms || null}
               isCoolingDown={isCoolingDown}
+              limitReached={limitReached}
+              maxQueries={maxQueries}
+              attemptsUsed={attemptsUsed}
             />
           </Box>
 

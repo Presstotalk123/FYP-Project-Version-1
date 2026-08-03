@@ -166,6 +166,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       item_title: i.item_title,
       weight: i.weight ?? 0,
       hide_correctness: i.hide_correctness ?? false,
+      max_queries: i.max_queries ?? null,
     }));
     // Legacy/unweighted assessments (weights don't total 100) get an equal split so the
     // editor opens in a valid state; staff can then fine-tune.
@@ -237,7 +238,7 @@ export function AssessmentForm({ mode, initial }: Props) {
     setSelectedItems((prev) =>
       withEqualWeights([
         ...prev,
-        { uid: nextUid(), item_type: type, item_id: id, item_title: title, weight: 0, hide_correctness: false },
+        { uid: nextUid(), item_type: type, item_id: id, item_title: title, weight: 0, hide_correctness: false, max_queries: null },
       ])
     );
   };
@@ -255,6 +256,12 @@ export function AssessmentForm({ mode, initial }: Props) {
   const updateHideCorrectness = (uid: string, value: boolean) => {
     setSelectedItems((prev) =>
       prev.map((i) => (i.uid === uid ? { ...i, hide_correctness: value } : i))
+    );
+  };
+
+  const updateMaxQueries = (uid: string, value: number | null) => {
+    setSelectedItems((prev) =>
+      prev.map((i) => (i.uid === uid ? { ...i, max_queries: value } : i))
     );
   };
 
@@ -305,6 +312,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       order_index: idx,
       weight: item.weight,
       hide_correctness: item.hide_correctness,
+      max_queries: item.item_type === 'sql_question' ? item.max_queries : null,
     }));
 
     setSaving(true);
@@ -564,6 +572,7 @@ export function AssessmentForm({ mode, initial }: Props) {
                   onRemove={removeItem}
                   onWeightChange={updateWeight}
                   onHideCorrectnessChange={updateHideCorrectness}
+                  onMaxQueriesChange={updateMaxQueries}
                 />
               ))}
             </SortableContext>

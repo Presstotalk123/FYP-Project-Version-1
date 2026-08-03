@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.question import Question
 from app.models.attempt import Attempt
 from app.models.progress import UserProgress
+from app.models.assessment_item import AssessmentItem
 from app.schemas.attempt import ExecuteRequest, ExecuteResponse
 from app.dependencies import get_current_user
 from app.core.query_executor import execute_student_query
@@ -143,6 +144,30 @@ def execute_query(
         # too — not just the handler's own execution time.
         query_start = getattr(request.state, "received_at", None) or datetime.now(timezone.utc)
 
+    # Per-question max-queries cap: only for students on assessment content. Look up the
+    # matching AssessmentItem override (item_id points at this clone question after publish)
+    # and, if a limit is set, block once the student has already used it up. The check runs
+    # before the attempts_count increment below, so the Nth run is allowed and the (N+1)th
+    # is rejected. Staff/preview are never capped.
+    q_max_queries = None
+    if q_owner_assessment_id and user_role == "student":
+        item = db.query(AssessmentItem.max_queries).filter(
+            AssessmentItem.assessment_id == q_owner_assessment_id,
+            AssessmentItem.item_type == "sql_question",
+            AssessmentItem.item_id == execute_request.question_id,
+        ).first()
+        q_max_queries = item[0] if item else None
+        if q_max_queries is not None:
+            used = db.query(UserProgress.attempts_count).filter(
+                UserProgress.user_id == user_id,
+                UserProgress.question_id == execute_request.question_id,
+            ).scalar() or 0
+            if used >= q_max_queries:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You have reached the maximum number of queries allowed for this question.",
+                )
+
     # Release the Postgres connection back to the pool before running the untrusted
     # SQLite query. That query can take up to 5–15s; holding a connection (and, behind
     # PgBouncer, a real server backend) for its whole duration is what exhausts the
@@ -223,6 +248,10 @@ def execute_query(
             )
             db.add(progress)
 
+        # Capture the post-increment count into a plain local now — after the commit below the
+        # ORM expires attributes and reading progress.attempts_count would trigger a reload.
+        attempts_used = progress.attempts_count
+
         # Clean up old attempts - keep only 4 most recent
         old_attempts = (
             db.query(Attempt)
@@ -259,4 +288,6 @@ def execute_query(
         error_message=error_message,
         row_count=result["row_count"],
         assessment_end_time=assessment_session.end_time if assessment_session else None,
+        max_queries=q_max_queries,
+        attempts_used=attempts_used if q_max_queries is not None else None,
     )

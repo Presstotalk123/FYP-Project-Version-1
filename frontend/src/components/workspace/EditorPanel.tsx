@@ -26,6 +26,11 @@ interface EditorPanelProps {
   isExecuting: boolean;
   executionTime: number | null;
   isCoolingDown?: boolean;
+  // Assessment SQL-question query cap. limitReached disables Run; maxQueries/attemptsUsed
+  // drive the "X of N used" hint. All optional — omitted for uncapped questions.
+  limitReached?: boolean;
+  maxQueries?: number | null;
+  attemptsUsed?: number | null;
 }
 
 export function EditorPanel({
@@ -36,6 +41,9 @@ export function EditorPanel({
   isExecuting,
   executionTime,
   isCoolingDown = false,
+  limitReached = false,
+  maxQueries = null,
+  attemptsUsed = null,
 }: EditorPanelProps) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -54,7 +62,8 @@ export function EditorPanel({
             className="btn btn-brand"
             style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
             onClick={onExecute}
-            disabled={isExecuting || isCoolingDown}
+            disabled={isExecuting || isCoolingDown || limitReached}
+            title={limitReached ? 'You have reached the maximum number of queries allowed for this question.' : undefined}
           >
             <IconPlay />
             {isExecuting ? 'Running…' : 'Run Query'}
@@ -71,6 +80,19 @@ export function EditorPanel({
           {isCoolingDown && (
             <span style={{ fontSize: 13, color: 'var(--text-muted, #888)', alignSelf: 'center' }}>
               Please wait before running another query
+            </span>
+          )}
+          {maxQueries != null && (
+            <span
+              style={{
+                fontSize: 13,
+                color: limitReached ? 'var(--danger, #d33)' : 'var(--text-muted, #888)',
+                alignSelf: 'center',
+              }}
+            >
+              {limitReached
+                ? 'No queries remaining'
+                : `${attemptsUsed ?? 0} of ${maxQueries} queries used`}
             </span>
           )}
         </div>

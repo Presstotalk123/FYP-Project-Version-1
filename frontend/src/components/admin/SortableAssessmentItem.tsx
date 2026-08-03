@@ -27,6 +27,8 @@ export interface SortableItem {
   item_title: string;
   weight: number;
   hide_correctness: boolean;
+  // Per-item query cap for SQL questions; null = unlimited.
+  max_queries: number | null;
 }
 
 interface Props {
@@ -34,6 +36,7 @@ interface Props {
   onRemove: (uid: string) => void;
   onWeightChange: (uid: string, weight: number) => void;
   onHideCorrectnessChange: (uid: string, value: boolean) => void;
+  onMaxQueriesChange: (uid: string, value: number | null) => void;
 }
 
 export function SortableAssessmentItem({
@@ -41,6 +44,7 @@ export function SortableAssessmentItem({
   onRemove,
   onWeightChange,
   onHideCorrectnessChange,
+  onMaxQueriesChange,
 }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.uid });
@@ -87,6 +91,23 @@ export function SortableAssessmentItem({
             styles={{ label: { whiteSpace: 'nowrap' } }}
             aria-label={`Hide correctness for ${item.item_title}`}
             title="Hide correctness feedback from students — they see a neutral 'Submitted' result"
+          />
+        )}
+        {item.item_type === 'sql_question' && (
+          <NumberInput
+            value={item.max_queries ?? ''}
+            onChange={(v) =>
+              onMaxQueriesChange(item.uid, v === '' || v === null ? null : Number(v))
+            }
+            min={1}
+            allowDecimal={false}
+            allowNegative={false}
+            placeholder="∞"
+            size="xs"
+            w={90}
+            styles={{ input: { textAlign: 'right' } }}
+            aria-label={`Max queries for ${item.item_title}`}
+            title="Max queries allowed (blank = unlimited)"
           />
         )}
         <NumberInput

@@ -22,6 +22,9 @@ class AssessmentItemIn(BaseModel):
     # Per-item override written onto the content clone at publish. When True, students
     # see a neutral "Submitted" result instead of Correct/Incorrect. Ignored for er_question.
     hide_correctness: bool = False
+    # Per-item cap on how many queries a student may run on this SQL question during the
+    # assessment. None = unlimited. Only meaningful for sql_question items.
+    max_queries: Optional[int] = Field(None, ge=1)
 
 
 def _validate_weight_total(items: Optional[List[AssessmentItemIn]]) -> None:
@@ -78,6 +81,8 @@ class AssessmentItemResponse(BaseModel):
     order_index: int
     weight: int
     hide_correctness: bool
+    # Per-item max queries cap for SQL questions; None = unlimited.
+    max_queries: Optional[int] = None
     item_title: str
 
     class Config:

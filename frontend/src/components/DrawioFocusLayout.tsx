@@ -26,12 +26,14 @@ import {
   IconDeviceFloppy,
   IconFileImport,
   IconFolder,
-  IconMessageCircle,
   IconNotebook,
   IconReportAnalytics,
   IconX,
 } from "@tabler/icons-react";
 import type { ERDiagramWorkspaceQuestion } from "@/components/ERDiagramWorkspace";
+import { TUTOR_NAME } from "@/components/ChatPanel";
+import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
+import { IconBear } from "@/components/workspace/IconBear";
 import drawioTheme from "@/components/DrawioTheme.module.css";
 
 type DrawioFocusLayoutProps = {
@@ -58,14 +60,14 @@ type ResizingSide = "problem" | "right" | null;
 
 export type DrawioFocusLayoutHandle = {
   requestExit: () => void;
-  /** Reveal the AI Chat panel — used to surface tutor feedback on submit. */
+  /** Reveal Baloo's chat panel — used to surface tutor feedback on submit. */
   openAiChat: () => void;
 };
 
 const TOOLBAR_HEIGHT = 48;
 const PILL_WIDTH = 104;
 
-// Panel sizing, shared by the left (Problem) and right (AI Chat / Rubric)
+// Panel sizing, shared by the left (Problem) and right (Baloo / Rubric)
 // panels so both resize with identical feel.
 const PANEL_MIN_WIDTH = 280;
 const PANEL_MAX_FRACTION = 0.6;
@@ -295,11 +297,11 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           <Button
             size="xs"
             variant={visibleRightPanel === "chat" ? "filled" : "light"}
-            leftSection={<IconMessageCircle size={14} />}
+            leftSection={<IconBear size={14} />}
             onClick={() => toggleRightPanel("chat")}
             w={PILL_WIDTH}
           >
-            AI Chat
+            {TUTOR_NAME}
           </Button>
           {showRubricToggle ? (
             <Button
@@ -466,7 +468,14 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
               flexShrink: 0,
             }}
           >
-            <Text fw={600}>{visibleRightPanel === "rubric" ? "Rubric" : "AI Chat"}</Text>
+            {visibleRightPanel === "rubric" ? (
+              <Text fw={600}>Rubric</Text>
+            ) : (
+              <Group gap={8} align="center">
+                <BalooAvatar size={22} />
+                <Text fw={600}>{TUTOR_NAME}</Text>
+              </Group>
+            )}
             <ActionIcon onClick={() => setRightPanel(null)} size="sm" variant="subtle">
               <IconX size={16} />
             </ActionIcon>

@@ -28,6 +28,8 @@ from app.schemas.assessment import (
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.services import assessment_clone, assessment_reset, assessment_scoring
+from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
+from sqlalchemy import func
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -97,6 +99,12 @@ def _replace_items(assessment: Assessment, items_in, db: Session) -> None:
             hide_correctness=1 if item_data.hide_correctness else 0,
         ))
 
+    # The bulk delete above bypasses the ORM unit of work, so the after_flush
+    # auto-invalidation listener won't see it. The ORM inserts below normally do
+    # trigger it, but not when items_in is empty — bump explicitly to cover that.
+    bump_version(db, Ns.ASSESSMENTS)
+    bump_version(db, assessment_body_ns(assessment.id))
+
 
 # ---------------------------------------------------------------------------
 # CRUD
@@ -156,27 +164,38 @@ def list_assessments(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff_role),
 ):
-    assessments = (
-        db.query(Assessment)
-        .filter(Assessment.is_deleted == 0)
-        .order_by(Assessment.created_at.desc())
-        .all()
-    )
-    return [
-        AssessmentListItem(
-            id=a.id,
-            title=a.title,
-            description=a.description,
-            is_published=bool(a.is_published),
-            is_running=bool(a.is_running),
-            item_count=len(a.items),
-            has_password=bool(a.password),
-            time_limit_minutes=a.time_limit_minutes,
-            created_at=a.created_at,
-            updated_at=a.updated_at,
+    # Staff-only and identical across all staff/admin, so cached in-process and
+    # invalidated on any Assessment/AssessmentItem mutation (see app/core/cache.py).
+    def producer():
+        assessments = (
+            db.query(Assessment)
+            .filter(Assessment.is_deleted == 0)
+            .order_by(Assessment.created_at.desc())
+            .all()
         )
-        for a in assessments
-    ]
+        # One grouped COUNT instead of a per-row len(a.items) lazy load (avoids N+1).
+        counts = dict(
+            db.query(AssessmentItem.assessment_id, func.count(AssessmentItem.id))
+            .group_by(AssessmentItem.assessment_id)
+            .all()
+        )
+        return [
+            AssessmentListItem(
+                id=a.id,
+                title=a.title,
+                description=a.description,
+                is_published=bool(a.is_published),
+                is_running=bool(a.is_running),
+                item_count=counts.get(a.id, 0),
+                has_password=bool(a.password),
+                time_limit_minutes=a.time_limit_minutes,
+                created_at=a.created_at,
+                updated_at=a.updated_at,
+            )
+            for a in assessments
+        ]
+
+    return cache_read(db, Ns.ASSESSMENTS, key=("staff",), producer=producer)
 
 
 @router.get("/{assessment_id}", response_model=AssessmentResponse)

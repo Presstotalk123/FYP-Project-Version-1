@@ -19,6 +19,7 @@ from app.schemas.student_assessment import (
 from app.dependencies import get_current_user
 from app.api.v1.endpoints.assessments import _resolve_item_title
 from app.services.assessment_timer import finalize_session
+from app.core.cache import cache_read, assessment_body_ns
 
 router = APIRouter(prefix="/student-assessments", tags=["student-assessments"])
 
@@ -137,7 +138,7 @@ def get_student_assessment(
             items=[],
         )
 
-    # If running, build items with visited flags
+    # If running, build items with visited flags.
     session = _get_active_session(assessment_id, current_user.id, db)
 
     visited_ids: set[int] = set()
@@ -149,9 +150,23 @@ def get_student_assessment(
         )
         visited_ids = {v[0] for v in visits}
 
+    # The item list + resolved titles are identical for every student and frozen for
+    # the run's duration, so cache them under assessment_body:{id} (invalidated on any
+    # Assessment/AssessmentItem change). At exam start this is the heaviest read in the
+    # app hit by the whole cohort at once; caching + single-flight collapses it to one
+    # rebuild. Only the per-student `visited` overlay stays live.
+    def produce_body() -> list[StudentAssessmentItemView]:
+        return [_build_item_view(item, False, db) for item in assessment.items]
+
+    body_items = cache_read(
+        db, assessment_body_ns(assessment_id), key=("body",), producer=produce_body
+    )
+
+    # Overlay this student's visited flags; model_copy avoids mutating the shared
+    # cached instances.
     items = [
-        _build_item_view(item, item.id in visited_ids, db)
-        for item in assessment.items
+        iv.model_copy(update={"visited": True}) if iv.id in visited_ids else iv
+        for iv in body_items
     ]
 
     return StudentAssessmentDetail(

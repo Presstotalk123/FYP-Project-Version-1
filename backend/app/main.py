@@ -73,6 +73,12 @@ with engine.connect() as _conn:
 
 print(f"Connected to database: {settings.DATABASE_URL[:30]}...")
 
+# Provision the backend read-cache: create/seed the cache_versions table (idempotent,
+# both backends) and install the after_flush auto-invalidation listener. Must run after
+# the schema DDL above so the version table is ready before the first request.
+from app.core import cache as _cache
+_cache.bootstrap(engine)
+
 # Create FastAPI application
 app = FastAPI(
     title="SQL Learning Platform API",

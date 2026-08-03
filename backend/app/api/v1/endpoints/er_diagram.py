@@ -14,6 +14,7 @@ from starlette.concurrency import iterate_in_threadpool
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user, require_staff_role
+from app.core.cache import cache_read, Ns
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.user import User, UserRole
 from app.models.assessment import Assessment
@@ -957,48 +958,59 @@ def list_er_questions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    question_rows = (
-        db.query(ERDiagramQuestion, User.role)
-        .join(User, ERDiagramQuestion.created_by == User.id)
-        # Exclude assessment-owned clones (owner_assessment_id set) from the ER bank/picker.
-        .filter(
-            ERDiagramQuestion.is_deleted == 0,
-            ERDiagramQuestion.owner_assessment_id.is_(None),
-        )
-        .order_by(ERDiagramQuestion.created_at.desc())
-        .all()
-    )
-
+    # Identical across all staff/admin (and, per role, across all students), so cached
+    # in-process and invalidated on any ERDiagramQuestion mutation (see app/core/cache.py).
     is_student = current_user.role.value == "student"
+    role = "student" if is_student else "staff"
 
-    items: list[ERDiagramQuestionListItem] = []
-    for question, creator_role in question_rows:
-        role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
-        if role_value not in {"student", "staff", "admin"}:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Invalid creator role '{creator_role}' for ER question id={question.id}",
+    def producer():
+        question_rows = (
+            db.query(ERDiagramQuestion, User.role)
+            .join(User, ERDiagramQuestion.created_by == User.id)
+            # Exclude assessment-owned clones (owner_assessment_id set) from the ER bank/picker.
+            .filter(
+                ERDiagramQuestion.is_deleted == 0,
+                ERDiagramQuestion.owner_assessment_id.is_(None),
             )
-
-        # Publish gate applies only to staff-created ER questions. Student-created ones stay
-        # visible to students as before, so students never lose sight of their own creations.
-        if is_student and role_value in {"staff", "admin"} and not question.is_published:
-            continue
-
-        items.append(
-            ERDiagramQuestionListItem(
-                id=question.id,
-                title=question.title,
-                problem_statement=question.problem_statement[:200].strip(),
-                difficulty_label=question.difficulty_label,
-                created_by=question.created_by,
-                created_by_role=role_value,
-                created_at=question.created_at,
-                is_published=bool(question.is_published),
-            )
+            .order_by(ERDiagramQuestion.created_at.desc())
+            .all()
         )
 
-    return items
+        items: list[ERDiagramQuestionListItem] = []
+        for question, creator_role in question_rows:
+            role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
+            if role_value not in {"student", "staff", "admin"}:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Invalid creator role '{creator_role}' for ER question id={question.id}",
+                )
+
+            # Publish gate applies only to staff-created ER questions. Student-created ones stay
+            # visible to students as before, so students never lose sight of their own creations.
+            if is_student and role_value in {"staff", "admin"} and not question.is_published:
+                continue
+
+            items.append(
+                ERDiagramQuestionListItem(
+                    id=question.id,
+                    title=question.title,
+                    problem_statement=question.problem_statement[:200].strip(),
+                    difficulty_label=question.difficulty_label,
+                    created_by=question.created_by,
+                    created_by_role=role_value,
+                    created_at=question.created_at,
+                    is_published=bool(question.is_published),
+                )
+            )
+
+        return items
+
+    return cache_read(
+        db,
+        Ns.ER_QUESTIONS,
+        key=(f"role={role}",),
+        producer=producer,
+    )
 
 
 @router.get("/questions/{question_id}", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)
@@ -1007,8 +1019,11 @@ def get_er_question(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Tiny lookup that serves as the 404 check and the per-user authorization gate below
+    # (creator role + is_published, small columns only — not the heavy problem statement /
+    # rubric). The full serialized payload is cached per id.
     row = (
-        db.query(ERDiagramQuestion, User.role)
+        db.query(ERDiagramQuestion.is_published, User.role)
         .join(User, ERDiagramQuestion.created_by == User.id)
         .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
         .first()
@@ -1017,7 +1032,7 @@ def get_er_question(
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
-    question, creator_role = row
+    is_published, creator_role = row
     role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
 
     # Publish gate applies only to staff-created BANK ER questions. Student-created questions are
@@ -1027,12 +1042,24 @@ def get_er_question(
     if (
         current_user.role.value == "student"
         and role_value in {"staff", "admin"}
-        and not question.is_published
+        and not is_published
     ):
         if not _er_question_accessible_via_assessment(question_id, current_user.id, db):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
-    return _to_response(question)
+    # Payload is identical for every requester (role-independent), so cache per id.
+    # Invalidated on any ERDiagramQuestion mutation.
+    def producer():
+        question = (
+            db.query(ERDiagramQuestion)
+            .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+            .first()
+        )
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        return _to_response(question)
+
+    return cache_read(db, Ns.ER_QUESTIONS, key=("detail", question_id), producer=producer)
 
 
 def _set_er_published(question_id: int, published: int, db: Session) -> ERDiagramQuestion:

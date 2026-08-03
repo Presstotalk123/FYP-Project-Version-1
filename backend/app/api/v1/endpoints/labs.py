@@ -26,6 +26,7 @@ from app.schemas.lab_task import (
     LabTaskSubmitRequest, LabTaskSubmitResponse, LabTaskProgress, LabTaskProgressResponse
 )
 from app.dependencies import get_current_user, require_staff_role
+from app.core.cache import cache_read, Ns
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
@@ -151,34 +152,46 @@ def list_labs(
     Students: only published labs (is_published=1)
     Staff: all non-deleted labs
     """
-    # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
-    # the lab bank, the assessment item picker, or the student practice lab list.
-    query = db.query(Lab).filter(
-        Lab.is_deleted == 0,
-        Lab.owner_assessment_id.is_(None),
-    )
+    # Identical across all staff/admin (and, per role, across all students), so cached
+    # in-process and invalidated on any Lab mutation (see app/core/cache.py).
+    role = "student" if current_user.role.value == "student" else "staff"
 
-    # Filter by role
-    if current_user.role.value == "student":
-        query = query.filter(Lab.is_published == 1)
-
-    labs = query.order_by(Lab.created_at.desc()).offset(skip).limit(limit).all()
-
-    return [
-        LabListItem(
-            id=lab.id,
-            title=lab.title,
-            description=lab.description,
-            is_published=bool(lab.is_published),
-            is_running=bool(lab.is_running),
-            hide_correctness=bool(lab.hide_correctness),
-            disable_ai_assist=bool(lab.disable_ai_assist),
-            lab_type=lab.lab_type,
-            created_at=lab.created_at,
-            updated_at=lab.updated_at
+    def producer():
+        # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
+        # the lab bank, the assessment item picker, or the student practice lab list.
+        query = db.query(Lab).filter(
+            Lab.is_deleted == 0,
+            Lab.owner_assessment_id.is_(None),
         )
-        for lab in labs
-    ]
+
+        # Filter by role
+        if role == "student":
+            query = query.filter(Lab.is_published == 1)
+
+        labs = query.order_by(Lab.created_at.desc()).offset(skip).limit(limit).all()
+
+        return [
+            LabListItem(
+                id=lab.id,
+                title=lab.title,
+                description=lab.description,
+                is_published=bool(lab.is_published),
+                is_running=bool(lab.is_running),
+                hide_correctness=bool(lab.hide_correctness),
+                disable_ai_assist=bool(lab.disable_ai_assist),
+                lab_type=lab.lab_type,
+                created_at=lab.created_at,
+                updated_at=lab.updated_at
+            )
+            for lab in labs
+        ]
+
+    return cache_read(
+        db,
+        Ns.LABS,
+        key=(f"role={role}", f"skip={skip}", f"limit={limit}"),
+        producer=producer,
+    )
 
 
 def _lab_accessible_via_assessment(lab_id: int, user_id: int, db: Session) -> bool:
@@ -210,41 +223,49 @@ def get_lab(
     Students: only if published
     Staff: any lab
     """
-    lab = db.query(Lab).filter(
-        Lab.id == lab_id,
-        Lab.is_deleted == 0
-    ).first()
+    # Payload is identical for staff and students, so cache per lab id (invalidated on
+    # any Lab mutation). The per-user authorization gate below stays live.
+    def producer():
+        lab = db.query(Lab).filter(
+            Lab.id == lab_id,
+            Lab.is_deleted == 0
+        ).first()
 
-    if not lab:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lab not found"
+        if not lab:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lab not found"
+            )
+
+        return LabDetail(
+            id=lab.id,
+            title=lab.title,
+            description=lab.description,
+            is_published=bool(lab.is_published),
+            is_running=bool(lab.is_running),
+            hide_correctness=bool(lab.hide_correctness),
+            disable_ai_assist=bool(lab.disable_ai_assist),
+            lab_type=lab.lab_type,
+            template_db_path=lab.template_db_path,
+            schema_sql=lab.schema_sql,
+            sample_data_sql=lab.sample_data_sql,
+            created_by=lab.created_by,
+            created_at=lab.created_at,
+            updated_at=lab.updated_at
         )
 
-    # Check permissions for students
-    if current_user.role.value == "student" and not lab.is_published:
+    lab_detail = cache_read(db, Ns.LABS, key=("detail", lab_id), producer=producer)
+
+    # Check permissions for students (uses cached is_published; no DB read on hit for
+    # the common published case).
+    if current_user.role.value == "student" and not lab_detail.is_published:
         if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Lab not found"
             )
 
-    return LabDetail(
-        id=lab.id,
-        title=lab.title,
-        description=lab.description,
-        is_published=bool(lab.is_published),
-        is_running=bool(lab.is_running),
-        hide_correctness=bool(lab.hide_correctness),
-        disable_ai_assist=bool(lab.disable_ai_assist),
-        lab_type=lab.lab_type,
-        template_db_path=lab.template_db_path,
-        schema_sql=lab.schema_sql,
-        sample_data_sql=lab.sample_data_sql,
-        created_by=lab.created_by,
-        created_at=lab.created_at,
-        updated_at=lab.updated_at
-    )
+    return lab_detail
 
 
 @router.put("/{lab_id}", response_model=LabResponse)
@@ -1421,8 +1442,9 @@ def list_lab_tasks(
     Students: Only if lab is published
     Staff: Always
     """
-    # Verify lab exists and check permissions
-    lab = db.query(Lab).filter(
+    # Verify lab exists and check permissions. Tiny single-column lookup that doubles as
+    # the 404 check and the per-user authorization gate; the heavy task list is cached.
+    lab = db.query(Lab.is_published).filter(
         Lab.id == lab_id,
         Lab.is_deleted == 0
     ).first()
@@ -1434,34 +1456,38 @@ def list_lab_tasks(
         )
 
     # Check permissions for students
-    if current_user.role.value == "student" and not lab.is_published:
+    if current_user.role.value == "student" and not lab[0]:
         if not _lab_accessible_via_assessment(lab_id, current_user.id, db):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Lab not found"
             )
 
-    # Get tasks
-    tasks = db.query(LabTask).filter(
-        LabTask.lab_id == lab_id,
-        LabTask.is_deleted == 0
-    ).order_by(LabTask.order_index, LabTask.created_at).all()
+    # The task list is identical for staff and students (has_answer is a bool, never the
+    # answer), so cache it per lab id (invalidated on any Lab mutation).
+    def producer():
+        tasks = db.query(LabTask).filter(
+            LabTask.lab_id == lab_id,
+            LabTask.is_deleted == 0
+        ).order_by(LabTask.order_index, LabTask.created_at).all()
 
-    # Return with has_answer computed field
-    return [
-        LabTaskResponse(
-            id=task.id,
-            lab_id=task.lab_id,
-            title=task.title,
-            description=task.description,
-            order_index=task.order_index,
-            has_answer=task.correct_answer_hash is not None,
-            created_by=task.created_by,
-            created_at=task.created_at,
-            updated_at=task.updated_at
-        )
-        for task in tasks
-    ]
+        # Return with has_answer computed field
+        return [
+            LabTaskResponse(
+                id=task.id,
+                lab_id=task.lab_id,
+                title=task.title,
+                description=task.description,
+                order_index=task.order_index,
+                has_answer=task.correct_answer_hash is not None,
+                created_by=task.created_by,
+                created_at=task.created_at,
+                updated_at=task.updated_at
+            )
+            for task in tasks
+        ]
+
+    return cache_read(db, Ns.LABS, key=("tasks", lab_id), producer=producer)
 
 
 @router.post("/{lab_id}/tasks/{task_id}/assign", response_model=LabTaskResponse)

@@ -15,6 +15,7 @@ from app.schemas.question import (
     QuestionListItem
 )
 from app.dependencies import get_current_user, require_staff_role
+from app.core.cache import cache_read, Ns
 from app.utils.db_generator import (
     create_sqlite_from_sql,
     execute_query_on_database,
@@ -221,32 +222,47 @@ def list_questions(
     Returns:
         List of questions
     """
-    # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
-    # the question bank or the assessment item picker.
-    query = db.query(Question).filter(
-        Question.is_deleted == 0,
-        Question.owner_assessment_id.is_(None),
-    )
+    # This list is identical across all staff/admin (and, per role, across all
+    # students), so it is cached in-process and invalidated on any Question mutation
+    # (see app/core/cache.py). Free-text search is unbounded, so those requests
+    # bypass the cache and always run live.
+    role = "student" if current_user.role.value == "student" else "staff"
 
-    # Students only see published questions; staff/admin see drafts too. Mirrors labs.list_labs.
-    if current_user.role.value == "student":
-        query = query.filter(Question.is_published == 1)
-
-    # Apply filters
-    if difficulty:
-        query = query.filter(Question.difficulty == difficulty)
-
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            (Question.title.ilike(search_term)) |
-            (Question.description.ilike(search_term))
+    def producer():
+        # Exclude assessment-owned clones (owner_assessment_id set) so they never appear in
+        # the question bank or the assessment item picker.
+        query = db.query(Question).filter(
+            Question.is_deleted == 0,
+            Question.owner_assessment_id.is_(None),
         )
 
-    # Order by creation date (newest first) and apply pagination
-    questions = query.order_by(Question.created_at.desc()).offset(skip).limit(limit).all()
+        # Students only see published questions; staff/admin see drafts too. Mirrors labs.list_labs.
+        if role == "student":
+            query = query.filter(Question.is_published == 1)
 
-    return questions
+        # Apply filters
+        if difficulty:
+            query = query.filter(Question.difficulty == difficulty)
+
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                (Question.title.ilike(search_term)) |
+                (Question.description.ilike(search_term))
+            )
+
+        # Order by creation date (newest first) and apply pagination.
+        # Serialize now, while the session is open, so nothing session-bound is cached.
+        questions = query.order_by(Question.created_at.desc()).offset(skip).limit(limit).all()
+        return [QuestionListItem.model_validate(q) for q in questions]
+
+    return cache_read(
+        db,
+        Ns.QUESTIONS,
+        key=(f"role={role}", f"diff={difficulty}", f"skip={skip}", f"limit={limit}"),
+        producer=producer,
+        cacheable=(search is None),
+    )
 
 
 @router.get("/{question_id}", response_model=QuestionDetail)
@@ -269,36 +285,49 @@ def get_question(
     Raises:
         HTTPException: If question not found
     """
-    question = db.query(Question).filter(
-        Question.id == question_id,
-        Question.is_deleted == 0
-    ).first()
+    # Payload differs by role (students get the model answer / Advanced SQL Testing
+    # traces blanked), so cache per (id, role). Built inside the producer so the cached
+    # student copy is already sanitized. Invalidated on any Question mutation. The
+    # authorization gate below stays live (per-user).
+    role = "staff" if current_user.role in {UserRole.STAFF, UserRole.ADMIN} else "student"
 
-    if not question:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Question not found"
-        )
+    def producer():
+        question = db.query(Question).filter(
+            Question.id == question_id,
+            Question.is_deleted == 0
+        ).first()
 
-    # Students may only load an unpublished question if they are an active participant in a
-    # running assessment that contains it (assessment clones are unpublished by design). This
-    # mirrors labs.get_lab and blocks students who guess a draft/clone question id. Published
-    # bank questions stay open to all students.
-    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN} and not question.is_published:
-        if not _question_accessible_via_assessment(question_id, current_user.id, db):
+        if not question:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Question not found"
             )
 
-    # Students need the database setup, but must never receive the model answer
-    # or any trace of Advanced SQL Testing (toggle state, Test Script, Check Query).
-    question_detail = QuestionDetail.model_validate(question)
-    if current_user.role not in {UserRole.STAFF, UserRole.ADMIN}:
-        question_detail.correct_answer_query = None
-        question_detail.test_script = None
-        question_detail.check_query = None
-        question_detail.advanced_sql_testing = False
+        # Students need the database setup, but must never receive the model answer
+        # or any trace of Advanced SQL Testing (toggle state, Test Script, Check Query).
+        detail = QuestionDetail.model_validate(question)
+        if role == "student":
+            detail.correct_answer_query = None
+            detail.test_script = None
+            detail.check_query = None
+            detail.advanced_sql_testing = False
+        return detail
+
+    question_detail = cache_read(
+        db, Ns.QUESTIONS, key=("detail", question_id, role), producer=producer
+    )
+
+    # Students may only load an unpublished question if they are an active participant in a
+    # running assessment that contains it (assessment clones are unpublished by design). This
+    # mirrors labs.get_lab and blocks students who guess a draft/clone question id. Published
+    # bank questions stay open to all students. Uses the cached is_published so a hit costs
+    # no DB read for the common (published) case.
+    if role == "student" and not question_detail.is_published:
+        if not _question_accessible_via_assessment(question_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Question not found"
+            )
 
     return question_detail
 

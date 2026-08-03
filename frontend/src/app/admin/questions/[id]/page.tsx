@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Container, Loader, Stack, Text, Alert } from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { QuestionForm } from '@/components/admin/QuestionForm';
@@ -39,20 +37,28 @@ export default function EditQuestionPage() {
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <Container size="lg">
-          {loading ? (
-            <Stack align="center" justify="center" style={{ minHeight: '300px' }}>
-              <Loader size="lg" />
-              <Text c="dimmed">Loading question...</Text>
-            </Stack>
-          ) : error || !question ? (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-              {error || 'Question not found'}
-            </Alert>
-          ) : (
-            <QuestionForm question={question} isEdit />
+        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          {loading && (
+            <div className="loading-center">
+              <div className="spinner" />
+              <span>Loading question…</span>
+            </div>
           )}
-        </Container>
+
+          {!loading && (error || !question) && (
+            <div className="da-alert alert-error" role="alert">
+              <strong>Error</strong>
+              <span>{error || 'Question not found'}</span>
+            </div>
+          )}
+
+          {!loading && !error && question && (
+            <div className="card" style={{ padding: 28 }}>
+              <h3 style={{ margin: '0 0 20px', fontSize: 20 }}>Edit Question</h3>
+              <QuestionForm question={question} isEdit />
+            </div>
+          )}
+        </div>
       </DashboardLayout>
     </ProtectedRoute>
   );

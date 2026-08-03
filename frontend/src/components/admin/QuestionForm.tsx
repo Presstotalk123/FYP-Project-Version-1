@@ -2,19 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Button,
-  TextInput,
-  Textarea,
-  Select,
-  Stack,
-  Group,
-  Title,
-  Alert,
-  Switch,
-  Text,
-} from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import dynamic from 'next/dynamic';
 
@@ -27,6 +14,17 @@ interface QuestionFormProps {
   question?: QuestionDetail;
   isEdit?: boolean;
 }
+
+const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' };
+const helpStyle: React.CSSProperties = { margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 };
+const editorFrame: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)', overflow: 'hidden' };
+
+const editorOptions = {
+  minimap: { enabled: false },
+  fontSize: 13,
+  lineNumbers: 'on' as const,
+  scrollBeyondLastLine: false,
+};
 
 export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
   const router = useRouter();
@@ -129,189 +127,221 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <Stack gap="md">
-        <Title order={2}>{isEdit ? 'Edit Question' : 'Create New Question'}</Title>
+    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 20 }}>
+      {/* Error alert */}
+      {error && (
+        <div className="da-alert alert-error" role="alert">
+          <strong>Error</strong>
+          <span>{error}</span>
+        </div>
+      )}
 
-        {error && (
-          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-            {error}
-          </Alert>
-        )}
-
-        <TextInput
-          label="Question Title"
+      {/* Title */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label htmlFor="question-title" style={labelStyle}>
+          Question Title <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <input
+          id="question-title"
+          className="da-input"
+          style={{ width: '100%' }}
+          type="text"
           placeholder="Enter question title"
-          required
           value={title}
-          onChange={(e) => setTitle(e.currentTarget.value)}
+          onChange={(e) => setTitle(e.target.value)}
+          required
         />
+      </div>
 
-        <Textarea
-          label="Description"
+      {/* Description */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label htmlFor="question-description" style={labelStyle}>
+          Description <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <textarea
+          id="question-description"
+          className="da-input"
+          style={{ width: '100%', minHeight: 100, resize: 'vertical', fontFamily: 'var(--font-geist-sans)' }}
           placeholder="Enter question description"
-          required
-          minRows={3}
           value={description}
-          onChange={(e) => setDescription(e.currentTarget.value)}
-        />
-
-        <Select
-          label="Difficulty"
-          placeholder="Select difficulty"
+          onChange={(e) => setDescription(e.target.value)}
           required
-          data={[
-            { label: 'Easy', value: 'easy' },
-            { label: 'Medium', value: 'medium' },
-            { label: 'Hard', value: 'hard' },
-          ]}
-          value={difficulty}
-          onChange={(value) => setDifficulty(value || 'easy')}
         />
+      </div>
 
-        <div>
-          <Title order={5} mb="xs">Schema SQL</Title>
-          <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
-            <Editor
-              height="200px"
-              language="sql"
-              theme="vs-dark"
-              value={schemaSql}
-              onChange={(value) => setSchemaSql(value || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-              }}
-            />
-          </div>
-        </div>
+      {/* Difficulty */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label htmlFor="question-difficulty" style={labelStyle}>
+          Difficulty <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <select
+          id="question-difficulty"
+          className="da-select"
+          style={{ width: '100%' }}
+          value={difficulty}
+          onChange={(e) => setDifficulty(e.target.value)}
+        >
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
 
-        <div>
-          <Title order={5} mb="xs">Sample Data SQL</Title>
-          <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
-            <Editor
-              height="200px"
-              language="sql"
-              theme="vs-dark"
-              value={sampleDataSql}
-              onChange={(value) => setSampleDataSql(value || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-              }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <Title order={5} mb="xs">
-            {advancedSqlTesting ? 'Reference Implementation' : 'Correct Answer Query'}
-          </Title>
-          <Text size="xs" c="dimmed" mb="xs">
-            {advancedSqlTesting
-              ? 'The correct SQL for this question, e.g. a CREATE TRIGGER statement.'
-              : 'A SELECT query whose output is the expected answer.'}
-          </Text>
-          <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
-            <Editor
-              height="150px"
-              language="sql"
-              theme="vs-dark"
-              value={correctAnswerQuery}
-              onChange={(value) => setCorrectAnswerQuery(value || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-              }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <Switch
-            label="Advanced SQL Testing"
-            checked={advancedSqlTesting}
-            onChange={(e) => setAdvancedSqlTesting(e.currentTarget.checked)}
+      {/* Schema SQL */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label style={labelStyle}>
+          Schema SQL <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <div style={editorFrame}>
+          <Editor
+            height="200px"
+            language="sql"
+            theme="vs-dark"
+            value={schemaSql}
+            onChange={(value) => setSchemaSql(value || '')}
+            options={editorOptions}
           />
-          <Text size="xs" c="dimmed" mt="xs">
-            For triggers and complex multi-statement DML only. Stored procedures
-            and SQL-level functions are not supported on this platform (SQLite
-            has no CREATE PROCEDURE / CREATE FUNCTION). When enabled, grading
-            applies the submission, runs a hidden Test Script, runs a hidden
-            Check Query, and compares its hashed output — instead of comparing
-            the submission&apos;s own output directly.
-          </Text>
         </div>
+      </div>
 
-        {advancedSqlTesting && (
-          <>
-            <div>
-              <Title order={5} mb="xs">Test Script</Title>
-              <Text size="xs" c="dimmed" mb="xs">
-                Hidden from students. One or more statements that exercise the
-                submission, e.g. an INSERT that should fire the trigger.
-              </Text>
-              <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
-                <Editor
-                  height="150px"
-                  language="sql"
-                  theme="vs-dark"
-                  value={testScript}
-                  onChange={(value) => setTestScript(value || '')}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                  }}
-                />
-              </div>
-            </div>
+      {/* Sample Data SQL */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label style={labelStyle}>
+          Sample Data SQL <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <div style={editorFrame}>
+          <Editor
+            height="200px"
+            language="sql"
+            theme="vs-dark"
+            value={sampleDataSql}
+            onChange={(value) => setSampleDataSql(value || '')}
+            options={editorOptions}
+          />
+        </div>
+      </div>
 
-            <div>
-              <Title order={5} mb="xs">Check Query</Title>
-              <Text size="xs" c="dimmed" mb="xs">
-                Hidden from students. A single SELECT that captures the
-                resulting database state after the Test Script runs.
-              </Text>
-              <div style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: '8px', overflow: 'hidden' }}>
-                <Editor
-                  height="150px"
-                  language="sql"
-                  theme="vs-dark"
-                  value={checkQuery}
-                  onChange={(value) => setCheckQuery(value || '')}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                  }}
-                />
-              </div>
-            </div>
-          </>
-        )}
+      {/* Correct Answer Query / Reference Implementation */}
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label style={labelStyle}>
+          {advancedSqlTesting ? 'Reference Implementation' : 'Correct Answer Query'} <span style={{ color: 'var(--error)' }}>*</span>
+        </label>
+        <p style={helpStyle}>
+          {advancedSqlTesting
+            ? 'The correct SQL for this question, e.g. a CREATE TRIGGER statement.'
+            : 'A SELECT query whose output is the expected answer.'}
+        </p>
+        <div style={editorFrame}>
+          <Editor
+            height="150px"
+            language="sql"
+            theme="vs-dark"
+            value={correctAnswerQuery}
+            onChange={(value) => setCorrectAnswerQuery(value || '')}
+            options={editorOptions}
+          />
+        </div>
+      </div>
 
-        <Group justify="flex-end" mt="md">
-          <Button
-            variant="default"
-            onClick={() => router.push('/admin/questions')}
-            disabled={loading}
+      {/* Advanced SQL Testing toggle */}
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={advancedSqlTesting}
+            aria-label="Advanced SQL Testing"
+            onClick={() => setAdvancedSqlTesting((v) => !v)}
+            style={{
+              position: 'relative', width: 40, height: 22, borderRadius: 999,
+              border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0,
+              background: advancedSqlTesting ? 'var(--brand-lilac)' : 'var(--border-strong)',
+              transition: 'background 140ms ease',
+            }}
           >
-            Cancel
-          </Button>
-          <Button type="submit" loading={loading}>
-            {isEdit ? 'Update Question' : 'Create Question'}
-          </Button>
-        </Group>
-      </Stack>
+            <span style={{
+              position: 'absolute', top: 2, left: advancedSqlTesting ? 20 : 2,
+              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+              transition: 'left 140ms ease',
+            }} />
+          </button>
+          <span style={labelStyle}>Advanced SQL Testing</span>
+        </div>
+        <p style={helpStyle}>
+          For triggers and complex multi-statement DML only. Stored procedures
+          and SQL-level functions are not supported on this platform (SQLite
+          has no CREATE PROCEDURE / CREATE FUNCTION). When enabled, grading
+          applies the submission, runs a hidden Test Script, runs a hidden
+          Check Query, and compares its hashed output — instead of comparing
+          the submission&apos;s own output directly.
+        </p>
+      </div>
+
+      {advancedSqlTesting && (
+        <>
+          {/* Test Script */}
+          <div style={{ display: 'grid', gap: 6 }}>
+            <label style={labelStyle}>
+              Test Script <span style={{ color: 'var(--error)' }}>*</span>
+            </label>
+            <p style={helpStyle}>
+              Hidden from students. One or more statements that exercise the
+              submission, e.g. an INSERT that should fire the trigger.
+            </p>
+            <div style={editorFrame}>
+              <Editor
+                height="150px"
+                language="sql"
+                theme="vs-dark"
+                value={testScript}
+                onChange={(value) => setTestScript(value || '')}
+                options={editorOptions}
+              />
+            </div>
+          </div>
+
+          {/* Check Query */}
+          <div style={{ display: 'grid', gap: 6 }}>
+            <label style={labelStyle}>
+              Check Query <span style={{ color: 'var(--error)' }}>*</span>
+            </label>
+            <p style={helpStyle}>
+              Hidden from students. A single SELECT that captures the
+              resulting database state after the Test Script runs.
+            </p>
+            <div style={editorFrame}>
+              <Editor
+                height="150px"
+                language="sql"
+                theme="vs-dark"
+                value={checkQuery}
+                onChange={(value) => setCheckQuery(value || '')}
+                options={editorOptions}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Actions */}
+      <div className="button-row" style={{ justifyContent: 'flex-end', marginTop: 8 }}>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => router.push('/admin/questions')}
+          disabled={loading}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="btn btn-brand"
+          disabled={loading}
+        >
+          {loading ? 'Saving…' : (isEdit ? 'Update Question' : 'Create Question')}
+        </button>
+      </div>
     </form>
   );
 }

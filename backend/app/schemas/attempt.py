@@ -22,6 +22,11 @@ class ExecuteResponse(BaseModel):
     # Assessment deadline after crediting this query's time; None outside a timed assessment.
     # Lets the frontend resume its countdown without a separate session round-trip.
     assessment_end_time: Optional[datetime] = None
+    # Per-question query cap and how many the student has now used, for assessment SQL
+    # questions with a limit set. Both None when the question is uncapped (or outside an
+    # assessment). Lets the frontend show "X of N used" and disable Run once the cap is hit.
+    max_queries: Optional[int] = None
+    attempts_used: Optional[int] = None
 
 
 class AttemptCreate(BaseModel):

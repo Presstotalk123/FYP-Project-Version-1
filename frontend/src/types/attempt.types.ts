@@ -14,6 +14,10 @@ export interface ExecuteResponse {
   // Assessment deadline after crediting this query's time; null/undefined outside a timed
   // assessment. The countdown resumes from this without a separate session request.
   assessment_end_time?: string | null;
+  // Per-question query cap and how many the student has now used, for assessment SQL
+  // questions with a limit set. Both null/undefined when the question is uncapped.
+  max_queries?: number | null;
+  attempts_used?: number | null;
 }
 
 export interface Attempt {

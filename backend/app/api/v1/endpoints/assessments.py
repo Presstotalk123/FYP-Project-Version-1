@@ -60,6 +60,7 @@ def _build_item_response(item: AssessmentItem, db: Session) -> AssessmentItemRes
         order_index=item.order_index,
         weight=item.weight,
         hide_correctness=bool(item.hide_correctness),
+        max_queries=item.max_queries,
         item_title=_resolve_item_title(item, db),
     )
 
@@ -97,6 +98,7 @@ def _replace_items(assessment: Assessment, items_in, db: Session) -> None:
             order_index=item_data.order_index if item_data.order_index is not None else idx,
             weight=weights[idx],
             hide_correctness=1 if item_data.hide_correctness else 0,
+            max_queries=item_data.max_queries,
         ))
 
     # The bulk delete above bypasses the ORM unit of work, so the after_flush
@@ -138,6 +140,7 @@ def create_assessment(
             order_index=item_data.order_index if item_data.order_index is not None else idx,
             weight=weights[idx],
             hide_correctness=1 if item_data.hide_correctness else 0,
+            max_queries=item_data.max_queries,
         ))
 
     db.commit()

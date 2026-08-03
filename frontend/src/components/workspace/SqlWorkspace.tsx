@@ -2,18 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  ActionIcon,
-  Box,
-  Container,
-  Group,
-  Loader,
-  Stack,
-  Text,
-  Title,
-  Alert,
-} from '@mantine/core';
-import { IconArrowLeft, IconAlertCircle } from '@tabler/icons-react';
+import { Box } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExecuteResponse, Attempt } from '@/types/attempt.types';
@@ -30,6 +19,13 @@ import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
+
+/* ── SVG icons ── */
+const IconLogout = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+  </svg>
+);
 
 interface SqlWorkspaceProps {
   questionId: number;
@@ -50,6 +46,13 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  // Per-question query cap (assessment SQL questions only). null = uncapped / not yet known.
+  // Populated from the execute response after each run; a 403 also flips limitReached on.
+  const [maxQueries, setMaxQueries] = useState<number | null>(null);
+  const [attemptsUsed, setAttemptsUsed] = useState<number | null>(null);
+  const [limitHit, setLimitHit] = useState(false);
+  const limitReached =
+    limitHit || (maxQueries != null && attemptsUsed != null && attemptsUsed >= maxQueries);
 
   // Static question content — cached (see providers.tsx) so revisiting this
   // question (e.g. switching between assessment items) renders it instantly.
@@ -105,6 +108,15 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
     if (isExecuting || isCoolingDown) {
       return;
     }
+    // The student has used up their allotted queries for this question.
+    if (limitReached) {
+      notifications.show({
+        title: 'Query limit reached',
+        message: 'You have reached the maximum number of queries allowed for this question.',
+        color: 'red',
+      });
+      return;
+    }
     if (!query.trim()) {
       notifications.show({
         title: 'Empty Query',
@@ -126,6 +138,12 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       });
       creditedEndTime = response.assessment_end_time;
       setResult(response);
+      // Track the per-question query cap so the UI can show "X of N used" and disable Run
+      // once it's hit. Both fields are null when the question is uncapped.
+      if (response.max_queries != null) {
+        setMaxQueries(response.max_queries);
+        setAttemptsUsed(response.attempts_used ?? null);
+      }
       // The request round-tripped successfully — this counts as an attempt for the
       // navigator regardless of whether the query was correct or had a SQL error.
       progress.markAttempted();
@@ -155,10 +173,16 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
       queryClient.invalidateQueries({ queryKey: queryKeys.studentProgress });
       queryClient.invalidateQueries({ queryKey: ['studentQuestions'] });
     } catch (err) {
-      const error = err as { response?: { data?: { detail?: string } } };
+      const error = err as { response?: { status?: number; data?: { detail?: string } } };
+      const detail = error.response?.data?.detail;
+      // The server rejects a run over the cap with a 403; lock the editor so the student
+      // can't keep trying. (Covers the reload case where the cap was hit in a prior session.)
+      if (error.response?.status === 403 && detail?.includes('maximum number of queries')) {
+        setLimitHit(true);
+      }
       notifications.show({
         title: 'Execution Error',
-        message: error.response?.data?.detail || 'Failed to execute query',
+        message: detail || 'Failed to execute query',
         color: 'red',
       });
     } finally {
@@ -212,70 +236,72 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   // Loading state
   if (loading) {
     return (
-      <Container fluid px="sm" py="md">
-        <Stack align="center" justify="center" style={{ height: '50vh' }}>
-          <Loader size="lg" />
-          <Text c="dimmed">Loading question...</Text>
-        </Stack>
-      </Container>
+      <div className="loading-center" style={{ minHeight: '50vh' }}>
+        <div className="spinner" />
+        <span>Loading question…</span>
+      </div>
     );
   }
 
   // Error state
   if (error || !question) {
     return (
-      <Container fluid px="sm" py="md">
-        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-          {error || 'Question not found'}
-        </Alert>
-      </Container>
+      <div style={{ padding: 24, display: 'grid', gap: 16, maxWidth: 600 }}>
+        <div className="da-alert alert-error" role="alert">
+          <strong>Error</strong>
+          <span>{error || 'Question not found'}</span>
+        </div>
+        <div>
+          <button className="btn btn-secondary" onClick={() => router.push(backUrl ?? '/student')}>
+            Back
+          </button>
+        </div>
+      </div>
     );
   }
 
   const rightPercent = 100 - leftPercent - centerPercent;
 
   return (
-    <Container fluid px="sm" py="md">
-      <Stack gap="md">
-        {/* Header */}
-        <Group justify="space-between" align="center">
-          <Group align="baseline" gap="sm">
-            <ActionIcon
-              onClick={() => router.push(backUrl ?? '/student')}
-              variant="subtle"
-              size="sm"
-              aria-label="Back to dashboard"
-            >
-              <IconArrowLeft size={18} />
-            </ActionIcon>
-            <Title order={2}>SQL Workspace</Title>
-            <QuestionWeightBadge weight={weight} />
-          </Group>
+    <div style={{ padding: '12px 16px', display: 'grid', gap: 12 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
+        <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <AssessmentTimer />
-        </Group>
-
-        <QuestionNavigator />
-
-        {/* 3-Panel Layout */}
-        <Box
-          ref={containerRef}
-          style={{
-            display: 'flex',
-            gap: 0,
-            alignItems: 'stretch',
-            border: '1px solid var(--mantine-color-gray-3)',
-            borderRadius: 12,
-            overflow: 'hidden',
-            width: '100%',
-            height: '70vh',
-          }}
+          <QuestionWeightBadge weight={weight} />
+        </div>
+        <button
+          className="btn btn-brand"
+          style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
+          onClick={() => router.push(backUrl ?? '/student')}
         >
+          <IconLogout />
+          Save and Exit
+        </button>
+      </div>
+
+      <QuestionNavigator />
+
+      {/* 3-Panel Layout */}
+      <Box
+        ref={containerRef}
+        style={{
+          display: 'flex',
+          gap: 0,
+          alignItems: 'stretch',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)',
+          overflow: 'hidden',
+          width: '100%',
+          height: '70vh',
+        }}
+      >
           {/* Left Panel - Question Details */}
           <Box
             style={{
               flex: `0 0 ${leftPercent}%`,
               minWidth: 250,
-              background: 'var(--mantine-color-body)',
+              background: 'var(--surface)',
               overflow: 'hidden',
             }}
           >
@@ -300,7 +326,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
             style={{
               width: 8,
               cursor: 'col-resize',
-              background: 'var(--mantine-color-gray-2)',
+              background: 'var(--border)',
               position: 'relative',
               flex: '0 0 8px',
               userSelect: 'none',
@@ -315,7 +341,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
                 left: '50%',
                 width: 3,
                 transform: 'translateX(-50%)',
-                background: 'var(--mantine-color-gray-6)',
+                background: 'var(--border-strong)',
                 borderRadius: 2,
               }}
             />
@@ -326,7 +352,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
             style={{
               flex: `0 0 ${centerPercent}%`,
               minWidth: 300,
-              background: 'var(--mantine-color-body)',
+              background: 'var(--surface)',
               overflow: 'hidden',
             }}
           >
@@ -338,6 +364,9 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
               isExecuting={isExecuting}
               executionTime={result?.execution_time_ms || null}
               isCoolingDown={isCoolingDown}
+              limitReached={limitReached}
+              maxQueries={maxQueries}
+              attemptsUsed={attemptsUsed}
             />
           </Box>
 
@@ -359,7 +388,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
             style={{
               width: 8,
               cursor: 'col-resize',
-              background: 'var(--mantine-color-gray-2)',
+              background: 'var(--border)',
               position: 'relative',
               flex: '0 0 8px',
               userSelect: 'none',
@@ -374,7 +403,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
                 left: '50%',
                 width: 3,
                 transform: 'translateX(-50%)',
-                background: 'var(--mantine-color-gray-6)',
+                background: 'var(--border-strong)',
                 borderRadius: 2,
               }}
             />
@@ -385,7 +414,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
             style={{
               flex: `0 0 ${rightPercent}%`,
               minWidth: 250,
-              background: 'var(--mantine-color-body)',
+              background: 'var(--surface)',
               overflow: 'hidden',
             }}
           >
@@ -399,7 +428,6 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
             />
           </Box>
         </Box>
-      </Stack>
-    </Container>
+    </div>
   );
 }

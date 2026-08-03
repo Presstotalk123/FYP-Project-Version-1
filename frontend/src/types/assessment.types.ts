@@ -8,6 +8,9 @@ export interface AssessmentItemIn {
   // Per-item override: when true, students see a neutral "Submitted" result instead of
   // Correct/Incorrect. Applies to sql_question / sql_lab / graph_lab; ignored for er_question.
   hide_correctness: boolean;
+  // Per-item cap on how many queries a student may run on this SQL question; null = unlimited.
+  // Only meaningful for sql_question items.
+  max_queries?: number | null;
 }
 
 export interface AssessmentItemResponse {
@@ -17,6 +20,7 @@ export interface AssessmentItemResponse {
   order_index: number;
   weight: number;
   hide_correctness: boolean;
+  max_queries?: number | null;
   item_title: string;
 }
 
@@ -97,6 +101,9 @@ export interface StudentAssessmentDetail {
   // True once this student has ended & submitted; UI shows a Completed state and
   // hides Join/Continue (assessments are single-attempt).
   attempt_complete: boolean;
+  // Overall weighted score (0-100). Only set once staff have stopped the assessment
+  // (results released); null while it is still running or when unweighted.
+  weighted_score: number | null;
   items: StudentAssessmentItemView[];
 }
 

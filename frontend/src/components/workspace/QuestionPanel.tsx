@@ -1,57 +1,63 @@
 'use client';
 
-import { Badge, Code, Divider, Stack, Text, Title } from '@mantine/core';
 import { QuestionDetail } from '@/types/question.types';
 
 interface QuestionPanelProps {
   question: QuestionDetail;
 }
 
-const difficultyColors: Record<string, string> = {
-  easy: 'green',
-  medium: 'yellow',
-  hard: 'red',
+// Map difficulty to the shared design-system badge classes (globals.css).
+const difficultyBadge: Record<string, string> = {
+  easy: 'badge-success',
+  medium: 'badge-warn',
+  hard: 'badge-danger',
 };
 
 export function QuestionPanel({ question }: QuestionPanelProps) {
   return (
-    <Stack gap="md" p="md" style={{ height: '100%', overflow: 'auto' }}>
-      <div>
-        <Title order={3}>{question.title}</Title>
-        <Badge
-          color={difficultyColors[question.difficulty]}
-          variant="light"
-          mt="xs"
-        >
-          {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
-        </Badge>
+    <div style={{ height: '100%', overflow: 'auto' }}>
+      <div style={{ padding: 16, display: 'grid', gap: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{question.title}</h3>
+          <span className={`badge ${difficultyBadge[question.difficulty] ?? 'neutral'}`}>
+            {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
+          </span>
+        </div>
+
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          {question.description}
+        </p>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+
+        <div>
+          <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>Database Schema</p>
+          <pre style={{
+            margin: 0, fontSize: 11, lineHeight: 1.6,
+            background: '#1e1e1e', color: '#d4d4d4',
+            padding: 12, borderRadius: 'var(--radius)',
+            overflow: 'auto', maxHeight: 200,
+            fontFamily: 'var(--font-geist-mono)',
+          }}>
+            {question.schema_sql}
+          </pre>
+        </div>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+
+        <div>
+          <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>Sample Data</p>
+          <pre style={{
+            margin: 0, fontSize: 11, lineHeight: 1.6,
+            background: '#1e1e1e', color: '#d4d4d4',
+            padding: 12, borderRadius: 'var(--radius)',
+            overflow: 'auto', maxHeight: 200,
+            fontFamily: 'var(--font-geist-mono)',
+          }}>
+            {question.sample_data_sql}
+          </pre>
+        </div>
       </div>
-
-      <div>
-        <Text size="sm">{question.description}</Text>
-      </div>
-
-      <Divider />
-
-      <div>
-        <Title order={4} size="h6" mb="xs">
-          Database Schema
-        </Title>
-        <Code block style={{ fontSize: '12px' }}>
-          {question.schema_sql}
-        </Code>
-      </div>
-
-      <Divider />
-
-      <div>
-        <Title order={4} size="h6" mb="xs">
-          Sample Data
-        </Title>
-        <Code block style={{ fontSize: '12px' }}>
-          {question.sample_data_sql}
-        </Code>
-      </div>
-    </Stack>
+    </div>
   );
 }

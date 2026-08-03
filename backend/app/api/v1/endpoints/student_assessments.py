@@ -19,6 +19,7 @@ from app.schemas.student_assessment import (
 from app.dependencies import get_current_user
 from app.api.v1.endpoints.assessments import _resolve_item_title
 from app.services.assessment_timer import finalize_session
+from app.services import assessment_scoring
 from app.core.cache import cache_read, assessment_body_ns
 
 router = APIRouter(prefix="/student-assessments", tags=["student-assessments"])
@@ -125,8 +126,14 @@ def get_student_assessment(
 
     attempt_complete = _get_completed_session(assessment_id, current_user.id, db) is not None
 
-    # If not running, return only metadata with no items
+    # If not running, return only metadata with no items. Once staff have stopped the
+    # assessment, a student who submitted may see their overall score (results released).
     if not assessment.is_running:
+        weighted_score = (
+            assessment_scoring.compute_weighted_score(db, assessment, current_user.id)
+            if attempt_complete
+            else None
+        )
         return StudentAssessmentDetail(
             id=assessment.id,
             title=assessment.title,
@@ -135,6 +142,7 @@ def get_student_assessment(
             has_password=bool(assessment.password),
             time_limit_minutes=assessment.time_limit_minutes,
             attempt_complete=attempt_complete,
+            weighted_score=weighted_score,
             items=[],
         )
 

@@ -68,11 +68,17 @@ def add_to_whitelist(
 def remove_from_whitelist(
     entry_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_role),
+    current_user: User = Depends(require_admin_role),
 ):
     entry = db.query(WhitelistEntry).filter(WhitelistEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+    # Prevent an admin from removing their own access (frontend guard is bypassable).
+    if entry.email == current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot remove your own account.",
+        )
     db.delete(entry)
     db.commit()
 

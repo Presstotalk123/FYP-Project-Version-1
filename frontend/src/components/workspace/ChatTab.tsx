@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { chatbotService, ChatMessage } from '@/services/chatbot.service';
 import { QuestionDetail } from '@/types/question.types';
 import { ExecuteResponse } from '@/types/attempt.types';
+import { AiTutorAvatar } from './AiTutorAvatar';
 
 interface ChatTabProps {
   questionId: number;
@@ -13,16 +14,6 @@ interface ChatTabProps {
 }
 
 /* ── Minimal SVG icons (no Mantine dependency, matches ResultsPanel style) ── */
-const IconRobot = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-    <line x1="9" y1="15" x2="9.01" y2="15"/>
-    <line x1="15" y1="15" x2="15.01" y2="15"/>
-  </svg>
-);
-
 const IconUser = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
     fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -146,7 +137,7 @@ export function ChatTab({ questionId }: ChatTabProps) {
             justifyContent: 'center', height: '100%', gap: 10,
             color: 'var(--text-muted)', textAlign: 'center', padding: '24px 16px',
           }}>
-            <span style={{ fontSize: 32 }}>🤖</span>
+            <AiTutorAvatar size={56} />
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, maxWidth: 280 }}>
               Ask the AI tutor for help with this SQL question. I can explain concepts,
               help debug your queries, and guide you toward the solution.
@@ -168,7 +159,7 @@ export function ChatTab({ questionId }: ChatTabProps) {
                   display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3,
                   color: 'var(--text-muted)', fontSize: 11,
                 }}>
-                  {msg.role === 'user' ? <IconUser /> : <IconRobot />}
+                  {msg.role === 'user' ? <IconUser /> : <AiTutorAvatar />}
                   <span>{msg.role === 'user' ? 'You' : 'AI Tutor'}</span>
                 </div>
 
@@ -205,7 +196,7 @@ export function ChatTab({ questionId }: ChatTabProps) {
                   display: 'flex', alignItems: 'center', gap: 5,
                   color: 'var(--text-muted)', fontSize: 11, marginBottom: 3,
                 }}>
-                  <IconRobot />
+                  <AiTutorAvatar />
                   <span>AI Tutor</span>
                 </div>
                 <div style={{

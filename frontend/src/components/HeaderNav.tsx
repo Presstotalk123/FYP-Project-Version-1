@@ -78,7 +78,7 @@ export function HeaderNav() {
     <header className="topbar">
       <Link href="/" className="brand">
         <span className="brand-mark" aria-hidden="true" />
-        <span>Database Assist</span>
+        <span>Akela</span>
       </Link>
 
       <nav className="app-nav" aria-label="Main navigation">

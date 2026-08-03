@@ -2,7 +2,24 @@
 
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
+import { CourseChatBubble } from '@/components/course/CourseChatBubble';
 import { UserRole } from '@/types/user.types';
+
+const COURSE_TITLE = 'SC2207 / CZ2007 — Introduction to Databases';
+
+const PREREQUISITES =
+  'CE2101 / CZ2101 / SC2001 Algorithm Design & Analysis OR MH1403 Algorithms and Computing.';
+
+const COURSE_AIMS =
+  'Database management systems (DBMS) are software systems that control the creation, ' +
+  'maintenance, and use of databases, i.e., organized collections of data. Relational DBMS ' +
+  '(RDBMS) are incredibly ubiquitous today — they underlie technology used by most people ' +
+  'every day if not every hour. RDBMS reside behind a huge fraction of websites; they are a ' +
+  'crucial component of telecommunications systems, banking systems, video games, and just ' +
+  'about any other software system or electronic device that maintains some amount of ' +
+  'persistent information. As a consequence, it is important that we equip you with knowledge ' +
+  'of the design of relational databases and the use of RDBMS for applications. This ' +
+  'introductory course serves that purpose.';
 
 interface ContentTopic {
   title: string;
@@ -92,6 +109,24 @@ const COURSE_CONTENT: ContentTopic[] = [
   },
 ];
 
+// Plain-text syllabus handed to the course assistant so it answers strictly
+// from what this page shows. Built from the same constants the page renders.
+const COURSE_CONTEXT = [
+  `Course: ${COURSE_TITLE}`,
+  '',
+  `Pre-requisites: ${PREREQUISITES}`,
+  '',
+  `Course Aims: ${COURSE_AIMS}`,
+  '',
+  'Intended Learning Objectives (ILO):',
+  ...LEARNING_OBJECTIVES.map((ilo) => `- ${ilo}`),
+  '',
+  'Course Content:',
+  ...COURSE_CONTENT.map(
+    (topic) => `${topic.title}\n${topic.points.map((p) => `  - ${p}`).join('\n')}`
+  ),
+].join('\n');
+
 export default function StudentCoursePage() {
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
@@ -164,6 +199,9 @@ export default function StudentCoursePage() {
             </article>
           ))}
         </div>
+
+        {/* Floating course assistant */}
+        <CourseChatBubble courseContext={COURSE_CONTEXT} />
       </DashboardLayout>
     </ProtectedRoute>
   );

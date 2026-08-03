@@ -46,6 +46,7 @@ export const API_ENDPOINTS = {
     QUERY_REVIEW: '/chatbot/query-review',
     LAB_CHAT: '/chatbot/lab-chat',
     LAB_QUERY_REVIEW: '/chatbot/lab-query-review',
+    COURSE_CHAT: '/chatbot/course-chat',
   },
   LABS: {
     BASE: '/labs',

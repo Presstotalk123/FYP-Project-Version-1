@@ -192,6 +192,11 @@ class LabChatRequest(BaseModel):
     user_message: str
 
 
+class CourseChatRequest(BaseModel):
+    course_context: str
+    user_message: str
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Flexible AI helper — supports Azure OpenAI, OpenAI, Gemini
 # Controlled by settings.AI_PROVIDER env variable
@@ -615,7 +620,7 @@ Your rules:
                 gemini_kwargs["temperature"] = settings.AI_TEMPERATURE
             else:
                 gemini_kwargs["temperature"] = 0.5
-                
+
             try:
                 response = await model.generate_content_async(
                     request.user_message,
@@ -627,6 +632,101 @@ Your rules:
                         yield chunk.text
             except Exception as e:
                 yield f"\n[Error connecting to AI Tutor: {str(e)}]"
+
+        else:
+            yield f"\n[Unsupported AI_PROVIDER: {provider}]"
+
+    return StreamingResponse(_chat_stream(), media_type="text/plain")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint D: POST /chatbot/course-chat
+# Friendly course assistant for the course info page.
+# Answers questions about the course grounded in the syllabus sent by the page.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/course-chat")
+async def course_chat(
+    request: CourseChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Conversational course assistant for the course info page.
+    Answers questions about the course using only the provided course info. (Streaming)
+    """
+    system_prompt = f"""You are a friendly course assistant for the class described below.
+Answer the student's questions about the course using ONLY the course information provided.
+If something isn't covered by the course info, say you don't have that information and
+suggest they ask the instructor. Keep answers concise and clear.
+
+=== COURSE INFORMATION ===
+{request.course_context}"""
+
+    async def _chat_stream():
+        provider = settings.AI_PROVIDER.lower()
+
+        if provider in ("azure_openai", "openai"):
+            from openai import AsyncAzureOpenAI, AsyncOpenAI
+
+            if provider == "azure_openai":
+                client = AsyncAzureOpenAI(
+                    api_key=settings.AI_API_KEY,
+                    azure_endpoint=settings.AI_AZURE_ENDPOINT,
+                    api_version=settings.AI_AZURE_API_VERSION,
+                )
+            else:
+                client = AsyncOpenAI(api_key=settings.AI_API_KEY)
+
+            kwargs = {
+                "model": settings.AI_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": request.user_message},
+                ],
+                "timeout": 30,
+                "stream": True,
+            }
+            if not settings.AI_ENABLE_TEMPERATURE:
+                pass  # Temperature explicitly disabled via env var
+            elif settings.AI_TEMPERATURE is not None:
+                kwargs["temperature"] = settings.AI_TEMPERATURE
+            else:
+                kwargs["temperature"] = 0.5
+
+            try:
+                response = await client.chat.completions.create(**kwargs)
+                async for chunk in response:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            yield content
+            except Exception as e:
+                yield f"\n[Error connecting to course assistant: {str(e)}]"
+
+        elif provider == "gemini":
+            import google.generativeai as genai
+            genai.configure(api_key=settings.AI_API_KEY)
+            model = genai.GenerativeModel(
+                model_name=settings.AI_MODEL,
+                system_instruction=system_prompt,
+            )
+            gemini_kwargs = {}
+            if settings.AI_TEMPERATURE is not None:
+                gemini_kwargs["temperature"] = settings.AI_TEMPERATURE
+            else:
+                gemini_kwargs["temperature"] = 0.5
+
+            try:
+                response = await model.generate_content_async(
+                    request.user_message,
+                    generation_config=gemini_kwargs if gemini_kwargs else None,
+                    stream=True
+                )
+                async for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+            except Exception as e:
+                yield f"\n[Error connecting to course assistant: {str(e)}]"
 
         else:
             yield f"\n[Unsupported AI_PROVIDER: {provider}]"

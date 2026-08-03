@@ -26,6 +26,7 @@ import { ChatPanel, type ChatHistoryMessage } from "@/components/ChatPanel";
 import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
 import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
 import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import drawioTheme from "@/components/DrawioTheme.module.css";
@@ -142,15 +143,36 @@ const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | n
   return null;
 };
 
-const draftStorageKey = (questionId: number, labContext?: LabContext): string =>
-  labContext ? `er-draft-lab-${labContext.er_lab_question_id}` : `er-draft-bank-${questionId}`;
+// Drafts live in localStorage so they survive a closed tab or browser, which is
+// the accident they exist for — sessionStorage is wiped when the tab closes.
+// That durability makes the key's user scope load-bearing: on a shared lab
+// machine an unscoped key would restore one student's diagram for whoever logs
+// in next. No userId means no key, so nothing is read or written.
+const draftStorageKey = (
+  userId: number | undefined,
+  questionId: number,
+  labContext?: LabContext,
+): string | null => {
+  if (userId === undefined) return null;
+  const scope = labContext ? `lab-${labContext.er_lab_question_id}` : `bank-${questionId}`;
+  return `er-draft-u${userId}-${scope}`;
+};
 
-const readDraftFromSessionStorage = (questionId: number, labContext?: LabContext): string => {
-  if (typeof window === "undefined") return "";
+const readDraft = (key: string | null): string => {
+  if (key === null || typeof window === "undefined") return "";
   try {
-    return window.sessionStorage.getItem(draftStorageKey(questionId, labContext)) ?? "";
+    return window.localStorage.getItem(key) ?? "";
   } catch {
     return "";
+  }
+};
+
+const writeDraft = (key: string | null, xml: string): void => {
+  if (key === null || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, xml);
+  } catch {
+    // localStorage may throw QuotaExceededError; a lost draft must not break editing
   }
 };
 
@@ -172,7 +194,21 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
   const drawioRef = useRef<DrawioBoardHandle | null>(null);
   const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
   const [isDirty, setIsDirty] = useState(false);
-  const [initialDrawioXml] = useState(() => readDraftFromSessionStorage(question.id, labContext));
+  const { user } = useAuth();
+  const draftKey = draftStorageKey(user?.id, question.id, labContext);
+  // Seeded once the user is known. Auth resolves in well under a second while
+  // the draw.io iframe takes several to boot, and DrawioBoard only reads this
+  // when the editor reports `init`, so the draft is in place before it is asked
+  // for. If auth somehow lost that race the student simply starts from blank.
+  const [initialDrawioXml, setInitialDrawioXml] = useState("");
+  const draftRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (draftRestoredRef.current || draftKey === null) return;
+    draftRestoredRef.current = true;
+    const draft = readDraft(draftKey);
+    if (draft) setInitialDrawioXml(draft);
+  }, [draftKey]);
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
   const [descText, setDescText] = useState("");
@@ -331,12 +367,13 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
       }
       setHasSubmittedAttempt(true);
       progress.markAttempted();
+      // The work is now recorded server-side, so the recovery copy is spent.
       try {
-        if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem(draftStorageKey(question.id, labContext));
+        if (draftKey !== null && typeof window !== "undefined") {
+          window.localStorage.removeItem(draftKey);
         }
       } catch {
-        // ignore sessionStorage write failures
+        // ignore localStorage failures
       }
       setIsDirty(false);
       // Reveal the tutor's feedback now that the result is in. Deliberately
@@ -352,25 +389,15 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
     }
   };
 
+  // Fired by draw.io on every change, now that the load message enables it.
+  // Silent: no prompt, no download — the student never sees this happen.
   const handleAutosave = (xml: string) => {
-    try {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(draftStorageKey(question.id, labContext), xml);
-      }
-    } catch {
-      // sessionStorage may throw QuotaExceededError; swallow silently
-    }
+    writeDraft(draftKey, xml);
     setIsDirty(true);
   };
 
   const persistDraft = (xml: string) => {
-    try {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(draftStorageKey(question.id, labContext), xml);
-      }
-    } catch {
-      // ignore
-    }
+    writeDraft(draftKey, xml);
   };
 
   const downloadDrawioFile = (xml: string) => {

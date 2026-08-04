@@ -51,6 +51,11 @@ const IconTrash = () => (
     <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
   </svg>
 );
+const IconKey = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+  </svg>
+);
 const IconUsers = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -73,6 +78,12 @@ export default function AdminAssessmentsPage() {
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [assessmentToPublish, setAssessmentToPublish] = useState<number | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
+  const [assessmentForPasscode, setAssessmentForPasscode] = useState<number | null>(null);
+  const [assessmentForPasscodeHasPw, setAssessmentForPasscodeHasPw] = useState(false);
+  const [passcodeValue, setPasscodeValue] = useState('');
+  const [clearPasscode, setClearPasscode] = useState(false);
+  const [savingPasscode, setSavingPasscode] = useState(false);
 
   // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
   const assessmentsQuery = useQuery({ queryKey: queryKeys.assessments, queryFn: () => assessmentService.getAssessments() });
@@ -112,6 +123,44 @@ export default function AdminAssessmentsPage() {
       });
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const openPasscodeModal = (id: number, hasPassword: boolean) => {
+    setAssessmentForPasscode(id);
+    setAssessmentForPasscodeHasPw(hasPassword);
+    setPasscodeValue('');
+    setClearPasscode(false);
+    setPasscodeModalOpen(true);
+  };
+
+  // A published assessment's items are frozen; the passcode is not. Send a passcode-only
+  // payload (no items/title/description) so the backend leaves the frozen items alone.
+  const handleConfirmPasscode = async () => {
+    if (assessmentForPasscode === null) return;
+    setSavingPasscode(true);
+    try {
+      await assessmentService.updateAssessment(
+        assessmentForPasscode,
+        clearPasscode ? { clear_password: true } : { password: passcodeValue.trim() },
+      );
+      notifications.show({
+        title: 'Success',
+        message: clearPasscode ? 'Passcode removed' : 'Passcode updated',
+        color: 'green',
+      });
+      setPasscodeModalOpen(false);
+      setAssessmentForPasscode(null);
+      invalidateAssessments();
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        title: 'Error',
+        message: e.response?.data?.detail || 'Failed to update passcode',
+        color: 'red',
+      });
+    } finally {
+      setSavingPasscode(false);
     }
   };
 
@@ -291,6 +340,18 @@ export default function AdminAssessmentsPage() {
                             {a.is_running ? <IconStop /> : <IconPlay />}
                           </button>
                         )}
+                        {/* Change passcode (published only; must be stopped) */}
+                        {a.is_published && (
+                          <button
+                            className="icon-btn"
+                            title={a.is_running ? 'Stop the assessment to change its passcode' : 'Change passcode'}
+                            onClick={() => openPasscodeModal(a.id, a.has_password)}
+                            disabled={a.is_running}
+                            style={{ color: '#d97706', opacity: a.is_running ? 0.4 : 1 }}
+                          >
+                            <IconKey />
+                          </button>
+                        )}
                         {/* View Students */}
                         <button
                           className="icon-btn"
@@ -338,6 +399,50 @@ export default function AdminAssessmentsPage() {
               <div className="button-row" style={{ justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={() => setPublishModalOpen(false)} disabled={publishing}>Cancel</button>
                 <button className="btn btn-brand" onClick={handleConfirmPublish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Passcode modal */}
+        {passcodeModalOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="passcode-assessment-title">
+            <div className="modal">
+              <h3 id="passcode-assessment-title">Change Passcode</h3>
+              <p style={{ color: 'var(--text-muted)' }}>
+                {assessmentForPasscodeHasPw
+                  ? 'This assessment currently has a passcode.'
+                  : 'This assessment has no passcode.'}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <input
+                  type="text"
+                  className="da-input"
+                  placeholder="New passcode"
+                  value={passcodeValue}
+                  onChange={(e) => setPasscodeValue(e.target.value)}
+                  disabled={clearPasscode || savingPasscode}
+                  autoFocus
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={clearPasscode}
+                    onChange={(e) => setClearPasscode(e.target.checked)}
+                    disabled={savingPasscode}
+                  />
+                  Remove passcode (make assessment open)
+                </label>
+              </div>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setPasscodeModalOpen(false)} disabled={savingPasscode}>Cancel</button>
+                <button
+                  className="btn btn-brand"
+                  onClick={handleConfirmPasscode}
+                  disabled={savingPasscode || (!clearPasscode && !passcodeValue.trim())}
+                >
+                  {savingPasscode ? 'Saving…' : 'Save'}
+                </button>
               </div>
             </div>
           </div>

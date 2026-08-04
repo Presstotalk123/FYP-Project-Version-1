@@ -32,7 +32,7 @@ export function ProtectedRoute({ children, requiredRole, allowedRoles }: Protect
           : true;
 
         if (!roleAllowed) {
-          const redirectPath = isAdminOrStaff(user?.role) ? '/admin' : '/student';
+          const redirectPath = isAdminOrStaff(user?.role) ? '/admin' : '/student/course';
           router.replace(redirectPath);
         }
       }

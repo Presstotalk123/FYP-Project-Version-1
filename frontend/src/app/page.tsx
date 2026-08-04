@@ -27,7 +27,7 @@ export default function Home() {
       };
     }
     return {
-      primary: { label: "Continue SQL Practice", href: "/student" },
+      primary: { label: "Continue SQL Practice", href: "/student/course" },
       secondary: { label: "Practice ER Diagram", href: "/er-diagram" },
     };
   }, [loading, isAuthenticated, isStaff]);

@@ -126,6 +126,7 @@ class AssessmentResponse(BaseModel):
 class AssessmentStudentRow(BaseModel):
     user_id: int
     email: str
+    class_group: Optional[str] = None
     is_active: bool
     joined_at: datetime
     submitted_at: Optional[datetime]

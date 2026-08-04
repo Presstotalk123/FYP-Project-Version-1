@@ -526,7 +526,7 @@ def list_assessment_students(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
     rows = (
-        db.query(AssessmentSession, User.email)
+        db.query(AssessmentSession, User.email, User.class_group)
         .join(User, AssessmentSession.user_id == User.id)
         .filter(AssessmentSession.assessment_id == assessment_id)
         .order_by(AssessmentSession.joined_at.desc())
@@ -535,20 +535,21 @@ def list_assessment_students(
 
     # Keep only the most recent session per student (descending joined_at guarantees first seen = latest)
     seen: dict = {}
-    for session, email in rows:
+    for session, email, class_group in rows:
         if session.user_id not in seen:
-            seen[session.user_id] = (session, email)
+            seen[session.user_id] = (session, email, class_group)
 
     students = [
         AssessmentStudentRow(
             user_id=session.user_id,
             email=email,
+            class_group=class_group,
             is_active=bool(session.is_active),
             joined_at=session.joined_at,
             submitted_at=session.submitted_at,
             weighted_score=assessment_scoring.compute_weighted_score(db, assessment, session.user_id),
         )
-        for session, email in seen.values()
+        for session, email, class_group in seen.values()
     ]
 
     return AssessmentStudentsResponse(

@@ -133,6 +133,8 @@ export interface ItemVisitResponse {
 export interface AssessmentStudentRow {
   user_id: number;
   email: string;
+  // Optional lab/class group the student belongs to.
+  class_group?: string | null;
   is_active: boolean;
   joined_at: string;
   submitted_at: string | null;

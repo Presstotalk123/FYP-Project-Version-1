@@ -396,6 +396,12 @@ def unpublish_assessment(
     if not assessment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
+    if assessment.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Published assessments cannot be unpublished.",
+        )
+
     if assessment.is_running:
         assessment.is_running = 0
 

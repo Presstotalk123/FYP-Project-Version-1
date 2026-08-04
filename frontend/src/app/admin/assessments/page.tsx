@@ -27,12 +27,6 @@ const IconPublish = () => (
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
   </svg>
 );
-const IconEyeOff = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-    <line x1="1" y1="1" x2="23" y2="23"/>
-  </svg>
-);
 const IconPlay = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polygon points="5 3 19 12 5 21 5 3"/>
@@ -76,6 +70,9 @@ export default function AdminAssessmentsPage() {
   const [stopModalOpen, setStopModalOpen] = useState(false);
   const [assessmentToStop, setAssessmentToStop] = useState<number | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [publishModalOpen, setPublishModalOpen] = useState(false);
+  const [assessmentToPublish, setAssessmentToPublish] = useState<number | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
   const assessmentsQuery = useQuery({ queryKey: queryKeys.assessments, queryFn: () => assessmentService.getAssessments() });
@@ -90,23 +87,31 @@ export default function AdminAssessmentsPage() {
   // After a mutation, mark the cache stale so it re-fetches once.
   const invalidateAssessments = () => queryClient.invalidateQueries({ queryKey: queryKeys.assessments });
 
-  const handlePublishToggle = async (id: number, isPublished: boolean) => {
+  const openPublishModal = (id: number) => {
+    setAssessmentToPublish(id);
+    setPublishModalOpen(true);
+  };
+
+  // Publishing is permanent: items are frozen and the assessment can no longer be
+  // edited or unpublished. Confirm before firing.
+  const handleConfirmPublish = async () => {
+    if (assessmentToPublish === null) return;
+    setPublishing(true);
     try {
-      if (isPublished) {
-        await assessmentService.unpublishAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment unpublished successfully', color: 'green' });
-      } else {
-        await assessmentService.publishAssessment(id);
-        notifications.show({ title: 'Success', message: 'Assessment published successfully', color: 'green' });
-      }
+      await assessmentService.publishAssessment(assessmentToPublish);
+      notifications.show({ title: 'Success', message: 'Assessment published successfully', color: 'green' });
+      setPublishModalOpen(false);
+      setAssessmentToPublish(null);
       invalidateAssessments();
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
       notifications.show({
         title: 'Error',
-        message: e.response?.data?.detail || 'Failed to update assessment',
+        message: e.response?.data?.detail || 'Failed to publish assessment',
         color: 'red',
       });
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -264,15 +269,17 @@ export default function AdminAssessmentsPage() {
                     <td>{new Date(a.created_at).toLocaleDateString()}</td>
                     <td>
                       <div className="actions">
-                        {/* Publish/Unpublish */}
-                        <button
-                          className="icon-btn"
-                          title={a.is_published ? 'Unpublish' : 'Publish'}
-                          onClick={() => handlePublishToggle(a.id, a.is_published)}
-                          style={{ color: a.is_published ? '#6b7280' : '#16a34a' }}
-                        >
-                          {a.is_published ? <IconEyeOff /> : <IconPublish />}
-                        </button>
+                        {/* Publish (permanent — no unpublish once published) */}
+                        {!a.is_published && (
+                          <button
+                            className="icon-btn"
+                            title="Publish"
+                            onClick={() => openPublishModal(a.id)}
+                            style={{ color: '#16a34a' }}
+                          >
+                            <IconPublish />
+                          </button>
+                        )}
                         {/* Start/Stop */}
                         {a.is_published && (
                           <button
@@ -293,16 +300,17 @@ export default function AdminAssessmentsPage() {
                         >
                           <IconUsers />
                         </button>
-                        {/* Edit */}
-                        <button
-                          className="icon-btn"
-                          title="Edit"
-                          onClick={() => router.push(`/admin/assessments/${a.id}`)}
-                          disabled={a.is_running}
-                          style={{ color: '#6366f1', opacity: a.is_running ? 0.4 : 1 }}
-                        >
-                          <IconEdit />
-                        </button>
+                        {/* Edit (removed once published — items are frozen) */}
+                        {!a.is_published && (
+                          <button
+                            className="icon-btn"
+                            title="Edit"
+                            onClick={() => router.push(`/admin/assessments/${a.id}`)}
+                            style={{ color: '#6366f1' }}
+                          >
+                            <IconEdit />
+                          </button>
+                        )}
                         {/* Delete */}
                         <button
                           className="icon-btn"
@@ -318,6 +326,20 @@ export default function AdminAssessmentsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Publish modal */}
+        {publishModalOpen && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="publish-assessment-title">
+            <div className="modal">
+              <h3 id="publish-assessment-title">Publish Assessment</h3>
+              <p>Once published, this assessment <strong>can no longer be edited or unpublished</strong>. Its items are frozen for students. Make sure everything is final before continuing.</p>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setPublishModalOpen(false)} disabled={publishing}>Cancel</button>
+                <button className="btn btn-brand" onClick={handleConfirmPublish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
+              </div>
+            </div>
           </div>
         )}
 

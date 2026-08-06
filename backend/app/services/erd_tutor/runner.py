@@ -2,7 +2,7 @@
 
 ``stream_er_submission_grading`` is a drop-in for the existing Dify submit
 streamer: it emits the same SSE events and a ``done`` payload whose
-``structured_output`` is a ``SubmitResult`` dict so ``er_lab_submission_persistence``
+``structured_output`` is a ``SubmitResult`` dict so downstream consumers
 keeps working unchanged.
 
 ``stream_er_query`` streams the query (tutor) path token-by-token: it streams
@@ -76,7 +76,7 @@ def stream_er_submission_grading(*, question_id: int, problem_statement: str,
             result = out["result"]
             yield _sse("structured_output", {"structured_output": result})
             # canonical_erd rides alongside (not inside) structured_output so
-            # er_lab_submission_persistence's contract is untouched; the
+            # The SubmitResult contract is untouched; the
             # conversation-state overlay persists it for the query tutor.
             yield _sse("done", {"mode": "Submit", "text": result.get("student_message", ""),
                                 "structured_output": result,

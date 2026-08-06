@@ -89,6 +89,23 @@ const extractSseBlock = (buffer: string): { block: string; rest: string } | null
   };
 };
 
+const buildQuestionFormData = (payload: SaveERQuestionRequest): FormData => {
+  const formData = new FormData();
+  formData.append("title", payload.title);
+  formData.append("problem_statement", payload.problem_statement);
+  formData.append("notation", payload.notation);
+  formData.append("difficulty_label", payload.difficulty_label);
+  formData.append("difficulty_rationale", payload.difficulty_rationale);
+  formData.append("rubric_md", payload.rubric_md);
+  formData.append("rubric_json", JSON.stringify(payload.rubric_json));
+  formData.append("instruction_history", JSON.stringify(payload.instruction_history));
+  formData.append("show_rubric_on_attempt", String(payload.show_rubric_on_attempt));
+  if (payload.model_answer) {
+    formData.append("model_answer", payload.model_answer);
+  }
+  return formData;
+};
+
 export const erDiagramService = {
   async generateRubric(payload: GenerateRubricRequest): Promise<GenerateRubricResponse> {
     const formData = new FormData();
@@ -119,22 +136,22 @@ export const erDiagramService = {
   },
 
   async saveQuestion(payload: SaveERQuestionRequest): Promise<ERDiagramQuestion> {
-    const formData = new FormData();
-    formData.append("title", payload.title);
-    formData.append("problem_statement", payload.problem_statement);
-    formData.append("notation", payload.notation);
-    formData.append("difficulty_label", payload.difficulty_label);
-    formData.append("difficulty_rationale", payload.difficulty_rationale);
-    formData.append("rubric_md", payload.rubric_md);
-    formData.append("rubric_json", JSON.stringify(payload.rubric_json));
-    formData.append("instruction_history", JSON.stringify(payload.instruction_history));
-    formData.append("show_rubric_on_attempt", String(payload.show_rubric_on_attempt));
+    const response = await api.post<ERDiagramQuestion>(
+      API_ENDPOINTS.ER_DIAGRAM.QUESTIONS,
+      buildQuestionFormData(payload),
+    );
+    return response.data;
+  },
 
-    if (payload.model_answer) {
-      formData.append("model_answer", payload.model_answer);
-    }
-
-    const response = await api.post<ERDiagramQuestion>(API_ENDPOINTS.ER_DIAGRAM.QUESTIONS, formData);
+  /**
+   * Update a question-bank question (staff only). Omitting `model_answer`
+   * keeps the stored image; supplying one replaces it.
+   */
+  async updateQuestion(id: number, payload: SaveERQuestionRequest): Promise<ERDiagramQuestion> {
+    const response = await api.put<ERDiagramQuestion>(
+      API_ENDPOINTS.ER_DIAGRAM.QUESTION_DETAIL(id),
+      buildQuestionFormData(payload),
+    );
     return response.data;
   },
 
@@ -163,7 +180,7 @@ export const erDiagramService = {
   },
 
   async getConversation(
-    ref: { question_id: number } | { er_lab_id: number; er_lab_question_id: number },
+    ref: { question_id: number },
   ): Promise<ErdTutorConversationResponse> {
     const response = await api.get<ErdTutorConversationResponse>(
       API_ENDPOINTS.ER_DIAGRAM.CONVERSATION,
@@ -176,12 +193,6 @@ export const erDiagramService = {
     const formData = new FormData();
     if (payload.question_id !== undefined) {
       formData.append("question_id", String(payload.question_id));
-    }
-    if (payload.er_lab_id !== undefined) {
-      formData.append("er_lab_id", String(payload.er_lab_id));
-    }
-    if (payload.er_lab_question_id !== undefined) {
-      formData.append("er_lab_question_id", String(payload.er_lab_question_id));
     }
     formData.append("mode", payload.mode);
     if (payload.student_query?.trim()) {

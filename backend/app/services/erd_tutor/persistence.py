@@ -4,33 +4,25 @@ from sqlalchemy.orm import Session
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
 
-def find_conversation(db: Session, *, user_id: int, context_type: str,
-                      er_lab_question_id: Optional[int] = None,
-                      er_diagram_question_id: Optional[int] = None,
-                      session_id: Optional[int] = None) -> Optional[ErdTutorConversation]:
+def find_conversation(db: Session, *, user_id: int, context_type: str = "standalone",
+                      er_diagram_question_id: Optional[int] = None) -> Optional[ErdTutorConversation]:
     """Read-only lookup — returns None instead of creating (for GET endpoints)."""
-    q = db.query(ErdTutorConversation).filter(ErdTutorConversation.user_id == user_id)
-    if context_type == "lab":
-        q = q.filter(ErdTutorConversation.er_lab_question_id == er_lab_question_id,
-                     ErdTutorConversation.session_id == session_id)
-    else:
-        q = q.filter(ErdTutorConversation.er_diagram_question_id == er_diagram_question_id)
-    return q.first()
+    return (
+        db.query(ErdTutorConversation)
+        .filter(ErdTutorConversation.user_id == user_id,
+                ErdTutorConversation.er_diagram_question_id == er_diagram_question_id)
+        .first()
+    )
 
-def get_or_create_conversation(db: Session, *, user_id: int, context_type: str,
-                               er_lab_question_id: Optional[int] = None,
-                               er_diagram_question_id: Optional[int] = None,
-                               session_id: Optional[int] = None) -> ErdTutorConversation:
+def get_or_create_conversation(db: Session, *, user_id: int, context_type: str = "standalone",
+                               er_diagram_question_id: Optional[int] = None) -> ErdTutorConversation:
     conv = find_conversation(db, user_id=user_id, context_type=context_type,
-                             er_lab_question_id=er_lab_question_id,
-                             er_diagram_question_id=er_diagram_question_id,
-                             session_id=session_id)
+                             er_diagram_question_id=er_diagram_question_id)
     if conv:
         return conv
     conv = ErdTutorConversation(
         user_id=user_id, context_type=context_type,
-        er_lab_question_id=er_lab_question_id,
-        er_diagram_question_id=er_diagram_question_id, session_id=session_id,
+        er_diagram_question_id=er_diagram_question_id,
         ibl_stage="orientation", hint_level=1)
     db.add(conv); db.commit(); db.refresh(conv)
     return conv
@@ -57,11 +49,9 @@ def save_state(db: Session, conv: ErdTutorConversation, **fields) -> None:
     db.commit()
 
 def append_message(db: Session, conv: ErdTutorConversation, *, role: str, mode: str,
-                   content: Optional[str] = None, metadata: Optional[dict] = None,
-                   submission_id: Optional[int] = None) -> ErdTutorMessage:
+                   content: Optional[str] = None, metadata: Optional[dict] = None) -> ErdTutorMessage:
     m = ErdTutorMessage(conversation_id=conv.id, role=role, mode=mode, content=content,
-                        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
-                        submission_id=submission_id)
+                        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None)
     db.add(m); db.commit(); db.refresh(m)
     return m
 

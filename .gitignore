@@ -38,3 +38,12 @@ Thumbs.db
 backend/tests/
 frontend/.npm-cache/
 docs/ 
+
+# Lavish review artifacts
+.lavish/
+
+# Local database backups
+*.db.bak-*
+
+# Student ERD submission images (runtime data, never committed)
+backend/er_diagram_uploads/

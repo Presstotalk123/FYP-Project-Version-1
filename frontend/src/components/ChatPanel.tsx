@@ -115,13 +115,14 @@ export function ChatPanel({
       content: m.content,
       animate: false,
     }));
-    // The transcript already ends with the tutor's latest reply, and the parent
-    // passes that same text as `injectedAssistantMessage` (it also feeds the
-    // Problem panel's feedback card). Record it as already shown so the
-    // injection effect below does not append a second identical bubble.
-    const lastAssistant = [...historyMessages].reverse().find((m) => m.role === "assistant");
-    if (lastAssistant) {
-      lastInjectedMessageRef.current = normalizeMessage(lastAssistant.content.trim());
+    // The transcript already contains every persisted turn — including the
+    // submission feedback at its TRUE position, which is not last when the
+    // student chatted after submitting. The parent still passes that feedback
+    // as `injectedAssistantMessage` (it also feeds the Problem panel's card),
+    // so mark it as already shown; otherwise the injection effect below would
+    // append a stale copy of the submit feedback after the real latest message.
+    if (injectedAssistantMessage?.trim()) {
+      lastInjectedMessageRef.current = normalizeMessage(injectedAssistantMessage.trim());
     }
     // Greeting first, then the persisted transcript, then anything the user
     // already typed this session (normally nothing — history loads on mount).
@@ -130,7 +131,7 @@ export function ChatPanel({
       ...restored,
       ...prev.filter((m) => !seedMessages.some((s) => s.id === m.id)),
     ]);
-  }, [historyMessages]);
+  }, [historyMessages, injectedAssistantMessage]);
 
   const scrollToLatest = useCallback(() => {
     const viewport = viewportRef.current;

@@ -87,6 +87,9 @@ class ERDiagramQuestionResponse(ERDiagramQuestionBase):
     created_at: datetime
     updated_at: datetime
     is_published: bool = False
+    # Populated only for staff/admin, so the edit screen can warn before a
+    # rubric change invalidates work students were already graded on.
+    attempt_count: int | None = None
 
     class Config:
         from_attributes = True

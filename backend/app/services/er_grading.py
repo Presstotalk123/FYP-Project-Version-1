@@ -438,7 +438,7 @@ def stream_er_submission_grading(
 
     The SSE event sequence (``start`` / ``structured_output`` / ``done`` /
     ``error``) and the ``done`` payload shape are identical across engines so
-    downstream consumers (e.g. ``er_lab_submission_persistence``) work
+    downstream consumers work
     unchanged.
     """
     if settings.ERD_TUTOR_ENGINE == "langgraph":

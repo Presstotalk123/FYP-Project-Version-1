@@ -43,7 +43,8 @@ type DrawioFocusLayoutProps = {
   aiChatContent: ReactNode;
   rubricContent: ReactNode;
   onSubmit: () => void;
-  onSaveToFile: () => void;
+  /** May be async — the exit flow awaits it before tearing down the canvas. */
+  onSaveToFile: () => void | Promise<void>;
   onLoadFromFile: (file: File) => void;
   onExit: () => void;
   submitting: boolean;
@@ -51,6 +52,8 @@ type DrawioFocusLayoutProps = {
   hasSubmittedAttempt: boolean;
   showRubricToggle: boolean;
   isDirty: boolean;
+  /** Epoch ms of the last auto-save, or null if nothing is stored yet. */
+  lastSavedAt: number | null;
 };
 
 type RightPanel = "chat" | "rubric" | null;
@@ -95,6 +98,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
       hasSubmittedAttempt,
       showRubricToggle,
       isDirty,
+      lastSavedAt,
     },
     ref,
   ) {
@@ -104,6 +108,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
   const [resizing, setResizing] = useState<ResizingSide>(null);
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
+  const [savingBeforeExit, setSavingBeforeExit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const startResizing = useCallback((side: Exclude<ResizingSide, null>) => (e: React.MouseEvent) => {
@@ -198,8 +203,16 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     [handleExitClick],
   );
 
-  const handleConfirmSaveAndExit = () => {
-    onSaveToFile();
+  const handleConfirmSaveAndExit = async () => {
+    // Must await: onSaveToFile() round-trips to the draw.io iframe for the
+    // diagram XML. Exiting first unmounts DrawioBoard and its postMessage
+    // listener, so the reply would be dropped and no file ever written.
+    setSavingBeforeExit(true);
+    try {
+      await onSaveToFile();
+    } finally {
+      setSavingBeforeExit(false);
+    }
     setExitConfirmOpen(false);
     onExit();
   };
@@ -332,6 +345,12 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
             {question.title}
           </Text>
         </Box>
+
+        <Text size="xs" c="dimmed" mr="sm" data-testid="autosave-status">
+          {lastSavedAt
+            ? `Auto-saved ${new Date(lastSavedAt).toLocaleTimeString()}`
+            : "Not auto-saved yet"}
+        </Text>
 
         {scorePercent !== null ? (
           <Badge color="green" variant="light" size="lg">
@@ -523,9 +542,9 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
       >
         <Stack gap="md">
           <Text size="sm">
-            You have unsaved changes on the canvas. Auto-save keeps a copy in this browser tab,
-            but it will be lost when the tab closes. Save a `.drawio` file to keep your work
-            outside the browser.
+            You have unsaved changes on the canvas. They are auto-saved in this browser and will
+            be restored the next time you open this question, but a different browser or device
+            will not have them. Save a `.drawio` file to keep a copy you can take anywhere.
           </Text>
           {hasSubmittedAttempt ? null : (
             <Text size="xs" c="dimmed">
@@ -533,13 +552,15 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
             </Text>
           )}
           <Group justify="flex-end" gap="sm">
-            <Button variant="subtle" onClick={() => setExitConfirmOpen(false)}>
+            <Button variant="subtle" onClick={() => setExitConfirmOpen(false)} disabled={savingBeforeExit}>
               Cancel
             </Button>
-            <Button variant="default" onClick={handleConfirmDiscardAndExit}>
+            <Button variant="default" onClick={handleConfirmDiscardAndExit} disabled={savingBeforeExit}>
               Discard &amp; exit
             </Button>
-            <Button onClick={handleConfirmSaveAndExit}>Save &amp; exit</Button>
+            <Button onClick={handleConfirmSaveAndExit} loading={savingBeforeExit}>
+              Save &amp; exit
+            </Button>
           </Group>
         </Stack>
       </Modal>

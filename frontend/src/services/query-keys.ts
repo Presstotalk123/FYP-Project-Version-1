@@ -23,8 +23,6 @@ export const queryKeys = {
   studentProgress: ['studentProgress'] as const,
   studentLabs: ['studentLabs'] as const,
   studentAssessments: ['studentAssessments'] as const,
-  // ER labs list (shared staff/student ER-diagram route); no key existed before.
-  erLabs: ['erLabs'] as const,
 
   // Static per-resource content, cached so switching between assessment items
   // (a full route remount) does not re-download the prompt/schema/task list.

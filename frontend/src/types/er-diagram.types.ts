@@ -83,6 +83,8 @@ export interface ERDiagramQuestion {
   created_by: number;
   created_at: string;
   updated_at: string;
+  /** Only sent to staff — how many students were graded on the current rubric. */
+  attempt_count?: number;
 }
 
 export interface ERDiagramQuestionListItem {
@@ -129,8 +131,6 @@ export interface ERSubmissionRequest {
   submission_xml_text?: string | null;
   submission_description?: string | null;
   erd_img?: File | null;
-  er_lab_id?: number;
-  er_lab_question_id?: number;
 }
 
 export interface ERSubmissionResponse {

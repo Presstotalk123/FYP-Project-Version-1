@@ -30,10 +30,9 @@ export function HeaderNav() {
   }
 
   const studentLinks = [
-    { label: "SQL Questions", href: "/student", exact: true },
+    { label: "Questions", href: "/student", exact: true },
     { label: "SQL Labs", href: "/student/labs" },
     { label: "SQL Assessments", href: "/student/assessments" },
-    { label: "ERD", href: "/er-diagram" },
   ];
   
   const unauthLinks = [

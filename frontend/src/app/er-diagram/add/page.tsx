@@ -18,7 +18,7 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
-import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import Editor from "@monaco-editor/react";
 import { erDiagramService } from "@/services/er-diagram.service";
 import type { ERRubricJson, GenerateRubricDifficulty, GenerateRubricMode } from "@/types/er-diagram.types";
@@ -44,7 +44,9 @@ export default function AddERDiagramQuestionPage() {
   const [isSaved, setIsSaved] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [savedQuestionId, setSavedQuestionId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  const showErrorNotification = (message: string) =>
+    notifications.show({ title: "Error", message, color: "red" });
 
   const getErrorMessage = (err: unknown): string => {
     const axiosErr = err as { response?: { data?: { detail?: unknown } }; message?: string };
@@ -112,36 +114,35 @@ export default function AddERDiagramQuestionPage() {
 
   const handleGenerateRubric = async (mode: GenerateRubricMode) => {
     if (!problemTitle.trim()) {
-      setError("Problem title is required");
+      showErrorNotification("Problem title is required");
       return;
     }
 
     if (!problemStatement.trim()) {
-      setError("Problem description is required");
+      showErrorNotification("Problem description is required");
       return;
     }
 
     const trimmedRefinement = refinementInstruction.trim();
     if (mode === "patch" && !trimmedRefinement) {
-      setError("Refinement instructions are required for regenerate");
+      showErrorNotification("Refinement instructions are required for regenerate");
       return;
     }
     let committedRubricJson = rubricJson;
     if (mode === "patch") {
       const parsed = commitJsonDraft();
       if (!parsed) {
-        setError("Please fix rubric_json before regenerating");
+        showErrorNotification("Please fix rubric_json before regenerating");
         return;
       }
       committedRubricJson = parsed;
     }
     if (mode === "patch" && rubricJsonError) {
-      setError("Please fix rubric_json before regenerating");
+      showErrorNotification("Please fix rubric_json before regenerating");
       return;
     }
 
     setIsGenerating(true);
-    setError(null);
 
     try {
       const nextHistory =
@@ -182,13 +183,7 @@ export default function AddERDiagramQuestionPage() {
         color: "green",
       });
     } catch (err) {
-      const message = getErrorMessage(err);
-      setError(message);
-      notifications.show({
-        title: "Error",
-        message,
-        color: "red",
-      });
+      showErrorNotification(getErrorMessage(err));
     } finally {
       setIsGenerating(false);
     }
@@ -196,36 +191,35 @@ export default function AddERDiagramQuestionPage() {
 
   const handleSaveRubric = async () => {
     if (!problemTitle.trim()) {
-      setError("Problem title is required");
+      showErrorNotification("Problem title is required");
       return;
     }
     if (!problemStatement.trim()) {
-      setError("Problem description is required");
+      showErrorNotification("Problem description is required");
       return;
     }
     if (Object.keys(rubricJson).length === 0) {
-      setError("Please generate rubrics before saving");
+      showErrorNotification("Please generate rubrics before saving");
       return;
     }
     if (!difficulty) {
-      setError("Difficulty metadata is missing from generated rubric");
+      showErrorNotification("Difficulty metadata is missing from generated rubric");
       return;
     }
     const parsed = commitJsonDraft();
     if (!parsed) {
-      setError("Please fix rubric_json before saving");
+      showErrorNotification("Please fix rubric_json before saving");
       return;
     }
     const committedRubricJson = parsed;
     if (rubricJsonError) {
-      setError("Please fix rubric_json before saving");
+      showErrorNotification("Please fix rubric_json before saving");
       return;
     }
     if (!hasUnsavedChanges) {
       return;
     }
 
-    setError(null);
     setIsSaving(true);
     const derivedRubricMarkdown = getDerivedRubricMarkdown(committedRubricJson);
 
@@ -252,13 +246,7 @@ export default function AddERDiagramQuestionPage() {
         color: "green",
       });
     } catch (err) {
-      const message = getErrorMessage(err);
-      setError(message);
-      notifications.show({
-        title: "Error",
-        message,
-        color: "red",
-      });
+      showErrorNotification(getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -293,11 +281,6 @@ export default function AddERDiagramQuestionPage() {
           <Grid.Col span={{ base: 12, md: 6 }}>
           <Card withBorder padding="lg" radius="md" style={{ height: 720 }}>
             <Stack gap="md">
-              {error ? (
-                <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-                  {error}
-                </Alert>
-              ) : null}
               <Textarea
                 label="Problem Title"
                 placeholder="Title for the Problem"

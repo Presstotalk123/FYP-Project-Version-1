@@ -29,8 +29,6 @@ export const queryKeys = {
   // Dashboard tiles: lightweight {total, attempted} counts (backend-cached totals).
   studentQuestionCount: ['studentQuestionCount'] as const,
   studentErdCount: ['studentErdCount'] as const,
-  // ER labs list (shared staff/student ER-diagram route); no key existed before.
-  erLabs: ['erLabs'] as const,
 
   // Static per-resource content, cached so switching between assessment items
   // (a full route remount) does not re-download the prompt/schema/task list.

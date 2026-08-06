@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     MICROSOFT_CLIENT_ID: str = ""
     MICROSOFT_TENANT_ID: str = "common"
 
+    # LOCAL DEVELOPMENT ONLY — enables POST /api/v1/auth/dev-login, which issues
+    # a token for an existing user without going through Google/Microsoft. Meant
+    # for working offline or when localhost is not a registered OAuth origin.
+    # MUST stay false in every deployed environment. The endpoint additionally
+    # refuses any request that does not originate from loopback, so a deployment
+    # behind a proxy rejects it even if this is switched on by mistake.
+    DEV_LOGIN_ENABLED: bool = False
+
     # Question databases path
     QUESTION_DB_PATH: str = "./question_databases/"
 

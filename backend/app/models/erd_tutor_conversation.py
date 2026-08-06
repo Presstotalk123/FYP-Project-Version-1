@@ -5,23 +5,17 @@ from app.database import Base
 # Import FK-target models so their tables are registered on Base.metadata
 # (required for create_all / FK resolution when this model is imported directly).
 from app.models import user as _user  # noqa: F401
-from app.models import er_lab as _er_lab  # noqa: F401
-from app.models import er_lab_question as _er_lab_question  # noqa: F401
-from app.models import er_lab_session as _er_lab_session  # noqa: F401
 from app.models import er_diagram_question as _er_diagram_question  # noqa: F401
 
 class ErdTutorConversation(Base):
     __tablename__ = "erd_tutor_conversations"
     __table_args__ = (
-        Index("ix_erd_tutor_conv_lab", "user_id", "er_lab_question_id", "session_id"),
         Index("ix_erd_tutor_conv_standalone", "user_id", "er_diagram_question_id"),
     )
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    er_lab_question_id = Column(Integer, ForeignKey("er_lab_questions.id"), nullable=True)
     er_diagram_question_id = Column(Integer, ForeignKey("er_diagram_questions.id"), nullable=True)
-    session_id = Column(Integer, ForeignKey("er_lab_sessions.id"), nullable=True)
-    context_type = Column(String(20), nullable=False)  # "lab" | "standalone"
+    context_type = Column(String(20), nullable=False)  # "standalone"
     # state snapshot (cv_*)
     ibl_stage = Column(String(40), nullable=False, default="orientation")
     hint_level = Column(Integer, nullable=False, default=1)

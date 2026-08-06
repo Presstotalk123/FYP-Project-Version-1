@@ -10,6 +10,7 @@ import {
   Loader,
   Modal,
   Stack,
+  Switch,
   Table,
   Tabs,
   Text,
@@ -24,6 +25,7 @@ import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { erdPromptsService } from '@/services/erd-prompts.service';
 import { queryKeys } from '@/services/query-keys';
+import { settingsService } from '@/services/settings.service';
 import type { ErdPromptListItem, ErdPromptVersionSummary } from '@/types/erd-prompts.types';
 import { getApiErrorMessage } from '@/utils/api-error';
 import { CourseInfoSettings } from '@/components/admin/CourseInfoSettings';
@@ -35,6 +37,8 @@ function activeContent(p: ErdPromptListItem): string {
 export default function AdminSettingsPage() {
   const queryClient = useQueryClient();
   const [prompts, setPrompts] = useState<ErdPromptListItem[]>([]);
+  const [studentAuthoring, setStudentAuthoring] = useState(false);
+  const [savingAuthoring, setSavingAuthoring] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [versions, setVersions] = useState<ErdPromptVersionSummary[]>([]);
   const [editorValue, setEditorValue] = useState('');
@@ -74,6 +78,10 @@ export default function AdminSettingsPage() {
   const dirty = selected !== null && editorValue !== activeContent(selected);
 
   const refresh = useCallback(async (keepKey?: string | null) => {
+    settingsService
+      .getErdSettings()
+      .then((v) => setStudentAuthoring(v.student_authoring_enabled))
+      .catch(() => undefined);
     const list = await loadPromptList();
     setPrompts(list);
     const key = keepKey ?? list[0]?.key ?? null;
@@ -234,6 +242,39 @@ export default function AdminSettingsPage() {
               Refresh
             </Button>
           </Group>
+
+          <Card withBorder p="md">
+            <Switch
+              checked={studentAuthoring}
+              disabled={savingAuthoring}
+              label="Let students create ERD questions"
+              description="Off by default. Turning it off blocks new student-authored questions; the ones they have already written stay visible and attemptable."
+              onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
+                const next = e.currentTarget.checked;
+                setStudentAuthoring(next);
+                setSavingAuthoring(true);
+                try {
+                  await settingsService.updateErdSettings({ student_authoring_enabled: next });
+                  notifications.show({
+                    color: 'green',
+                    title: next ? 'Student authoring on' : 'Student authoring off',
+                    message: next
+                      ? 'Students can now create ERD questions.'
+                      : 'Students can no longer create new ERD questions.',
+                  });
+                } catch (err) {
+                  setStudentAuthoring(!next);
+                  notifications.show({
+                    color: 'red',
+                    title: 'Could not save the setting',
+                    message: getApiErrorMessage(err),
+                  });
+                } finally {
+                  setSavingAuthoring(false);
+                }
+              }}
+            />
+          </Card>
 
           {error && (
             <Alert icon={<IconAlertCircle size={16} />} color="red" title="Failed to load prompts">

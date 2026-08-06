@@ -36,6 +36,19 @@ export const API_ENDPOINTS = {
     SUBMISSION: '/er-diagram/submission',
     CONVERSATION: '/er-diagram/conversation',
   },
+  ER_ANALYTICS: {
+    QUESTION: (id: number) => `/er-diagram/questions/${id}/analytics`,
+    STUDENT: (id: number, studentId: number) =>
+      `/er-diagram/questions/${id}/students/${studentId}/submissions`,
+    SUBMISSION: (submissionId: number) => `/er-diagram/submissions/${submissionId}`,
+    SUBMISSION_IMAGE: (submissionId: number) =>
+      `/er-diagram/submissions/${submissionId}/image`,
+    OVERVIEW: '/er-diagram/analytics/overview',
+    CLASS_GROUPS: '/er-diagram/analytics/class-groups',
+  },
+  SETTINGS: {
+    ERD: '/settings/erd',
+  },
   COURSE_INFO: {
     BASE: '/course-info',
   },
@@ -101,22 +114,5 @@ export const API_ENDPOINTS = {
     SESSION: (id: number) => `/student-assessments/${id}/session`,
     VISIT_ITEM: (id: number, itemId: number) => `/student-assessments/${id}/session/visit-item/${itemId}`,
     SUBMIT: (id: number) => `/student-assessments/${id}/session/submit`,
-  },
-  ER_LABS: {
-    BASE: '/er-labs',
-    DETAIL: (id: number) => `/er-labs/${id}`,
-    PUBLISH: (id: number) => `/er-labs/${id}/publish`,
-    UNPUBLISH: (id: number) => `/er-labs/${id}/unpublish`,
-    START: (id: number) => `/er-labs/${id}/start`,
-    STOP: (id: number) => `/er-labs/${id}/stop`,
-    QUESTIONS: (id: number) => `/er-labs/${id}/questions`,
-    QUESTION_DETAIL: (id: number, qid: number) => `/er-labs/${id}/questions/${qid}`,
-    SESSION_START: (id: number) => `/er-labs/${id}/session/start`,
-    SESSION_GET: (id: number) => `/er-labs/${id}/session`,
-    SESSION_EXIT: (id: number) => `/er-labs/${id}/session/exit`,
-    MY_SUBMISSIONS: (id: number) => `/er-labs/${id}/my-submissions`,
-    MY_SCORES: (id: number) => `/er-labs/${id}/my-scores`,
-    STUDENTS: (id: number) => `/er-labs/${id}/students`,
-    SUBMISSION_OVERRIDE: (subId: number) => `/er-lab-submissions/${subId}/override`,
   },
 };

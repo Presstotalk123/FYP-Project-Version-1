@@ -56,15 +56,12 @@ export type ERDiagramWorkspaceQuestion = {
   show_rubric_on_attempt: boolean;
 };
 
-export type LabContext = { er_lab_id: number; er_lab_question_id: number };
-
 // Scoped brand-purple + Geist override for Mantine (DrawioTheme.module.css).
 // Portalled components render outside this tree, so they carry the class too.
 const BRAND_THEME_CLASS = drawioTheme.drawioTheme;
 
 type WorkspaceProps = {
   question: ERDiagramWorkspaceQuestion;
-  labContext?: LabContext;
   /** Assessment weightage (%) for this question; omitted outside assessments. */
   weight?: number;
 };
@@ -144,40 +141,66 @@ const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | n
   return null;
 };
 
-// Drafts live in localStorage so they survive a closed tab or browser, which is
-// the accident they exist for — sessionStorage is wiped when the tab closes.
-// That durability makes the key's user scope load-bearing: on a shared lab
-// machine an unscoped key would restore one student's diagram for whoever logs
-// in next. No userId means no key, so nothing is read or written.
-const draftStorageKey = (
-  userId: number | undefined,
-  questionId: number,
-  labContext?: LabContext,
-): string | null => {
-  if (userId === undefined) return null;
-  const scope = labContext ? `lab-${labContext.er_lab_question_id}` : `bank-${questionId}`;
-  return `er-draft-u${userId}-${scope}`;
-};
+type StoredDraft = { xml: string; savedAt: number };
 
-const readDraft = (key: string | null): string => {
-  if (key === null || typeof window === "undefined") return "";
+/**
+ * Auto-saved canvas drafts live in localStorage, not sessionStorage, so a
+ * closed tab or a crashed browser no longer costs the student their diagram.
+ *
+ * The key is scoped to the user because localStorage outlives the session:
+ * without that, the next person to use a shared lab machine would be handed
+ * the previous student's work.
+ */
+const draftStorageKey = (userId: number | null, questionId: number): string =>
+  `er-draft-u${userId ?? "anon"}-bank-${questionId}`;
+
+/** Key used before drafts moved to localStorage; still read once, then retired. */
+const legacyDraftStorageKey = (questionId: number): string => `er-draft-bank-${questionId}`;
+
+const readDraft = (userId: number | null, questionId: number): StoredDraft | null => {
+  if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem(key) ?? "";
+    const raw = window.localStorage.getItem(draftStorageKey(userId, questionId));
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredDraft>;
+      if (typeof parsed?.xml === "string" && parsed.xml.trim()) {
+        return { xml: parsed.xml, savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0 };
+      }
+      return null;
+    }
+    const legacy = window.sessionStorage.getItem(legacyDraftStorageKey(questionId));
+    return legacy?.trim() ? { xml: legacy, savedAt: 0 } : null;
   } catch {
-    return "";
+    return null;
   }
 };
 
-const writeDraft = (key: string | null, xml: string): void => {
-  if (key === null || typeof window === "undefined") return;
+/** Returns the save timestamp, or null when storage refused (e.g. quota). */
+const writeDraft = (userId: number | null, questionId: number, xml: string): number | null => {
+  if (typeof window === "undefined" || !xml.trim()) return null;
+  const savedAt = Date.now();
   try {
-    window.localStorage.setItem(key, xml);
+    window.localStorage.setItem(
+      draftStorageKey(userId, questionId),
+      JSON.stringify({ xml, savedAt } satisfies StoredDraft),
+    );
+    return savedAt;
   } catch {
-    // localStorage may throw QuotaExceededError; a lost draft must not break editing
+    return null;
   }
 };
 
-export function ERDiagramWorkspace({ question, labContext, weight }: WorkspaceProps) {
+const clearDraft = (userId: number | null, questionId: number): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(draftStorageKey(userId, questionId));
+    window.sessionStorage.removeItem(legacyDraftStorageKey(questionId));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
   const router = useRouter();
   const progress = useAssessmentProgress();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
@@ -196,8 +219,9 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
   const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const { user } = useAuth();
-  const draftKey = draftStorageKey(user?.id, question.id, labContext);
+  const userId = user?.id ?? null;
   const [initialDrawioXml, setInitialDrawioXml] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
   const [descText, setDescText] = useState("");
@@ -208,11 +232,8 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
   // all leave the chat empty, exactly as before.
   useEffect(() => {
     let cancelled = false;
-    const ref = labContext
-      ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
-      : { question_id: question.id };
     erDiagramService
-      .getConversation(ref)
+      .getConversation({ question_id: question.id })
       .then((conversation) => {
         if (cancelled || !conversation.exists) return;
         const restored = conversation.messages
@@ -239,14 +260,24 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
     return () => {
       cancelled = true;
     };
-    // Depend on primitives, not the labContext object identity, so a parent
-    // re-render can't retrigger the fetch.
+    // Deliberately keyed to the question alone — `progress` is a context helper
+    // whose identity must not re-run the one-shot transcript restore.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question.id, labContext?.er_lab_id, labContext?.er_lab_question_id]);
-  const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id" | "er_lab_id" | "er_lab_question_id"> =>
-    labContext
-      ? { er_lab_id: labContext.er_lab_id, er_lab_question_id: labContext.er_lab_question_id }
-      : { question_id: question.id };
+  }, [question.id]);
+  // Restore the auto-saved canvas once we know who is asking. The draw.io board
+  // only mounts after the student picks it, so a late-resolving user is fine:
+  // DrawioBoard re-reads `initialXml` whenever the prop changes.
+  useEffect(() => {
+    if (userId === null) return;
+    const draft = readDraft(userId, question.id);
+    if (!draft) return;
+    setInitialDrawioXml(draft.xml);
+    setLastSavedAt(draft.savedAt || null);
+  }, [userId, question.id]);
+
+  const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id"> => ({
+    question_id: question.id,
+  });
 
   const focusMode = submissionMode === "drawio";
   const showRubricTab = question.show_rubric_on_attempt && hasSubmittedAttempt;
@@ -356,14 +387,10 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
       }
       setHasSubmittedAttempt(true);
       progress.markAttempted();
-      // The work is now recorded server-side, so the recovery copy is spent.
-      try {
-        if (draftKey !== null && typeof window !== "undefined") {
-          window.localStorage.removeItem(draftKey);
-        }
-      } catch {
-        // ignore localStorage failures
-      }
+      // The attempt is recorded server-side now, so the local draft has served
+      // its purpose.
+      clearDraft(userId, question.id);
+      setLastSavedAt(null);
       setIsDirty(false);
       // Reveal the tutor's feedback now that the result is in. Deliberately
       // here and not when Submit is clicked: this only runs on the success
@@ -378,15 +405,16 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
     }
   };
 
+  const persistDraft = (xml: string) => {
+    const savedAt = writeDraft(userId, question.id, xml);
+    if (savedAt) setLastSavedAt(savedAt);
+  };
+
   // Fired by draw.io on every change, now that the load message enables it.
   // Silent: no prompt, no download — the student never sees this happen.
   const handleAutosave = (xml: string) => {
-    writeDraft(draftKey, xml);
+    persistDraft(xml);
     setIsDirty(true);
-  };
-
-  const persistDraft = (xml: string) => {
-    writeDraft(draftKey, xml);
   };
 
   const downloadDrawioFile = (xml: string) => {
@@ -475,7 +503,9 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
   // mounts with the value already in place, rather than depending on an effect
   // landing before draw.io boots.
   const enterDrawioMode = () => {
-    setInitialDrawioXml(readDraft(draftKey));
+    const draft = readDraft(userId, question.id);
+    setInitialDrawioXml(draft?.xml ?? "");
+    if (draft) setLastSavedAt(draft.savedAt || null);
     setSubmissionMode("drawio");
   };
 
@@ -756,6 +786,7 @@ export function ERDiagramWorkspace({ question, labContext, weight }: WorkspacePr
         hasSubmittedAttempt={hasSubmittedAttempt}
         showRubricToggle={showRubricTab}
         isDirty={isDirty}
+        lastSavedAt={lastSavedAt}
       />
       {descriptionModal}
       </>

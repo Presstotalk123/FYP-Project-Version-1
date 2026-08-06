@@ -23,12 +23,12 @@ export default function Home() {
     if (isStaff) {
       return {
         primary: { label: "Open Dashboard", href: "/admin" },
-        secondary: { label: "Practice ER Diagram", href: "/er-diagram" },
+        secondary: { label: "Manage Problems", href: "/admin/problems" },
       };
     }
     return {
       primary: { label: "Continue SQL Practice", href: "/student/course" },
-      secondary: { label: "Practice ER Diagram", href: "/er-diagram" },
+      secondary: { label: "Practice ER Diagram", href: "/student" },
     };
   }, [loading, isAuthenticated, isStaff]);
 
@@ -106,7 +106,7 @@ GROUP BY customer_id;`}</code>
               not identify which payment row supplied that amount.
             </p>
             <p className="hint">
-              Hint: Find the row containing each customer's latest payment
+              Hint: Find the row containing each customer&apos;s latest payment
               before selecting its other values.
             </p>
           </div>

@@ -23,3 +23,12 @@ class GoogleAuthRequest(BaseModel):
 class MicrosoftAuthRequest(BaseModel):
     """Microsoft SSO login request — contains the Microsoft (Entra ID) ID token"""
     token: str
+
+
+class DevLoginRequest(BaseModel):
+    """Local-development login request — the email of an existing user.
+
+    No credential is supplied: the endpoint that consumes this is gated on
+    DEV_LOGIN_ENABLED plus a loopback-only check. See auth.dev_login.
+    """
+    email: EmailStr

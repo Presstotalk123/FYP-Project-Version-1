@@ -74,6 +74,12 @@ const IconPublish = () => (
     <path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>
   </svg>
 );
+// Bar-chart icon for "Submission analytics" (ERD questions only)
+const IconChart = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+  </svg>
+);
 // Eye-off style icon for "Unpublish" (hide from students)
 const IconUnpublish = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -161,7 +167,7 @@ export default function ProblemsPage() {
           createdByRole: e.created_by_role,
           isPublished: e.is_published,
           created_at: e.created_at,
-          editUrl: `/er-diagram/${e.id}`,
+          editUrl: `/er-diagram/${e.id}/edit`,
         })),
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [questionsQuery.data, labsQuery.data, erdQuery.data]);
@@ -429,6 +435,17 @@ export default function ProblemsPage() {
                                   >
                                     <IconEdit />
                                   </button>
+                                  {problem.problemType === 'erd-question' && (
+                                    <button
+                                      className="icon-btn"
+                                      title="Submission analytics"
+                                      aria-label={`Analytics for ${problem.title}`}
+                                      onClick={() => router.push(`/admin/er-analytics/${problem.id}`)}
+                                      style={{ color: '#0d9488' }}
+                                    >
+                                      <IconChart />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>

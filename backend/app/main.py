@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, labs, er_labs, users, whitelist, assessments, student_assessments, erd_prompts, course_info
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, er_analytics, labs, users, whitelist, assessments, student_assessments, erd_prompts, app_settings, course_info
 # Import models to register them with SQLAlchemy
 from app.models.user import User
 from app.models.whitelist import WhitelistEntry
@@ -21,10 +21,7 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.models.assessment_item_visit import AssessmentItemVisit
-from app.models.er_lab import ErLab
-from app.models.er_lab_question import ErLabQuestion
-from app.models.er_lab_session import ErLabSession
-from app.models.er_lab_submission import ErLabSubmission
+from app.models.app_setting import AppSetting
 from app.models.course_info import CourseInfo
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it
@@ -133,11 +130,11 @@ app.include_router(execute.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(chatbot.router, prefix="/api/v1")
 app.include_router(er_diagram.router, prefix="/api/v1")
+app.include_router(er_analytics.router, prefix="/api/v1")
 app.include_router(erd_prompts.router, prefix="/api/v1")
+app.include_router(app_settings.router, prefix="/api/v1")
 app.include_router(course_info.router, prefix="/api/v1")
 app.include_router(labs.router, prefix="/api/v1")
-app.include_router(er_labs.router, prefix="/api/v1")
-app.include_router(er_labs.override_router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(whitelist.router, prefix="/api/v1")
 app.include_router(assessments.router, prefix="/api/v1")

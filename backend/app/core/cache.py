@@ -64,6 +64,7 @@ class Ns:
     ER_QUESTIONS = "er_questions"
     ASSESSMENTS = "assessments"
     ERD_PROMPTS = "erd_prompts"
+    ER_ANALYTICS = "er_analytics"
     COURSE_INFO = "course_info"
 
 
@@ -75,6 +76,7 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.ER_QUESTIONS,
     Ns.ASSESSMENTS,
     Ns.ERD_PROMPTS,
+    Ns.ER_ANALYTICS,
     Ns.COURSE_INFO,
 )
 
@@ -236,12 +238,19 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.lab import Lab
     from app.models.lab_task import LabTask
     from app.models.er_diagram_question import ERDiagramQuestion
+    from app.models.er_submission import ErSubmission
+    from app.models.erd_tutor_message import ErdTutorMessage
     from app.models.assessment import Assessment
     from app.models.assessment_item import AssessmentItem
+    from app.models.user import User
     from app.models.course_info import CourseInfo
 
     if isinstance(obj, Question):
         return {Ns.QUESTIONS}
+    # Staff analytics aggregate submissions, chat messages (query topics) and
+    # user class groups, so any of those changing must invalidate the payloads.
+    if isinstance(obj, (ErSubmission, ErdTutorMessage, User)):
+        return {Ns.ER_ANALYTICS}
     if isinstance(obj, CourseInfo):
         return {Ns.COURSE_INFO}
     # A lab's cached detail and its cached task list both live under Ns.LABS, so a

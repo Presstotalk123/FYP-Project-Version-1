@@ -85,4 +85,20 @@ export const chatbotService = {
       body: JSON.stringify({ lab_id, session_id, user_message }),
     });
   },
+
+  // NEW: Conversational course assistant for the course info page (Streaming)
+  async streamCourseChat(
+    course_context: string,
+    user_message: string
+  ): Promise<Response> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    return fetch(`${API_BASE_URL}${API_ENDPOINTS.CHATBOT.COURSE_CHAT}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ course_context, user_message }),
+    });
+  },
 };

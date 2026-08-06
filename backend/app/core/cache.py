@@ -65,6 +65,7 @@ class Ns:
     ASSESSMENTS = "assessments"
     ERD_PROMPTS = "erd_prompts"
     ER_ANALYTICS = "er_analytics"
+    COURSE_INFO = "course_info"
 
 
 # Static namespaces that get a seed row on startup. `assessment_body:{id}` rows are
@@ -76,6 +77,7 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.ASSESSMENTS,
     Ns.ERD_PROMPTS,
     Ns.ER_ANALYTICS,
+    Ns.COURSE_INFO,
 )
 
 
@@ -241,6 +243,7 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.assessment import Assessment
     from app.models.assessment_item import AssessmentItem
     from app.models.user import User
+    from app.models.course_info import CourseInfo
 
     if isinstance(obj, Question):
         return {Ns.QUESTIONS}
@@ -248,6 +251,8 @@ def _model_namespaces(obj: Any) -> set[str]:
     # user class groups, so any of those changing must invalidate the payloads.
     if isinstance(obj, (ErSubmission, ErdTutorMessage, User)):
         return {Ns.ER_ANALYTICS}
+    if isinstance(obj, CourseInfo):
+        return {Ns.COURSE_INFO}
     # A lab's cached detail and its cached task list both live under Ns.LABS, so a
     # LabTask change must invalidate that namespace too.
     if isinstance(obj, (Lab, LabTask)):

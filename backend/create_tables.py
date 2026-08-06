@@ -29,6 +29,7 @@ from app.models.er_lab_submission import ErLabSubmission
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
 from app.models.erd_prompt_version import ErdPromptVersion
+from app.models.course_info import CourseInfo
 from app.core.cache import CacheVersion  # register cache_versions on Base
 
 def create_tables():
@@ -67,6 +68,7 @@ def create_tables():
         print("\nDropping tables...")
         tables = [
             'erd_tutor_messages', 'erd_tutor_conversations', 'erd_prompt_versions',
+            'course_info',
             'assessment_item_visits', 'er_lab_submissions',
             'assessment_sessions', 'assessment_items', 'assessments',
             'er_lab_sessions', 'er_lab_questions', 'er_labs',

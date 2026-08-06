@@ -86,7 +86,7 @@ export default function LoginForm() {
           <span className="brand-mark" style={{ width: 40, height: 40, borderRadius: 10 }} aria-hidden="true" />
         </div>
 
-        <h2>Database Assist</h2>
+        <h2>Akela</h2>
         <p className="sub">Sign in with your Google or Microsoft account to continue&nbsp;practising SQL and ER diagrams.</p>
 
         {error && (

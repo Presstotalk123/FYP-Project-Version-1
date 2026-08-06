@@ -85,3 +85,13 @@ class QuestionListItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class QuestionCountResponse(BaseModel):
+    """Counts for the student dashboard SQL tile.
+
+    `total` is the size of the student-visible question bank (cached in-process,
+    identical across students); `attempted` is how many of those the current user
+    has an attempt on (per-user, computed live)."""
+    total: int
+    attempted: int

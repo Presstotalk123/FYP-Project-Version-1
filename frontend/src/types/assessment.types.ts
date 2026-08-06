@@ -78,6 +78,12 @@ export interface StudentAssessmentListItem {
   description: string | null;
   is_running: boolean;
   has_password: boolean;
+  // True once this student has submitted this assessment (single-attempt).
+  attempt_complete?: boolean;
+  // Overall weighted score (0-100); null until staff release results (assessment stopped).
+  weighted_score?: number | null;
+  // When the student submitted; null if not yet completed. Used to order recent results.
+  submitted_at?: string | null;
 }
 
 export interface StudentAssessmentItemView {
@@ -127,6 +133,8 @@ export interface ItemVisitResponse {
 export interface AssessmentStudentRow {
   user_id: number;
   email: string;
+  // Optional lab/class group the student belongs to.
+  class_group?: string | null;
   is_active: boolean;
   joined_at: string;
   submitted_at: string | null;

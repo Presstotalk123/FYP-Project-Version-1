@@ -104,16 +104,32 @@ def list_student_assessments(
         .order_by(Assessment.created_at.desc())
         .all()
     )
-    return [
-        StudentAssessmentListItem(
-            id=a.id,
-            title=a.title,
-            description=a.description,
-            is_running=bool(a.is_running),
-            has_password=bool(a.password),
+
+    items: List[StudentAssessmentListItem] = []
+    for a in assessments:
+        # Per-user attempt state. The completed session (if any) carries the submission
+        # time; the weighted score is only surfaced once results are released (assessment
+        # stopped), mirroring get_student_assessment's not-running branch.
+        completed = _get_completed_session(a.id, current_user.id, db)
+        attempt_complete = completed is not None
+        weighted_score = (
+            assessment_scoring.compute_weighted_score(db, a, current_user.id)
+            if attempt_complete and not a.is_running
+            else None
         )
-        for a in assessments
-    ]
+        items.append(
+            StudentAssessmentListItem(
+                id=a.id,
+                title=a.title,
+                description=a.description,
+                is_running=bool(a.is_running),
+                has_password=bool(a.password),
+                attempt_complete=attempt_complete,
+                weighted_score=weighted_score,
+                submitted_at=completed.submitted_at if completed else None,
+            )
+        )
+    return items
 
 
 @router.get("/{assessment_id}", response_model=StudentAssessmentDetail)

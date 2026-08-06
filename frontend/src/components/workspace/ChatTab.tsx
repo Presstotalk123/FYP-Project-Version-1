@@ -160,7 +160,7 @@ export function ChatTab({ questionId }: ChatTabProps) {
                   color: 'var(--text-muted)', fontSize: 11,
                 }}>
                   {msg.role === 'user' ? <IconUser /> : <AiTutorAvatar />}
-                  <span>{msg.role === 'user' ? 'You' : 'AI Tutor'}</span>
+                  <span>{msg.role === 'user' ? 'You' : 'Bagheera'}</span>
                 </div>
 
                 {/* Bubble */}
@@ -197,7 +197,7 @@ export function ChatTab({ questionId }: ChatTabProps) {
                   color: 'var(--text-muted)', fontSize: 11, marginBottom: 3,
                 }}>
                   <AiTutorAvatar />
-                  <span>AI Tutor</span>
+                  <span>Bagheera</span>
                 </div>
                 <div style={{
                   background: 'var(--surface-muted)', border: '1px solid var(--border)',
@@ -262,14 +262,14 @@ export function ChatTab({ questionId }: ChatTabProps) {
             color: 'var(--text)',
             outline: 'none',
           }}
-          placeholder="Ask the AI tutor… (Shift+Enter for new line)"
+          placeholder="Ask Bagheera… (Shift+Enter for new line)"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKey}
           disabled={isLoading}
           rows={1}
           id="question-chat-input"
-          aria-label="Message to AI Tutor"
+          aria-label="Message to Bagheera"
         />
         <button
           className="btn btn-brand"

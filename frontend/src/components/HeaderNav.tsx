@@ -30,9 +30,10 @@ export function HeaderNav() {
   }
 
   const studentLinks = [
+    { label: "Course Info", href: "/student/course" },
     { label: "Questions", href: "/student", exact: true },
     { label: "SQL Labs", href: "/student/labs" },
-    { label: "SQL Assessments", href: "/student/assessments" },
+    { label: "Assessments", href: "/student/assessments" },
   ];
   
   const unauthLinks = [
@@ -76,7 +77,7 @@ export function HeaderNav() {
     <header className="topbar">
       <Link href="/" className="brand">
         <span className="brand-mark" aria-hidden="true" />
-        <span>Database Assist</span>
+        <span>Akela</span>
       </Link>
 
       <nav className="app-nav" aria-label="Main navigation">

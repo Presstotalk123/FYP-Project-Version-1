@@ -27,7 +27,7 @@ export default function Home() {
       };
     }
     return {
-      primary: { label: "Continue SQL Practice", href: "/student" },
+      primary: { label: "Continue SQL Practice", href: "/student/course" },
       secondary: { label: "Practice ER Diagram", href: "/student" },
     };
   }, [loading, isAuthenticated, isStaff]);
@@ -38,7 +38,7 @@ export default function Home() {
       <header className="home-header">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
-          <span>Database Assist</span>
+          <span>Akela</span>
         </div>
         <nav className="home-nav" aria-label="Site navigation">
           <Link href="/">Home</Link>

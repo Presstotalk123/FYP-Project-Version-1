@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Database Assist",
+  title: "Akela",
   description: "SQL Learning Platform with ER Diagram Practice",
 };
 

@@ -7,12 +7,14 @@ from app.models.question import Question, Difficulty
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
+from app.models.progress import UserProgress
 from app.schemas.question import (
     QuestionCreate,
     QuestionUpdate,
     QuestionResponse,
     QuestionDetail,
-    QuestionListItem
+    QuestionListItem,
+    QuestionCountResponse
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.core.cache import cache_read, Ns
@@ -263,6 +265,49 @@ def list_questions(
         producer=producer,
         cacheable=(search is None),
     )
+
+
+@router.get("/count", response_model=QuestionCountResponse)
+def get_question_count(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Dashboard counts for SQL practice questions.
+
+    `total` is the size of the visible question bank — cached in-process under
+    Ns.QUESTIONS (auto-invalidated on any Question mutation), since it is identical
+    across all users of a role. `attempted` is per-user and computed live (cheap).
+    Declared before `/{question_id}` so the literal path is matched first.
+    """
+    role = "student" if current_user.role.value == "student" else "staff"
+
+    def producer() -> int:
+        # Mirror list_questions' visibility filter exactly.
+        query = db.query(Question).filter(
+            Question.is_deleted == 0,
+            Question.owner_assessment_id.is_(None),
+        )
+        if role == "student":
+            query = query.filter(Question.is_published == 1)
+        return query.count()
+
+    total = cache_read(db, Ns.QUESTIONS, key=("count", role), producer=producer)
+
+    # A UserProgress row exists per attempted question; restrict to the visible bank
+    # so unpublished/deleted/assessment-clone questions never inflate the count.
+    attempted = (
+        db.query(UserProgress)
+        .join(Question, UserProgress.question_id == Question.id)
+        .filter(
+            UserProgress.user_id == current_user.id,
+            Question.is_deleted == 0,
+            Question.owner_assessment_id.is_(None),
+            Question.is_published == 1,
+        )
+        .count()
+    )
+
+    return QuestionCountResponse(total=total, attempted=attempted)
 
 
 @router.get("/{question_id}", response_model=QuestionDetail)

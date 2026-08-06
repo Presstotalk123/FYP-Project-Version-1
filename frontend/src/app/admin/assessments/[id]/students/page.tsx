@@ -16,6 +16,7 @@ import {
   Card,
   ScrollArea,
   Modal,
+  Select,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -44,6 +45,9 @@ export default function AssessmentStudentsPage() {
   const [data, setData] = useState<AssessmentStudentsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Lab-group (class_group) filter
+  const [selectedClassGroup, setSelectedClassGroup] = useState<string | null>(null);
 
   // Activity drawer
   const [activityStudent, setActivityStudent] = useState<AssessmentStudentRow | null>(null);
@@ -196,6 +200,16 @@ export default function AssessmentStudentsPage() {
     return <Text size="sm" c="dimmed">—</Text>;
   };
 
+  // Distinct lab groups present in the student list, and the filtered rows.
+  const classGroups = data
+    ? Array.from(
+        new Set(data.students.map((s) => s.class_group).filter((c): c is string => !!c))
+      ).sort()
+    : [];
+  const filteredStudents = data
+    ? data.students.filter((s) => !selectedClassGroup || s.class_group === selectedClassGroup)
+    : [];
+
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
@@ -233,6 +247,24 @@ export default function AssessmentStudentsPage() {
                   No students have joined this assessment yet.
                 </Alert>
               ) : (
+                <>
+                  <Group>
+                    <Select
+                      placeholder="Filter by Class Group"
+                      data={classGroups}
+                      value={selectedClassGroup}
+                      onChange={setSelectedClassGroup}
+                      clearable
+                      searchable
+                      style={{ width: 250 }}
+                    />
+                  </Group>
+
+                  {filteredStudents.length === 0 ? (
+                    <Alert icon={<IconAlertCircle size={16} />} color="blue" title="No Students">
+                      No students in this class group.
+                    </Alert>
+                  ) : (
                 <Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
@@ -245,7 +277,7 @@ export default function AssessmentStudentsPage() {
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {data.students.map((student) => (
+                    {filteredStudents.map((student) => (
                       <Table.Tr key={student.user_id}>
                         <Table.Td>
                           <Text size="sm" fw={500}>{student.email}</Text>
@@ -294,6 +326,8 @@ export default function AssessmentStudentsPage() {
                     ))}
                   </Table.Tbody>
                 </Table>
+                  )}
+                </>
               )}
             </>
           )}

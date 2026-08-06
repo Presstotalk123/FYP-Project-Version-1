@@ -3,6 +3,7 @@ import api from "./api.service";
 import {
   ERDiagramQuestion,
   ERDiagramQuestionListItem,
+  ERDiagramQuestionCount,
   ERSubmissionRequest,
   ERSubmissionResponse,
   ERSubmissionStreamEvent,
@@ -157,6 +158,12 @@ export const erDiagramService = {
 
   async getQuestions(): Promise<ERDiagramQuestionListItem[]> {
     const response = await api.get<ERDiagramQuestionListItem[]>(API_ENDPOINTS.ER_DIAGRAM.QUESTIONS);
+    return response.data;
+  },
+
+  // Dashboard tile: backend-cached total + per-user attempted count (no full list fetch).
+  async getQuestionCount(): Promise<ERDiagramQuestionCount> {
+    const response = await api.get<ERDiagramQuestionCount>(API_ENDPOINTS.ER_DIAGRAM.QUESTIONS_COUNT);
     return response.data;
   },
 

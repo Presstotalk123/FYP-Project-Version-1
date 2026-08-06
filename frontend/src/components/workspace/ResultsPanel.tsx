@@ -71,7 +71,7 @@ export function ResultsPanel({
   const tabs = [
     { id: 'results', label: 'Results' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
-    { id: 'chat', label: 'AI Tutor' },
+    { id: 'chat', label: 'Bagheera' },
   ];
 
   return (

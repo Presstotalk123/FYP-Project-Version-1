@@ -12,6 +12,7 @@ export const API_ENDPOINTS = {
   },
   QUESTIONS: {
     BASE: '/questions',
+    COUNT: '/questions/count',
     DETAIL: (id: number) => `/questions/${id}`,
     PUBLISH: (id: number) => `/questions/${id}/publish`,
     UNPUBLISH: (id: number) => `/questions/${id}/unpublish`,
@@ -28,6 +29,7 @@ export const API_ENDPOINTS = {
   ER_DIAGRAM: {
     GENERATE_RUBRIC: '/er-diagram/rubric/generate',
     QUESTIONS: '/er-diagram/questions',
+    QUESTIONS_COUNT: '/er-diagram/questions/count',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
     QUESTION_PUBLISH: (id: number) => `/er-diagram/questions/${id}/publish`,
     QUESTION_UNPUBLISH: (id: number) => `/er-diagram/questions/${id}/unpublish`,
@@ -47,6 +49,9 @@ export const API_ENDPOINTS = {
   SETTINGS: {
     ERD: '/settings/erd',
   },
+  COURSE_INFO: {
+    BASE: '/course-info',
+  },
   ERD_PROMPTS: {
     LIST: '/erd-prompts',
     DETAIL: (key: string) => `/erd-prompts/${key}`,
@@ -59,6 +64,7 @@ export const API_ENDPOINTS = {
     QUERY_REVIEW: '/chatbot/query-review',
     LAB_CHAT: '/chatbot/lab-chat',
     LAB_QUERY_REVIEW: '/chatbot/lab-query-review',
+    COURSE_CHAT: '/chatbot/course-chat',
   },
   LABS: {
     BASE: '/labs',

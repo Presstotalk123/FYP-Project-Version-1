@@ -11,6 +11,15 @@ class StudentAssessmentListItem(BaseModel):
     description: Optional[str]
     is_running: bool
     has_password: bool
+    # True once this student has ended & submitted this assessment (single-attempt).
+    attempt_complete: bool = False
+    # Overall weighted score (0-100). Populated only once staff have stopped the
+    # assessment (results released); None while running or unweighted. Mirrors
+    # StudentAssessmentDetail.weighted_score.
+    weighted_score: Optional[float] = None
+    # When the student submitted their attempt; None if not yet completed. Used by the
+    # dashboard to order "recent" results and show a submission date.
+    submitted_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

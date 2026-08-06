@@ -8,6 +8,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from starlette.concurrency import iterate_in_threadpool
 
@@ -16,6 +17,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_staff_role
 from app.core.cache import cache_read, Ns
 from app.models.er_diagram_question import ERDiagramQuestion
+from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.user import User, UserRole
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
@@ -24,6 +26,7 @@ from app.schemas.er_diagram import (
     DifficultyLabel,
     ERDiagramQuestionResponse,
     ERDiagramQuestionListItem,
+    ERDiagramQuestionCountResponse,
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
@@ -1048,6 +1051,63 @@ def list_er_questions(
         key=(f"role={role}",),
         producer=producer,
     )
+
+
+@router.get("/questions/count", response_model=ERDiagramQuestionCountResponse)
+def get_er_question_count(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Dashboard counts for standalone ERD practice questions.
+
+    `total` is the size of the visible ER-question bank — cached in-process under
+    Ns.ER_QUESTIONS (auto-invalidated on any ERDiagramQuestion mutation), identical
+    across users of a role. `attempted` is per-user and computed live. Declared
+    before `/questions/{question_id}` so the literal path is matched first.
+    """
+    is_student = current_user.role.value == "student"
+    role = "student" if is_student else "staff"
+
+    def producer() -> int:
+        # Mirror list_er_questions' visibility: exclude deleted + assessment clones;
+        # students additionally see staff/admin questions only once published, but
+        # all student-created ones regardless of publish state.
+        query = (
+            db.query(ERDiagramQuestion)
+            .join(User, ERDiagramQuestion.created_by == User.id)
+            .filter(
+                ERDiagramQuestion.is_deleted == 0,
+                ERDiagramQuestion.owner_assessment_id.is_(None),
+            )
+        )
+        if is_student:
+            query = query.filter(
+                or_(User.role == UserRole.STUDENT, ERDiagramQuestion.is_published == 1)
+            )
+        return query.count()
+
+    total = cache_read(db, Ns.ER_QUESTIONS, key=("count", role), producer=producer)
+
+    # One standalone conversation row per (user, question); last_submit_score is set
+    # once a submission has been graded — that is the "attempted" signal. Join to the
+    # question so deleted questions never inflate the count.
+    attempted = (
+        db.query(ErdTutorConversation)
+        .join(
+            ERDiagramQuestion,
+            ERDiagramQuestion.id == ErdTutorConversation.er_diagram_question_id,
+        )
+        .filter(
+            ErdTutorConversation.user_id == current_user.id,
+            ErdTutorConversation.context_type == "standalone",
+            ErdTutorConversation.er_diagram_question_id.isnot(None),
+            ErdTutorConversation.last_submit_score.isnot(None),
+            ERDiagramQuestion.is_deleted == 0,
+        )
+        .count()
+    )
+
+    return ERDiagramQuestionCountResponse(total=total, attempted=attempted)
 
 
 @router.get("/questions/{question_id}", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)

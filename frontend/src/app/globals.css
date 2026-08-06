@@ -1,5 +1,5 @@
 /* ============================================================
-   Database Assist – Global Design System
+   Akela – Global Design System
    Translated from ui-redesign 1/styles.css
    ============================================================ */
 
@@ -95,7 +95,9 @@ a {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--brand-lilac);
+  background-image: url('/wolf.png');
+  background-size: cover;
+  background-position: center;
   flex-shrink: 0;
 }
 

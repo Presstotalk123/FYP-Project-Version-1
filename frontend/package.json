@@ -26,13 +26,16 @@
     "@tabler/icons-react": "^3.36.1",
     "@tanstack/react-query": "^5.101.4",
     "axios": "^1.13.4",
+    "dagre": "^0.8.5",
     "next": "16.1.6",
+    "node-sql-parser": "^5.4.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

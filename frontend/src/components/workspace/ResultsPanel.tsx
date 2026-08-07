@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { ExecuteResponse, Attempt } from '@/types/attempt.types';
 import { QuestionDetail } from '@/types/question.types';
 import { ChatTab } from './ChatTab';
+import { QueryGraph } from './QueryGraph';
 import { QueryReviewCard } from './QueryReviewCard';
 import { chatbotService, QueryReviewResponse } from '@/services/chatbot.service';
 
@@ -70,6 +71,7 @@ export function ResultsPanel({
 
   const tabs = [
     { id: 'results', label: 'Results' },
+    { id: 'diagram', label: 'Diagram' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'chat', label: 'Bagheera' },
   ];
@@ -178,6 +180,11 @@ export function ResultsPanel({
               )}
             </div>
           )
+        )}
+
+        {/* ── Diagram Tab ── */}
+        {activeTab === 'diagram' && (
+          <QueryGraph query={currentQuery} schemaSql={question.schema_sql} />
         )}
 
         {/* ── History Tab ── */}

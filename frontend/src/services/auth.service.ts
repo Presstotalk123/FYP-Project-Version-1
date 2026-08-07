@@ -1,6 +1,6 @@
 import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
-import { DevLoginRequest, GoogleAuthRequest, MicrosoftAuthRequest, LoginResponse } from '@/types/api.types';
+import { GoogleAuthRequest, MicrosoftAuthRequest, LoginResponse } from '@/types/api.types';
 import { User } from '@/types/user.types';
 
 export const authService = {
@@ -13,13 +13,6 @@ export const authService = {
   async microsoftLogin(token: string): Promise<LoginResponse> {
     const body: MicrosoftAuthRequest = { token };
     const response = await api.post<LoginResponse>(API_ENDPOINTS.AUTH.MICROSOFT, body);
-    return response.data;
-  },
-
-  /** Local development only — the backend 404s this unless DEV_LOGIN_ENABLED. */
-  async devLogin(email: string): Promise<LoginResponse> {
-    const body: DevLoginRequest = { email };
-    const response = await api.post<LoginResponse>(API_ENDPOINTS.AUTH.DEV_LOGIN, body);
     return response.data;
   },
 

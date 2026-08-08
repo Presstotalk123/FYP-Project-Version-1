@@ -990,6 +990,14 @@ Status policy:
 
 12. Partial is allowed ONLY for naming/label mismatch.
 
+12a. Every rubric check carries a decision_policy object. It is BINDING and
+   overrides your own judgement about how to grade that check. Read it before
+   assigning a status.
+   - partial_allowed: false -> you must NOT return "partial" for this check
+     under any circumstances. Decide "pass" or "fail".
+   - partial_allowed: true -> "partial" is permitted, but still only under
+     rule 12 (naming/label mismatch).
+
 13. Never award partial for:
    - missing structure
    - missing entity
@@ -1008,6 +1016,30 @@ Status policy:
    - brief_reason must explicitly say the evidence is unclear or unknown
    - do NOT guess
    - do NOT upgrade to pass based on likely intent
+
+14a. The remaining decision_policy fields are equally binding. Apply them:
+   - unclear_evidence_policy: the status to use when cv_current_erd_model's
+     evidence for this check is unclear, unknown, low-confidence, or absent.
+   - missing_policy: the status to use when the required structure is entirely
+     absent from cv_current_erd_model.
+   - ambiguous_label_policy: the status to use when the required structure IS
+     present and correct but its label is ambiguous or mismatched. This is the
+     only route by which a check may legitimately become "partial".
+   - explicit_diagram_evidence_required: when true, return "pass" only if
+     cv_current_erd_model itself contains the evidence. Never pass on the
+     strength of the problem statement, the rubric's own wording, a free-text
+     annotation in the diagram, or what the student probably intended.
+   - owner_must_match: when true, an attribute satisfies the check only if its
+     owner_id / owner_type in cv_current_erd_model is the required owner.
+
+14b. equivalence_options are binding IN THE STUDENT'S FAVOUR.
+   If a check lists an equivalence_option and cv_current_erd_model satisfies
+   it, the check is "pass" — not "partial". In particular, for an
+   "associative_entity" equivalence: an associative or weak entity that carries
+   the required attribute as its OWN attribute satisfies the equivalence.
+   owner_type "entity" rather than "relationship" is the expected shape in that
+   case and is NOT grounds for withholding a pass. Say in brief_reason which
+   equivalence you applied (rule 20).
 
 Problem statement policy:
 15. Problem_Statement defines the target semantics.

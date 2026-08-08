@@ -52,6 +52,18 @@ def compute_grade(judge_result: dict, rubric: dict, prev: dict) -> dict:
             reason = "No reason given."
         if status not in {"pass", "fail", "partial", "not_applicable"}:
             status = "fail"; reason = (reason + " Invalid status normalized to fail.").strip()
+        # GRADE_SYSTEM rules 12a/14a tell the judge that a check's decision_policy
+        # is binding, but it is an LLM and sometimes returns "partial" anyway —
+        # typically when it is merely uncertain, which rule 13 already forbids.
+        # Enforce the rubric's own policy here so a non-compliant judge cannot
+        # award half marks on a check that does not allow them. Rubrics without a
+        # decision_policy (pre-LangGraph, or Dify-authored) are left untouched.
+        policy = rc.get("decision_policy")
+        if status == "partial" and isinstance(policy, dict) and policy.get("partial_allowed") is False:
+            fallback = policy.get("unclear_evidence_policy")
+            status = fallback if fallback in {"pass", "fail", "not_applicable"} else "fail"
+            reason = (f"{reason} [Grader returned partial, which this check does not "
+                      f"allow; resolved to {status}.]").strip()
         if level in {"must", "should"} and status != "not_applicable":
             total_points += points
             if status == "pass": earned_points += points

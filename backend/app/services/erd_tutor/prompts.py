@@ -48,6 +48,7 @@ Produce a structured observation JSON that records:
 - relationships
 - attributes
 - relationship endpoint observations
+- specializations (ISA / supertype-subtype triangles)
 - uncertain items
 - unclassified labels
 
@@ -143,10 +144,32 @@ Important:
 - Do not infer semantic meaning from the pair of endpoint cues.
 - Just record what is visible at each endpoint.
 
-E. Uncertain items
+E. Specializations (ISA hierarchies)
+A specialization is drawn as a triangle (often labelled "Is A", "ISA" or "d"/"o")
+connecting one supertype entity above to two or more subtype entities below.
+
+For each triangle you can see, record one entry in specializations:
+- supertype_entity_id: the entity the apex connects up to
+- subtype_entity_ids: every entity the base connects down to
+- raw_label: the text visible in or beside the triangle, or "" if none
+- disjointness: "disjoint" if marked d or an explicit disjoint note is visible,
+  "overlapping" if marked o, otherwise "unknown"
+- completeness: "total" if the supertype connects to the triangle with a double
+  line, "partial" for a single line, otherwise "unknown"
+
+Do NOT record a specialization in relationships — it is not a diamond. Do not
+describe it only in evidence prose; it must appear as a specializations entry,
+otherwise the hierarchy is lost.
+
+Subtype names are frequently written WITHOUT repeating the supertype's noun —
+the box may carry only the category word, because the hierarchy edge already
+supplies the rest. Record the label exactly as drawn; never expand, complete or
+qualify it with the supertype's name.
+
+F. Uncertain items
 If something is visible but cannot be confidently attached, record it here.
 
-F. Unclassified labels
+G. Unclassified labels
 Any readable labels that cannot be confidently assigned.
 
 ENTITY, RELATIONSHIP, ATTRIBUTE RULES
@@ -155,11 +178,25 @@ Entity extraction:
 - Entity rectangles should be recorded in entities.
 - Use raw_name as the visible label.
 - Use normalized_name for light OCR cleanup only.
+- entity_kind records the BORDER you can see:
+  - "weak" if the rectangle is drawn with a double border
+  - "strong" if it is drawn with a single border
+  - "unknown" if the border cannot be made out
+  This is an observation about line work, not a judgement about whether the
+  entity ought to be weak.
 
 Relationship extraction:
 - Relationship diamonds should be recorded in relationships.
 - participant_entity_ids should list the two participating entities if visible.
 - Do not infer missing participants.
+- relationship_kind records the BORDER of the diamond:
+  - "identifying" if the diamond is drawn with a double border
+  - "normal" if it is drawn with a single border
+  - "unknown" if the border cannot be made out
+- An unlabelled diamond is still a relationship. Record it with raw_name = ""
+  and its participants and kind. Never drop a diamond merely because it has no
+  text inside it — double diamonds are very often left unlabelled, and losing
+  them silently removes real structure from the diagram.
 
 Attribute extraction:
 - Ovals should be recorded in attributes.
@@ -290,6 +327,7 @@ Return ONLY valid JSON in this exact structure:
       "id": "E1",
       "raw_name": "",
       "normalized_name": "",
+      "entity_kind": "strong | weak | unknown",
       "evidence": "",
       "confidence": "high | medium | low"
     }
@@ -299,6 +337,7 @@ Return ONLY valid JSON in this exact structure:
       "id": "R1",
       "raw_name": "",
       "normalized_name": "",
+      "relationship_kind": "normal | identifying | unknown",
       "participant_entity_ids": [],
       "evidence": "",
       "confidence": "high | medium | low"
@@ -326,6 +365,18 @@ Return ONLY valid JSON in this exact structure:
       "confidence": "high | medium | low"
     }
   ],
+  "specializations": [
+    {
+      "id": "S1",
+      "supertype_entity_id": "",
+      "subtype_entity_ids": [],
+      "raw_label": "",
+      "disjointness": "disjoint | overlapping | unknown",
+      "completeness": "total | partial | unknown",
+      "evidence": "",
+      "confidence": "high | medium | low"
+    }
+  ],
   "uncertain_items": [
     {
       "raw_text": "",
@@ -345,23 +396,38 @@ Return ONLY valid JSON in this exact structure:
 }"""
 
 
-OBSERVE_USER = """Normalize the attached observation JSON into the final semantic ERD JSON.
+# NOTE: this template was previously a verbatim copy of NORMALIZE_USER — it told
+# the vision stage to "normalize the attached observation JSON" (no such JSON is
+# attached; an image is) and handed it the normalization notation rules that
+# OBSERVE_SYSTEM rules 3 and 10 explicitly forbid it from applying. The leak was
+# observable: readable markers were rejected into uncertain_items with reasons
+# quoting the *normalizer's* vocabulary. It is now an observation-only brief.
+OBSERVE_USER = """Record what is visibly drawn in the attached ER diagram image.
 
-Use the observation JSON as the primary source of truth.
-Use the problem statement only as weak disambiguation support.
+The image is the only source of evidence. Transcribe what is on it; do not
+interpret it.
 
-Apply these notation rules:
-- ">= 1" means minimum 1
-- ">= 0" means minimum 0
-- sharp arrow on both ends means one-to-one
-- curved arrow on both ends means many-to-many
-- sharp arrow and curved arrow means one-to-many
-- endpoint-local cues determine the opposite endpoint semantics in the final Chen-style cardinalities
+For every relationship endpoint, answer these two questions independently and
+record both answers:
+1. Is there a text marker near this endpoint? If so, copy it EXACTLY as written,
+   including spacing and operators (for example ">=1", ">= 0", ">=0 or <= 1",
+   "1", "N", "M", "0..1"). If there is none, use the empty string "".
+2. Is there a visible endpoint cue (a curve, fork, or arrowhead) touching this
+   endpoint? Classify it, or use no_arrow_visible when the connector meets the
+   entity as a plain line.
 
-Problem statement:
+Recording no_arrow_visible is a positive observation, not a failure — a plain
+line end is meaningful evidence and must be reported as such.
+
+Do NOT convert anything into final semantics. Do not produce 1..N, 0..N, total,
+partial, one-to-many, or any participation value. Do not reason about what a cue
+at one endpoint implies about the other endpoint. That is a later stage's job.
+
+Problem statement (weak disambiguation for label OCR only — it must never add,
+upgrade, or invent anything that is not visibly drawn):
 {problem_statement}
 
-Return only valid JSON in the required final schema."""
+Return only valid JSON in the required observation schema."""
 
 
 # Supplementary, appended to the OBSERVE user message only when the student
@@ -422,6 +488,7 @@ Return only valid JSON in the final schema with these top-level fields:
 - attributes
 - cardinalities
 - participation
+- specializations
 - uncertain_items
 - unclassified_labels
 - completeness_audit
@@ -464,39 +531,37 @@ A. Text markers
 - ">= 0" means minimum = 0
 
 B. Endpoint cue types
-- sharp_arrowhead means one-side cue
-- curved_arrowhead means many-side cue
-- no_arrow_visible means no visible arrow cue
-- unknown means cue exists but could not be classified
+- curved_arrowhead means "many" AT THAT ENDPOINT
+- sharp_arrowhead means "one" AT THAT ENDPOINT
+- no_arrow_visible means "one" AT THAT ENDPOINT (absence of a curve is the
+  notation's way of writing one — treat it as evidence, not as a gap)
+- unknown means a cue exists but could not be classified; only this value
+  leaves the maximum undetermined
 
-C. Pairwise endpoint cue semantics
-For a binary relationship with endpoints A and B:
-- sharp at A and sharp at B => one-to-one
-- curved at A and curved at B => many-to-many
-- sharp at A and curved at B => one-to-many
-- curved at A and sharp at B => many-to-one
+C. Endpoint-local binding
+Markers and cues bind to the endpoint they are drawn on. A relationship's two
+endpoints are derived INDEPENDENTLY of one another.
 
-D. Opposite-endpoint semantics
-Under this notation system, a cue observed at one endpoint determines the cardinality semantics of the opposite endpoint in the final Chen-style endpoint representation.
+Worked example, using placeholder names. For a relationship R between entities
+A and B, where the A end carries ">=1" and a curve and the B end is a plain line:
+- endpoint A => min 1 from ">=1", max N from the curve => 1..N, total
+- endpoint B => no marker, no curve                    => ..1  (max 1)
+Read back: one A participates in one or more R, and one B participates in at
+most one R.
 
-That means:
-- the minimum for endpoint A comes from the text marker observed at endpoint B
-- the minimum for endpoint B comes from the text marker observed at endpoint A
-- the maximum for endpoint A comes from the arrow cue observed at endpoint B
-- the maximum for endpoint B comes from the arrow cue observed at endpoint A
+Binding them across the relationship instead would swap those two readings and
+invert the whole constraint. Do not do it.
 
-Examples:
-- If endpoint B has observed_text_marker ">= 0", then endpoint A has min 0
-- If endpoint B has observed_endpoint_cue sharp_arrowhead, then endpoint A has max 1
-- If endpoint B has observed_endpoint_cue curved_arrowhead, then endpoint A has max N
+D. (removed — superseded by C)
+Earlier revisions of this prompt instructed that a cue at one endpoint
+determines the opposite endpoint's semantics. That rule contradicted section E
+below, and produced inverted cardinalities. It no longer applies.
 
 E. Explicit full cardinality labels
-If the observation JSON contains an explicit full cardinality text marker such as:
-- 0..1
-- 1..1
-- 0..N
-- 1..N
-for an endpoint, and the evidence clearly supports that explicit label, then use it directly for that endpoint and do not apply opposite-endpoint local notation for that same endpoint.
+If an endpoint's own text marker is an explicit full cardinality such as 0..1,
+1..1, 0..N, 1..N, (0,1), (1,1), (0,N) or (1,N), use it directly for that
+endpoint. This is consistent with section C: explicit labels, like every other
+marker, describe the endpoint they are written on.
 
 NORMALIZATION ALGORITHM
 
@@ -516,6 +581,7 @@ For each observed entity:
 - copy id
 - raw_name = observation raw_name
 - normalized_name = observation normalized_name if clearly supported, else raw_name
+- copy entity_kind unchanged from the observation
 - preserve evidence
 - preserve confidence
 
@@ -524,9 +590,12 @@ For each observed relationship:
 - copy id
 - raw_name = observation raw_name
 - normalized_name = observation normalized_name if clearly supported, else raw_name
+- copy relationship_kind unchanged from the observation
 - preserve participant_entity_ids
 - preserve evidence
 - preserve confidence
+- Keep relationships whose raw_name is empty. An unlabelled diamond is real
+  structure; carry it through with its participants and kind so it can be graded.
 
 STEP 4 — Normalize attributes
 For each observed attribute:
@@ -559,46 +628,74 @@ If one endpoint observation is missing:
 STEP 6 — Derive semantic cardinality for each relationship endpoint
 For each relationship with endpoints A and B:
 
-6A. Determine min for A from endpoint_obs[B].observed_text_marker
-- ">= 1" => min(A) = 1
-- ">= 0" => min(A) = 0
-- "0..1" => final(A) = 0..1
-- "1..1" => final(A) = 1..1
-- "0..N" => final(A) = 0..N
-- "1..N" => final(A) = 1..N
-- "" => min(A) unknown
-- anything conflicting or unreadable => unknown
+ENDPOINT-LOCAL BINDING (applies to all of step 6)
+Every marker and cue describes THE ENDPOINT IT IS DRAWN ON. A ">=1" written
+beside an entity constrains that entity's own participation in that
+relationship; it says nothing about the entity at the far end. Do NOT transfer a
+marker or cue across the relationship to the opposite endpoint.
 
-6B. Determine min for B from endpoint_obs[A].observed_text_marker
-Apply the same rules.
+6A. Determine min and max for an endpoint from ITS OWN observed_text_marker.
+Compare case-insensitively and ignore all whitespace, so ">= 1" and ">=1" are
+the same marker.
+- ">=1"        => min = 1, max not yet determined
+- ">=0"        => min = 0, max not yet determined
+- "<=1"        => max = 1, min not yet determined
+- ">=0 or <=1" => min = 0, max = 1   (i.e. 0..1)
+- "0..1"       => 0..1
+- "1..1"       => 1..1
+- "0..N"       => 0..N
+- "1..N"       => 1..N
+- "(0,1)" "(1,1)" "(0,N)" "(1,N)" => the same as the n..m form above
+- "1"          => 1..1   (bare Chen "one")
+- "N" or "M"   => max = N, min not yet determined   (bare Chen "many")
+- ""           => nothing determined from text
+- anything unreadable => nothing determined from text
 
-6C. Determine max for A from endpoint_obs[B].observed_endpoint_cue
-- sharp_arrowhead => max(A) = 1
-- curved_arrowhead => max(A) = N
-- no_arrow_visible => max(A) = unknown
-- unknown => max(A) = unknown
+6B. Apply 6A independently to the other endpoint.
 
-6D. Determine max for B from endpoint_obs[A].observed_endpoint_cue
-Apply the same rules.
+6C. Determine max for an endpoint from ITS OWN observed_endpoint_cue, but only
+where 6A did not already fix the max.
+- curved_arrowhead  => max = N
+- sharp_arrowhead   => max = 1
+- no_arrow_visible  => max = 1
+- unknown           => max stays undetermined
 
-6E. Combine min/max
-If endpoint A already got an explicit full cardinality from step 6A, keep it.
-Otherwise:
+The no_arrow_visible rule is deliberate and is the notation's convention: a
+curve marks "many", and its ABSENCE marks "one". A plain line end is a positive
+statement that the maximum is one — it is NOT missing evidence. Only the
+"unknown" cue (a mark was seen but could not be classified) leaves max open.
+
+6D. Apply 6C independently to the other endpoint.
+
+6E. Combine min/max per endpoint
 - min 0 + max 1 => 0..1
 - min 1 + max 1 => 1..1
 - min 0 + max N => 0..N
 - min 1 + max N => 1..N
-- any missing component => unknown
-
-Do the same for endpoint B.
+- min known, max undetermined => report the min and set
+  normalized_cardinality = "unknown", but STILL emit the participation value
+  derived from the min in step 7 (see the warning there).
+- max known, min undetermined => 0..1 becomes "0..1" only when the min was
+  actually observed; otherwise use "unknown" for cardinality while keeping the
+  observed max in evidence.
+- neither determined => unknown
 
 STEP 7 — Participation derivation
-For each final endpoint cardinality:
-- 1..1 => total
-- 1..N => total
-- 0..1 => partial
-- 0..N => partial
-- unknown => unknown
+Participation depends ONLY on the minimum. Never gate it on the maximum.
+- min = 1 => total
+- min = 0 => partial
+- min undetermined => unknown
+
+This holds even when normalized_cardinality is "unknown". An endpoint whose
+marker was ">=1" but whose maximum could not be established is still
+participation_type = total. Losing a minimum that was read correctly because a
+maximum was missing is a defect, not conservatism.
+
+STEP 7B — Specializations
+Copy every observed specialization through unchanged: supertype_entity_id,
+subtype_entity_ids, raw_label, disjointness, completeness, evidence, confidence.
+Do not merge, split, invent or drop them, and never demote a specialization into
+the relationships array.
 
 STEP 8 — Conservative repair rules
 Use these only when they do not require inventing evidence.
@@ -641,6 +738,7 @@ Entities output objects:
 - id
 - raw_name
 - normalized_name
+- entity_kind
 - evidence
 - confidence
 
@@ -648,6 +746,7 @@ Relationships output objects:
 - id
 - raw_name
 - normalized_name
+- relationship_kind
 - participant_entity_ids
 - evidence
 - confidence
@@ -704,6 +803,7 @@ Return ONLY valid JSON in this exact structure:
       "id": "E1",
       "raw_name": "",
       "normalized_name": "",
+      "entity_kind": "strong | weak | unknown",
       "evidence": "",
       "confidence": "high | medium | low"
     }
@@ -713,6 +813,7 @@ Return ONLY valid JSON in this exact structure:
       "id": "R1",
       "raw_name": "",
       "normalized_name": "",
+      "relationship_kind": "normal | identifying | unknown",
       "participant_entity_ids": [],
       "evidence": "",
       "confidence": "high | medium | low"
@@ -745,6 +846,18 @@ Return ONLY valid JSON in this exact structure:
       "relationship_id": "",
       "entity_id": "",
       "participation_type": "total | partial | unknown",
+      "evidence": "",
+      "confidence": "high | medium | low"
+    }
+  ],
+  "specializations": [
+    {
+      "id": "S1",
+      "supertype_entity_id": "",
+      "subtype_entity_ids": [],
+      "raw_label": "",
+      "disjointness": "disjoint | overlapping | unknown",
+      "completeness": "total | partial | unknown",
       "evidence": "",
       "confidence": "high | medium | low"
     }
@@ -783,12 +896,15 @@ Use the observation JSON as the primary source of truth.
 Use the problem statement only as weak disambiguation support.
 
 Apply these notation rules:
-- ">= 1" means minimum 1
-- ">= 0" means minimum 0
-- sharp arrow on both ends means one-to-one
-- curved arrow on both ends means many-to-many
-- sharp arrow and curved arrow means one-to-many
-- endpoint-local cues determine the opposite endpoint semantics in the final Chen-style cardinalities
+- ">=1" means minimum 1; ">=0" means minimum 0 (ignore whitespace when matching)
+- ">=0 or <=1" means 0..1
+- a bare "1" means 1..1; a bare "N" or "M" means maximum N
+- a curved cue at an endpoint means that endpoint's maximum is N
+- NO cue at an endpoint means that endpoint's maximum is 1 — absence of a curve
+  is how "one" is written in this notation, so it is evidence, not a gap
+- every marker and cue describes THE ENDPOINT IT SITS ON; never transfer one
+  across the relationship to the opposite endpoint
+- participation follows from the minimum alone, never from the maximum
 
 Problem statement:
 {problem_statement}
@@ -910,6 +1026,26 @@ Naming policy:
    - order_number ≈ order_id ≈ ord_no ≈ O# ≈ o#
 
 18. For entities, relationships, and attributes not explicitly named in Problem_Statement, allow semantic similarity as pass.
+
+18a. Subtype naming in specializations.
+   A subtype inherits its qualifier from its supertype. When cv_current_erd_model
+   contains a specialization with supertype S, a subtype labelled "X" satisfies a
+   rubric target named "X S" or "S X". Omitting the supertype's noun from a
+   subtype label is standard ERD practice, not an error, because the hierarchy
+   edge already supplies it.
+   Apply the same tolerance to inflectional and derivational variants of the same
+   category word (adjective/noun forms, singular/plural, and regional spellings
+   are equivalent).
+   Judge a specialization on its STRUCTURE — is the supertype the required one,
+   and is every required subtype present — not on whether the labels repeat the
+   supertype's noun. Mark it down only when a required category is genuinely
+   absent, or a spurious category is present.
+
+18b. Grade specializations from the specializations array.
+   cv_current_erd_model.specializations is the evidence for any supertype/subtype
+   or ISA check. Do not judge a hierarchy from entity names alone, and do not
+   expect it to appear in the relationships array — it is a triangle, not a
+   diamond.
 
 Equivalence policy:
 19. Accept an equivalence ONLY if the current check’s equivalence_options explicitly allow it.

@@ -52,10 +52,19 @@ class QueryStateUpdate(BaseModel):
 # `structured_output.schema` of nodes "Extract ERD 1" and "Extract ERD 2".
 # (Full nested models below — entities/relationships/attributes/endpoints/etc.)
 class _Entity(BaseModel):
-    id: str; raw_name: str; normalized_name: str; evidence: str; confidence: Confidence
+    id: str; raw_name: str; normalized_name: str
+    # Chen weak entities are drawn as a double rectangle. Without this channel the
+    # construct had nowhere to go, so weak entities were indistinguishable from
+    # strong ones and rubric checks about existence dependency had nothing to read.
+    entity_kind: Literal["strong", "weak", "unknown"] = "unknown"
+    evidence: str; confidence: Confidence
 
 class _Relationship(BaseModel):
     id: str; raw_name: str; normalized_name: str
+    # Identifying relationships are drawn as a double diamond and are frequently
+    # left unlabelled. Recorded as plain relationships they came back with an empty
+    # raw_name and were then dropped as noise; typed, they survive to the grader.
+    relationship_kind: Literal["normal", "identifying", "unknown"] = "unknown"
     participant_entity_ids: List[str]; evidence: str; confidence: Confidence
 
 class _ObsAttribute(BaseModel):
@@ -70,6 +79,23 @@ class _Endpoint(BaseModel):
     observed_endpoint_cue: Literal["sharp_arrowhead", "curved_arrowhead", "no_arrow_visible", "unknown"]
     evidence: str; confidence: Confidence
 
+class _Specialization(BaseModel):
+    """An ISA / supertype-subtype hierarchy (the triangle construct).
+
+    Previously unrepresentable: the vision stage clearly saw these — it wrote
+    "below Ward specialization" into entity `evidence` prose — but with no
+    structured field the hierarchy never reached the grader, so specialization
+    rubric checks were judged from entity names alone.
+    """
+    id: str
+    supertype_entity_id: str
+    subtype_entity_ids: List[str]
+    raw_label: str  # text inside/next to the triangle, e.g. "Is A"; "" if none
+    disjointness: Literal["disjoint", "overlapping", "unknown"]
+    completeness: Literal["total", "partial", "unknown"]
+    evidence: str
+    confidence: Confidence
+
 class _Uncertain(BaseModel):
     raw_text: str; suspected_type: str; possible_owner_ids: List[str]; reason: str; evidence: str
 
@@ -83,6 +109,7 @@ class ObservationJSON(BaseModel):
     relationships: List[_Relationship]
     attributes: List[_ObsAttribute]
     relationship_endpoints: List[_Endpoint]
+    specializations: List[_Specialization]
     uncertain_items: List[_Uncertain]
     unclassified_labels: List[_Unclassified]
 
@@ -115,6 +142,7 @@ class CanonicalERD(BaseModel):
     attributes: List[_CanonAttribute]
     cardinalities: List[_Cardinality]
     participation: List[_Participation]
+    specializations: List[_Specialization]
     uncertain_items: List[_Uncertain]
     unclassified_labels: List[_Unclassified]
     completeness_audit: _Audit

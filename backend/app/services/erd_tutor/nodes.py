@@ -18,9 +18,14 @@ NOTE: ``make_llm`` is imported at module scope so tests can monkeypatch
 """
 
 import json
+import logging
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.services.erd_tutor.llm import make_llm
 from app.services.erd_tutor import prompts
+from app.services.erd_tutor.drawio_parser import parse_drawio
+from app.services.erd_tutor.derivation import derive
+
+logger = logging.getLogger(__name__)
 # Only tutor_system and grade_system are admin-editable (see
 # prompt_store.PROMPT_REGISTRY); the other nodes use prompts.* directly.
 from app.services.erd_tutor.prompt_store import get_prompt
@@ -32,6 +37,19 @@ def _image_block(image_b64):
 
 
 async def observe_node(state: dict) -> dict:
+    # The draw.io source, when we have it, IS the diagram: the PNG is rendered
+    # from it, so vision can only lose detail relative to it. Parsing is exact,
+    # free and instant, and removes the whole class of extraction defects
+    # measured on this pipeline (phantom cues, misread markers, marks binding to
+    # a neighbouring connector, invisible thin arcs). Anything unparseable —
+    # and every image upload — falls through to the vision path below.
+    xml_text = (state.get("submission_xml_text") or "").strip()
+    if xml_text:
+        try:
+            return {"observation": parse_drawio(xml_text)}
+        except Exception as exc:
+            logger.warning("drawio parse failed (%s); falling back to vision", exc)
+
     user = [{"type": "text", "text": prompts.OBSERVE_USER.format(problem_statement=state["problem_statement"])}]
     description = (state.get("submission_description") or "").strip()
     if description:
@@ -49,7 +67,17 @@ async def normalize_node(state: dict) -> dict:
                                         observation_json=json.dumps(state["observation"], ensure_ascii=False))
     llm = make_llm("normalize").with_structured_output(CanonicalERD)
     can = await llm.ainvoke([SystemMessage(prompts.NORMALIZE_SYSTEM), HumanMessage(msg)])
-    return {"canonical_erd": can.model_dump()}
+    out = can.model_dump()
+    # Cardinality and participation are a lookup table over the observed marks,
+    # not a judgement — so they are computed, not asked for. The LLM keeps the
+    # naming/OCR work it is good at. Measured motivation: given exact parser
+    # input it returned the same value for two different endpoints of two
+    # same-named relationships, discarding a marker the student had drawn
+    # correctly. Keyed by id here, so same-named relationships cannot merge.
+    cards, parts = derive(state.get("observation"))
+    if cards:
+        out["cardinalities"], out["participation"] = cards, parts
+    return {"canonical_erd": out}
 
 
 async def grade_node(state: dict) -> dict:

@@ -103,7 +103,11 @@ class _Unclassified(BaseModel):
     raw_text: str; evidence: str; reason: str
 
 class ObservationJSON(BaseModel):
-    source_mode: Literal["image"]
+    # "xml" marks an observation parsed from draw.io source rather than read
+    # from pixels. Only the parser emits it; the vision prompt still says
+    # "image". Keeping them distinguishable is what lets analytics tell which
+    # path graded a submission.
+    source_mode: Literal["image", "xml"]
     stage: Literal["observation_extraction"]
     entities: List[_Entity]
     relationships: List[_Relationship]

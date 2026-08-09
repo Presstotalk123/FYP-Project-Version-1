@@ -6,10 +6,13 @@ class GraphState(TypedDict, total=False):
     problem_statement: str
     difficulty: str
     rubric_json: str
-    # WIP (post-migration feature): free-text description of the submission,
-    # not yet consumed by any node. Replaces the never-read submission_xml
-    # field; XML handling will be planned once the migration is complete.
+    # Free-text description of the submission (disambiguation support for observe).
     submission_description: Optional[str]
+    # draw.io source for the submission. When present and parseable it is the
+    # authoritative structure — the PNG is rendered FROM it, so vision can only
+    # lose detail relative to it. observe_node parses this and skips the vision
+    # call; image uploads and unparseable XML fall back to vision.
+    submission_xml_text: Optional[str]
     image_b64: Optional[str]       # data-url payload, or None
     student_query: Optional[str]
     # carried conversation state

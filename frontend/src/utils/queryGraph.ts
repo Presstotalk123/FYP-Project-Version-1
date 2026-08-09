@@ -9,6 +9,7 @@ import {
   QueryGraphResult,
   GraphNode,
   GraphEdge,
+  GraphGroup,
   GraphColumn,
   SchemaInfo,
   SchemaTable,
@@ -144,7 +145,7 @@ function parseTableBody(name: string, body: string): SchemaTable {
   return table;
 }
 
-/* ─────────────────────────── expression walking ──────────────────────── */
+/* ─────────────────────────── expression helpers ──────────────────────── */
 
 const COMPARATORS = new Set(['=', '<', '>', '<=', '>=', '!=', '<>', 'LIKE', 'IS']);
 
@@ -171,24 +172,61 @@ function literalToString(n: any): string | null {
   }
 }
 
-interface RawPredicate {
-  op: string;
-  left: any;
-  right: any;
+/** Best-effort render of an expression for HAVING / aggregate display text. */
+function exprToString(n: any): string {
+  if (!n || typeof n !== 'object') return String(n ?? '');
+  switch (n.type) {
+    case 'column_ref':
+      return (n.table ? `${n.table}.` : '') + colName(n.column);
+    case 'aggr_func': {
+      const inner =
+        n.args?.expr?.type === 'star' ? '*' : exprToString(n.args?.expr);
+      return `${n.name}(${inner})`;
+    }
+    case 'function': {
+      const fname = getFunctionName(n) ?? '';
+      const args = (n.args?.value ?? []).map(exprToString).join(', ');
+      return `${fname}(${args})`;
+    }
+    case 'star':
+      return '*';
+    case 'binary_expr':
+      return `${exprToString(n.left)} ${n.operator} ${exprToString(n.right)}`;
+    default: {
+      const lit = literalToString(n);
+      return lit ?? '…';
+    }
+  }
 }
 
-/** Collect leaf comparison predicates from an ON/WHERE expression tree. */
-function collectPredicates(expr: any, out: RawPredicate[]): void {
+function getFunctionName(n: any): string | null {
+  const raw = n?.name?.name?.[0]?.value ?? n?.name;
+  return typeof raw === 'string' ? raw.toUpperCase() : null;
+}
+
+/** Return the nested SELECT ast if `n` wraps a subquery, else null. */
+function extractSubselect(n: any): any | null {
+  if (!n || typeof n !== 'object') return null;
+  if (n.ast && n.ast.type === 'select') return n.ast;
+  if (n.type === 'expr_list' && Array.isArray(n.value)) {
+    const inner = n.value.find((v: any) => v?.ast?.type === 'select');
+    if (inner) return inner.ast;
+  }
+  return null;
+}
+
+/** Recurse AND/OR, invoking `onLeaf` for each non-boolean condition node. */
+function walkConditions(expr: any, onLeaf: (leaf: any) => void): void {
   if (!expr || typeof expr !== 'object') return;
   if (expr.type === 'binary_expr') {
     const op = String(expr.operator || '').toUpperCase();
     if (op === 'AND' || op === 'OR') {
-      collectPredicates(expr.left, out);
-      collectPredicates(expr.right, out);
+      walkConditions(expr.left, onLeaf);
+      walkConditions(expr.right, onLeaf);
       return;
     }
-    out.push({ op: expr.operator, left: expr.left, right: expr.right });
   }
+  onLeaf(expr);
 }
 
 /* ─────────────────────────── junction detection ──────────────────────── */
@@ -215,7 +253,324 @@ function colorFor(key: string): string {
   return PALETTE[h % PALETTE.length];
 }
 
-/* ───────────────────────────── main builder ──────────────────────────── */
+/* ───────────────────────────── scope builder ─────────────────────────── */
+
+const MAX_DEPTH = 3;
+
+interface BuildCtx {
+  schema: SchemaInfo;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  groups: GraphGroup[];
+  notes: string[];
+  subCounter: { n: number };
+}
+
+/** A resolved relation within one scope. */
+interface Rel {
+  id: string;
+  table: string;
+  alias: string | null;
+}
+
+type Resolver = (tableRef: string | null) => string | null;
+
+/**
+ * Build one query scope (the root SELECT or a subquery). Appends nodes/edges/
+ * groups into `ctx`. `parentResolve` resolves table refs against enclosing
+ * scopes so correlated subquery predicates connect across the cluster boundary.
+ * Returns this scope's "output" node id (owner of its first projected column).
+ */
+function buildScope(
+  select: any,
+  scopeId: string,
+  groupId: string | null,
+  ctx: BuildCtx,
+  parentResolve: Resolver,
+  depth: number,
+): string | null {
+  const fromList: any[] = Array.isArray(select.from) ? select.from : [];
+  const rels: Rel[] = [];
+  const refToId = new Map<string, string>();
+
+  // ── resolve FROM entries (real tables + derived-table subqueries) ──
+  for (const f of fromList) {
+    if (f && f.table) {
+      const key = f.as ? f.as : f.table;
+      const id = `${scopeId}::${key}`;
+      rels.push({ id, table: f.table, alias: f.as ?? null });
+      refToId.set(key.toLowerCase(), id);
+      refToId.set(f.table.toLowerCase(), id);
+    } else {
+      const sub = extractSubselect(f) ?? (f?.expr ? extractSubselect(f.expr) : null);
+      if (sub && depth < MAX_DEPTH) {
+        const subId = `s${++ctx.subCounter.n}`;
+        ctx.groups.push({
+          id: subId,
+          parentGroupId: groupId,
+          label: f.as ? `${f.as} (derived)` : 'derived table',
+        });
+        const outId = buildScope(sub, subId, subId, ctx, localResolve, depth + 1);
+        if (f.as && outId) refToId.set(f.as.toLowerCase(), outId);
+      } else if (sub) {
+        ctx.notes.push('A deeply nested subquery was not expanded.');
+      }
+    }
+  }
+
+  const relById = new Map(rels.map((r) => [r.id, r]));
+
+  function localResolve(tableRef: string | null): string | null {
+    if (tableRef) {
+      return refToId.get(tableRef.toLowerCase()) ?? parentResolve(tableRef);
+    }
+    if (rels.length === 1) return rels[0].id; // unqualified & unambiguous
+    return parentResolve(null);
+  }
+
+  if (rels.length === 0 && fromList.length === 0) {
+    return null;
+  }
+
+  // ── per-relation column metadata ──
+  const projected = new Map<string, Set<string>>();
+  const grouped = new Map<string, Set<string>>();
+  const filters = new Map<string, Map<string, string>>();
+  const referenced = new Map<string, Set<string>>();
+  const projectAll = new Set<string>();
+  rels.forEach((r) => {
+    projected.set(r.id, new Set());
+    grouped.set(r.id, new Set());
+    filters.set(r.id, new Map());
+    referenced.set(r.id, new Set());
+  });
+
+  const isLocal = (id: string | null) => !!id && relById.has(id);
+
+  // ── projections + aggregate outputs (SELECT list) ──
+  const aggregates: string[] = [];
+  if (select.columns === '*' || select.columns === null) {
+    rels.forEach((r) => projectAll.add(r.id));
+    if (rels.length) ctx.notes.push('SELECT * — every column is projected.');
+  } else if (Array.isArray(select.columns)) {
+    for (const c of select.columns) {
+      const e = c.expr;
+      if (isColumnRef(e)) {
+        const name = colName(e.column);
+        const id = localResolve(e.table ?? null);
+        if (isLocal(id)) {
+          if (name === '*') projectAll.add(id!);
+          else {
+            projected.get(id!)!.add(name.toLowerCase());
+            referenced.get(id!)!.add(name);
+          }
+        } else if (!e.table) {
+          ctx.notes.push(`Couldn’t place unqualified column "${name}".`);
+        }
+      } else if (e && e.type === 'aggr_func') {
+        const str = exprToString(e) + (c.as ? ` AS ${c.as}` : '');
+        aggregates.push(str);
+      } else if (e && e.type === 'select') {
+        // Scalar subquery in the SELECT list.
+        maybeSubquery(e, null, 'subquery');
+      }
+    }
+  }
+
+  // ── GROUP BY ──
+  const groupbyCols: any[] = select.groupby?.columns ?? [];
+  for (const g of groupbyCols) {
+    if (isColumnRef(g)) {
+      const id = localResolve(g.table ?? null);
+      const name = colName(g.column);
+      if (isLocal(id)) {
+        grouped.get(id!)!.add(name.toLowerCase());
+        referenced.get(id!)!.add(name);
+      }
+    }
+  }
+
+  // ── HAVING display text (+ any subquery inside it) ──
+  const having = select.having ? exprToString(select.having) : null;
+  if (select.having) walkConditions(select.having, (leaf) => classifyLeaf(leaf));
+
+  /** Recurse into a subquery and connect it; `outerId` is the outer node (or null). */
+  function maybeSubquery(subAst: any, outerId: string | null, label: string): boolean {
+    if (!subAst) return false;
+    if (depth >= MAX_DEPTH) {
+      ctx.notes.push('A deeply nested subquery was not expanded.');
+      return true;
+    }
+    const subId = `s${++ctx.subCounter.n}`;
+    ctx.groups.push({ id: subId, parentGroupId: groupId, label });
+    const childOut = buildScope(subAst, subId, subId, ctx, localResolve, depth + 1);
+    const source = outerId ?? rels[0]?.id ?? null;
+    if (source && childOut) {
+      ctx.edges.push({ from: source, to: childOut, label, kind: 'subquery' });
+    }
+    return true;
+  }
+
+  // ── classify one WHERE/ON/HAVING leaf: subquery | join | filter ──
+  function classifyLeaf(leaf: any): void {
+    if (!leaf || typeof leaf !== 'object') return;
+
+    // EXISTS / NOT EXISTS (a function node, or NOT wrapping one)
+    if (leaf.type === 'function') {
+      const fn = getFunctionName(leaf);
+      if (fn === 'EXISTS' || fn === 'NOT EXISTS') {
+        maybeSubquery(extractSubselect(leaf.args), null, fn);
+        return;
+      }
+    }
+    if (leaf.type === 'unary_expr' && String(leaf.operator).toUpperCase() === 'NOT') {
+      const inner = leaf.expr;
+      if (inner?.type === 'function' && getFunctionName(inner) === 'EXISTS') {
+        maybeSubquery(extractSubselect(inner.args), null, 'NOT EXISTS');
+        return;
+      }
+    }
+
+    if (leaf.type !== 'binary_expr') return;
+    const op = String(leaf.operator || '');
+    const opUpper = op.toUpperCase();
+
+    // Subquery on either side (IN / NOT IN / scalar comparison)
+    const subRight = extractSubselect(leaf.right);
+    const subLeft = extractSubselect(leaf.left);
+    if (subRight || subLeft) {
+      const outerCol = isColumnRef(leaf.left)
+        ? leaf.left
+        : isColumnRef(leaf.right)
+          ? leaf.right
+          : null;
+      const outerId = outerCol ? localResolve(outerCol.table ?? null) : null;
+      maybeSubquery(subRight ?? subLeft, outerId, opUpper);
+      return;
+    }
+
+    const leftCol = isColumnRef(leaf.left);
+    const rightCol = isColumnRef(leaf.right);
+
+    if (leftCol && rightCol) {
+      // column op column → a join (possibly correlated, crossing scopes)
+      const lId = localResolve(leaf.left.table ?? null);
+      const rId = localResolve(leaf.right.table ?? null);
+      if (!lId || !rId || lId === rId) return;
+      const lCol = colName(leaf.left.column);
+      const rCol = colName(leaf.right.column);
+      if (isLocal(lId)) referenced.get(lId)!.add(lCol);
+      if (isLocal(rId)) referenced.get(rId)!.add(rCol);
+      const lName = relById.get(lId)?.table ?? leaf.left.table ?? '';
+      const rName = relById.get(rId)?.table ?? leaf.right.table ?? '';
+      const label = `${lName}.${lCol} ${op} ${rName}.${rCol}`;
+      pushEdge(lId, rId, label, 'join');
+    } else if (leftCol || rightCol) {
+      // column op literal → a filter
+      if (!COMPARATORS.has(opUpper)) return;
+      const colNode = leftCol ? leaf.left : leaf.right;
+      const valNode = leftCol ? leaf.right : leaf.left;
+      const val = literalToString(valNode);
+      if (val === null) return;
+      const id = localResolve(colNode.table ?? null);
+      if (!isLocal(id)) return;
+      const name = colName(colNode.column);
+      referenced.get(id!)!.add(name);
+      const disp = `${op} ${val}`;
+      const fmap = filters.get(id!)!;
+      const key = name.toLowerCase();
+      const existing = fmap.get(key);
+      fmap.set(key, existing ? `${existing}, ${disp}` : disp);
+    }
+  }
+
+  const edgeSeen = new Set<string>();
+  function pushEdge(a: string, b: string, label: string, kind: 'join' | 'subquery') {
+    const key = [a, b].sort().join('|') + '|' + label;
+    if (edgeSeen.has(key)) return;
+    edgeSeen.add(key);
+    ctx.edges.push({ from: a, to: b, label, kind });
+  }
+
+  // ── run predicate classification over ON + WHERE ──
+  fromList.forEach((f) => f.on && walkConditions(f.on, classifyLeaf));
+  if (select.where) walkConditions(select.where, classifyLeaf);
+
+  // ── join degree (local join edges only) for the schemaless heuristic ──
+  const neighbours = new Map<string, Set<string>>();
+  rels.forEach((r) => neighbours.set(r.id, new Set()));
+  ctx.edges.forEach((e) => {
+    if (e.kind !== 'join') return;
+    if (relById.has(e.from) && relById.has(e.to)) {
+      neighbours.get(e.from)!.add(e.to);
+      neighbours.get(e.to)!.add(e.from);
+    }
+  });
+
+  // ── materialise nodes for this scope ──
+  for (const r of rels) {
+    const sTable = ctx.schema[r.table.toLowerCase()];
+    const projSet = projected.get(r.id)!;
+    const grpSet = grouped.get(r.id)!;
+    const fmap = filters.get(r.id)!;
+    const allProjected = projectAll.has(r.id);
+
+    const junction = sTable
+      ? isJunctionBySchema(sTable)
+      : neighbours.get(r.id)!.size >= 2 && projSet.size === 0 && !allProjected;
+
+    let columns: GraphColumn[] = [];
+    if (!junction) {
+      const mk = (name: string, pk: boolean): GraphColumn => ({
+        name,
+        pk,
+        projected: allProjected || projSet.has(name.toLowerCase()),
+        grouped: grpSet.has(name.toLowerCase()),
+        filter: fmap.get(name.toLowerCase()) ?? null,
+      });
+      if (sTable) {
+        columns = sTable.columns.map((c) => mk(c.name, c.pk));
+      } else {
+        columns = Array.from(referenced.get(r.id)!).map((name) => mk(name, false));
+      }
+    }
+
+    ctx.nodes.push({
+      id: r.id,
+      kind: junction ? 'junction' : 'entity',
+      table: r.table,
+      alias: r.alias,
+      color: colorFor(r.alias ?? r.table),
+      groupId,
+      columns,
+    });
+  }
+
+  // ── aggregation card for this scope ──
+  if (aggregates.length > 0 || having) {
+    const aggId = `${scopeId}::__agg`;
+    ctx.nodes.push({
+      id: aggId,
+      kind: 'agg',
+      table: 'Aggregation',
+      alias: null,
+      color: '#6b7280',
+      groupId,
+      columns: [],
+      agg: { aggregates, having },
+    });
+    // Light layout edge so dagre parks the card beside this scope's tables.
+    const anchor = rels[0]?.id;
+    if (anchor) ctx.edges.push({ from: anchor, to: aggId, label: '', kind: 'join' });
+  }
+
+  // ── output node = owner of the first projected column, else first relation ──
+  const outputRel =
+    rels.find((r) => projected.get(r.id)!.size > 0 || projectAll.has(r.id)) ?? rels[0];
+  return outputRel ? outputRel.id : null;
+}
+
+/* ───────────────────────────── public entry ──────────────────────────── */
 
 export function buildQueryGraph(sql: string, schemaSql?: string | null): QueryGraphResult {
   if (!sql || !sql.trim()) {
@@ -245,171 +600,27 @@ export function buildQueryGraph(sql: string, schemaSql?: string | null): QueryGr
   if (fromList.length === 0) {
     return { error: 'This query has no tables to diagram.' };
   }
-  if (fromList.some((f) => !f || !f.table)) {
-    return { error: 'Subqueries in FROM aren’t supported yet.' };
+
+  const ctx: BuildCtx = {
+    schema,
+    nodes: [],
+    edges: [],
+    groups: [],
+    notes: [],
+    subCounter: { n: 0 },
+  };
+
+  buildScope(ast, 'root', null, ctx, () => null, 0);
+
+  if (ctx.nodes.length === 0) {
+    return { error: 'This query couldn’t be diagrammed.' };
   }
 
-  const notes: string[] = [];
-
-  // Relations: id is the alias when present, else the table name.
-  interface Rel {
-    id: string;
-    table: string;
-    alias: string | null;
-  }
-  const rels: Rel[] = fromList.map((f) => ({
-    id: f.as ? f.as : f.table,
-    table: f.table,
-    alias: f.as ?? null,
-  }));
-  const relById = new Map(rels.map((r) => [r.id, r]));
-  // alias-or-table (as written in the query) → relation id
-  const refToId = new Map<string, string>();
-  rels.forEach((r) => {
-    refToId.set(r.id.toLowerCase(), r.id);
-    refToId.set(r.table.toLowerCase(), r.id);
-  });
-
-  function resolveRef(tableRef: string | null): string | null {
-    if (tableRef) return refToId.get(tableRef.toLowerCase()) ?? null;
-    if (rels.length === 1) return rels[0].id; // unqualified & unambiguous
-    return null;
-  }
-
-  // Per-relation collected column metadata.
-  const projected = new Map<string, Set<string>>();
-  const filters = new Map<string, Map<string, string>>();
-  const referenced = new Map<string, Set<string>>(); // columns seen (for schemaless boxes)
-  rels.forEach((r) => {
-    projected.set(r.id, new Set());
-    filters.set(r.id, new Map());
-    referenced.set(r.id, new Set());
-  });
-  const projectAll = new Set<string>(); // relation ids with SELECT * / t.*
-
-  /* ── projections ── */
-  if (ast.columns === '*' || ast.columns === null) {
-    rels.forEach((r) => projectAll.add(r.id));
-    notes.push('SELECT * — every column is projected.');
-  } else if (Array.isArray(ast.columns)) {
-    for (const c of ast.columns) {
-      const e = c.expr;
-      if (isColumnRef(e)) {
-        const name = colName(e.column);
-        const id = resolveRef(e.table ?? null);
-        if (id) {
-          if (name === '*') projectAll.add(id);
-          else {
-            projected.get(id)!.add(name.toLowerCase());
-            referenced.get(id)!.add(name);
-          }
-        } else if (!e.table) {
-          notes.push(`Couldn’t place unqualified column "${name}".`);
-        }
-      }
-      // Aggregates / expressions are not attributed to a single column.
-    }
-  }
-
-  /* ── predicates (joins + filters) from every ON and the WHERE ── */
-  const preds: RawPredicate[] = [];
-  fromList.forEach((f) => f.on && collectPredicates(f.on, preds));
-  if (ast.where) collectPredicates(ast.where, preds);
-
-  const edges: GraphEdge[] = [];
-  const edgeSeen = new Set<string>();
-
-  for (const p of preds) {
-    const opUpper = String(p.op || '').toUpperCase();
-    const leftIsCol = isColumnRef(p.left);
-    const rightIsCol = isColumnRef(p.right);
-
-    if (leftIsCol && rightIsCol) {
-      // column = column → a join between two relations
-      const lId = resolveRef(p.left.table ?? null);
-      const rId = resolveRef(p.right.table ?? null);
-      if (!lId || !rId || lId === rId) continue;
-      const lCol = colName(p.left.column);
-      const rCol = colName(p.right.column);
-      referenced.get(lId)!.add(lCol);
-      referenced.get(rId)!.add(rCol);
-      const lRel = relById.get(lId)!;
-      const rRel = relById.get(rId)!;
-      const label = `${lRel.table}.${lCol} ${p.op} ${rRel.table}.${rCol}`;
-      const key = [lId, rId].sort().join('|') + '|' + label;
-      if (!edgeSeen.has(key)) {
-        edgeSeen.add(key);
-        edges.push({ from: lId, to: rId, label });
-      }
-    } else if (leftIsCol || rightIsCol) {
-      // column <op> value → a filter
-      const colNode = leftIsCol ? p.left : p.right;
-      const valNode = leftIsCol ? p.right : p.left;
-      if (!COMPARATORS.has(opUpper)) continue;
-      const val = literalToString(valNode);
-      if (val === null) continue;
-      const id = resolveRef(colNode.table ?? null);
-      if (!id) continue;
-      const name = colName(colNode.column);
-      referenced.get(id)!.add(name);
-      const disp = `${p.op} ${val}`;
-      const fmap = filters.get(id)!;
-      const existing = fmap.get(name.toLowerCase());
-      fmap.set(name.toLowerCase(), existing ? `${existing}, ${disp}` : disp);
-    }
-  }
-
-  /* ── join degree (distinct neighbours) for the schemaless heuristic ── */
-  const neighbours = new Map<string, Set<string>>();
-  rels.forEach((r) => neighbours.set(r.id, new Set()));
-  edges.forEach((e) => {
-    neighbours.get(e.from)!.add(e.to);
-    neighbours.get(e.to)!.add(e.from);
-  });
-
-  /* ── build nodes ── */
-  const nodes: GraphNode[] = rels.map((r) => {
-    const sTable = schema[r.table.toLowerCase()];
-    const projSet = projected.get(r.id)!;
-    const fmap = filters.get(r.id)!;
-    const allProjected = projectAll.has(r.id);
-
-    // Junction classification.
-    const junction = sTable
-      ? isJunctionBySchema(sTable)
-      : neighbours.get(r.id)!.size >= 2 && projSet.size === 0 && !allProjected;
-
-    let columns: GraphColumn[] = [];
-    if (!junction) {
-      if (sTable) {
-        columns = sTable.columns.map((c) => ({
-          name: c.name,
-          pk: c.pk,
-          projected: allProjected || projSet.has(c.name.toLowerCase()),
-          filter: fmap.get(c.name.toLowerCase()) ?? null,
-        }));
-      } else {
-        // No schema: show only the columns the query actually references.
-        const seen = referenced.get(r.id)!;
-        columns = Array.from(seen).map((name) => ({
-          name,
-          pk: false,
-          projected: allProjected || projSet.has(name.toLowerCase()),
-          filter: fmap.get(name.toLowerCase()) ?? null,
-        }));
-      }
-    }
-
-    return {
-      id: r.id,
-      kind: junction ? 'junction' : 'entity',
-      table: r.table,
-      alias: r.alias,
-      color: colorFor(r.alias ?? r.table),
-      columns,
-    };
-  });
-
-  const graph: QueryGraph = { nodes, edges, notes };
+  const graph: QueryGraph = {
+    nodes: ctx.nodes,
+    edges: ctx.edges,
+    groups: ctx.groups,
+    notes: Array.from(new Set(ctx.notes)),
+  };
   return graph;
 }

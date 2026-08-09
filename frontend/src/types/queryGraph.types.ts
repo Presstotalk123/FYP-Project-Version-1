@@ -14,6 +14,8 @@ export interface GraphColumn {
   pk: boolean;
   /** True if the column appears in the SELECT list → emphasised in the diagram. */
   projected: boolean;
+  /** True if the column appears in GROUP BY → shown with a "grouped" badge. */
+  grouped: boolean;
   /**
    * A WHERE filter on this column rendered for display, e.g. "< 10" or "= 'x'".
    * Null when the column has no single-column filter.
@@ -22,37 +24,57 @@ export interface GraphColumn {
 }
 
 /**
- * A node in the diagram. `entity` renders as a record-box with columns;
- * `junction` renders as a distinct circle/pill (a pure link table) with no rows —
- * its keys live on the edge labels instead.
+ * A node in the diagram.
+ * - `entity`   — a record-box with columns.
+ * - `junction` — a distinct circle/pill (a pure link table) with no rows; its keys
+ *                live on the edge labels instead.
+ * - `agg`      — a small card summarising a query scope's aggregation (GROUP BY
+ *                outputs + HAVING). Carries `agg`, ignores `columns`.
  */
 export interface GraphNode {
-  /** Stable id — the table alias when present, else the table name. */
+  /** Stable, scope-namespaced id (e.g. "root::c", "s1::orders"). */
   id: string;
-  kind: 'entity' | 'junction';
-  /** Real table name shown as the node title. */
+  kind: 'entity' | 'junction' | 'agg';
+  /** Real table name shown as the node title (label text for agg cards). */
   table: string;
   /** Alias as written in the query (e.g. "c"), or null if none. */
   alias: string | null;
   /** A colour derived from the alias/table, tying the node to its label. */
   color: string;
-  /** Columns to render (empty for junction nodes). */
+  /** The subquery scope this node belongs to; null = root scope. */
+  groupId: string | null;
+  /** Columns to render (empty for junction/agg nodes). */
   columns: GraphColumn[];
+  /** Aggregation payload — present only for `kind === 'agg'`. */
+  agg?: { aggregates: string[]; having: string | null };
 }
 
-/** An undirected join relationship, labelled with the predicate. */
+/** An edge — either a join (solid) or a subquery link (dashed). */
 export interface GraphEdge {
   /** Source node id. */
   from: string;
   /** Target node id. */
   to: string;
-  /** Human-readable predicate, e.g. "purchase.cID = customer.cID". */
+  /** Human-readable label, e.g. "purchase.cID = customer.cID" or "NOT IN". */
+  label: string;
+  kind: 'join' | 'subquery';
+}
+
+/** A subquery scope, drawn as a shaded cluster containing its nodes. */
+export interface GraphGroup {
+  /** Scope id (e.g. "s1"). */
+  id: string;
+  /** Parent scope id, or null when nested directly under the root query. */
+  parentGroupId: string | null;
+  /** Label shown on the cluster, e.g. "NOT IN" / "EXISTS" / "subquery". */
   label: string;
 }
 
 export interface QueryGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** Subquery clusters (empty for a flat single-level query). */
+  groups: GraphGroup[];
   /**
    * Non-fatal notes surfaced to the user (e.g. "SELECT * — showing all columns",
    * "unqualified column ignored"). Never blocks rendering.

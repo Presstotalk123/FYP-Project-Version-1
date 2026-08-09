@@ -1463,9 +1463,11 @@ async def submit_er_diagram(
         if not xml_text and not erd_img:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="Provide either submission_xml_text or erd_img when mode is Submit")
-        if xml_text and erd_img:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                                detail="Provide only one submission input: submission_xml_text or erd_img")
+        # Both together is the preferred draw.io submission: the XML gives the
+        # grader exact structure (it is what the PNG was rendered from), while
+        # the image is what gets stored for analytics and shown to the tutor.
+        # They were mutually exclusive when XML was an alternative input rather
+        # than a companion to it.
         if erd_img and (not erd_img.content_type or not erd_img.content_type.startswith("image/")):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="erd_img must be an image file")

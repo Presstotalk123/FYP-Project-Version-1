@@ -66,10 +66,10 @@ def stream_er_submission_grading(*, question_id: int, problem_statement: str,
             out = await graph.ainvoke({
                 "mode": "Submit", "problem_statement": problem_statement,
                 "difficulty": difficulty_label, "rubric_json": rubric_json,
-                # WIP: carried into state for a planned post-migration feature;
-                # no node consumes it yet. (submission_xml_text is accepted for
-                # signature compatibility but the graph has no XML path.)
                 "submission_description": submission_description,
+                # Authoritative structure when the submission came from the
+                # draw.io editor; observe_node parses it instead of the image.
+                "submission_xml_text": submission_xml_text,
                 "image_b64": _image_b64(image_bytes),
                 "ibl_stage": ibl_stage, "hint_level": hint_level,
                 "last_submit_report": last_submit_report or {}})

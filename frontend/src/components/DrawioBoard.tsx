@@ -15,7 +15,10 @@ export type DrawioBoardHandle = {
 };
 
 type DrawioBoardProps = {
-  onExport?: (imageFile: File) => void | Promise<void>;
+  // The PNG export reply carries the diagram source too, so the XML arrives
+  // with the image and needs no second round-trip (verified against
+  // embed.diagrams.net). Undefined only if draw.io omits it.
+  onExport?: (imageFile: File, xml?: string) => void | Promise<void>;
   onExportError?: (message: string) => void;
   submitting?: boolean;
   hideInternalSubmit?: boolean;
@@ -35,6 +38,10 @@ const DRAWIO_ORIGIN = (() => {
     return DRAWIO_URL;
   }
 })();
+
+// Long enough for a slow cross-origin round-trip, short enough that a student
+// clicking Submit is never left waiting on a reply that is not coming.
+const XML_EXPORT_TIMEOUT_MS = 4000;
 
 type DrawioMessage = {
   event?: "init" | "export" | "autosave" | "save" | "exit";
@@ -242,6 +249,14 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
           xmlExportResolverRef.current = resolve;
           xmlExportRejecterRef.current = reject;
           postToIframe({ action: "export", format: "xml" });
+          // Never let a missing reply wedge a submission: the caller treats a
+          // rejection as "no XML" and still submits on the image alone.
+          window.setTimeout(() => {
+            if (xmlExportResolverRef.current !== resolve) return;
+            xmlExportResolverRef.current = null;
+            xmlExportRejecterRef.current = null;
+            reject(new Error("draw.io did not return the diagram XML in time."));
+          }, XML_EXPORT_TIMEOUT_MS);
         }),
       loadXml: (xml: string) => {
         initialXmlRef.current = xml;
@@ -302,7 +317,10 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
 
       if (data.event === "export") {
         if (data.format === "xml") {
-          const xml = data.data ?? data.xml ?? "";
+          // draw.io puts the XML in `xml` and omits `data` entirely (verified
+          // against embed.diagrams.net). `||` not `??`, so an empty `data`
+          // string can never win over a populated `xml`.
+          const xml = data.xml || data.data || "";
           const resolver = xmlExportResolverRef.current;
           xmlExportResolverRef.current = null;
           xmlExportRejecterRef.current = null;
@@ -313,7 +331,7 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
         void (async () => {
           try {
             const imageFile = await toPngFile(data.data ?? "");
-            await onExportRef.current?.(imageFile);
+            await onExportRef.current?.(imageFile, data.xml || undefined);
           } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to export PNG from draw.io.";
             onExportErrorRef.current?.(message);

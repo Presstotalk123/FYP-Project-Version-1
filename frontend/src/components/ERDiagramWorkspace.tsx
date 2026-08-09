@@ -226,6 +226,13 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
   const [descModalOpen, setDescModalOpen] = useState(false);
   const [descText, setDescText] = useState("");
   const [pendingSubmitImage, setPendingSubmitImage] = useState<File | null>(null);
+  // draw.io source captured alongside the PNG at submit time. The backend
+  // parses it instead of running vision over the rendered image — the PNG is
+  // generated from this XML, so the XML is exact where vision is a guess.
+  // Null for image uploads, which keep the vision path.
+  const [pendingSubmitXml, setPendingSubmitXml] = useState<string | null>(null);
+  // Last XML draw.io autosaved, kept as the fallback source for a submission.
+  const lastAutosavedXmlRef = useRef<string>("");
 
   // Restore the persisted tutor transcript (LangGraph engine) so the chat log
   // survives reloads. Best-effort: no conversation yet / Dify engine / errors
@@ -413,6 +420,7 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
   // Fired by draw.io on every change, now that the load message enables it.
   // Silent: no prompt, no download — the student never sees this happen.
   const handleAutosave = (xml: string) => {
+    lastAutosavedXmlRef.current = xml;
     persistDraft(xml);
     setIsDirty(true);
   };
@@ -537,7 +545,7 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
     setSubmitError(null);
   }, [focusMode, submitError]);
 
-  const requestSubmit = (imageFile: File) => {
+  const requestSubmit = (imageFile: File, xml?: string | null) => {
     if (chatSending) return;
     if (!imageFile || imageFile.size === 0) {
       setSubmitError("Diagram export is empty. Please export again and retry.");
@@ -545,20 +553,24 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
     }
     setSubmitError(null);
     setPendingSubmitImage(imageFile);
+    setPendingSubmitXml(xml ?? null);
     setDescText("");
     setDescModalOpen(true);
   };
 
   const confirmSubmitWithDescription = async () => {
     const image = pendingSubmitImage;
+    const xml = pendingSubmitXml;
     setDescModalOpen(false);
     if (!image) return;
     const description = descText.trim();
     setPendingSubmitImage(null);
+    setPendingSubmitXml(null);
     await runSubmitStream({
       ...buildSubmissionRef(),
       mode: "Submit",
       erd_img: image,
+      submission_xml_text: xml || null,
       submission_description: description || null,
     });
   };
@@ -566,11 +578,25 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
   const cancelSubmitDescription = () => {
     setDescModalOpen(false);
     setPendingSubmitImage(null);
+    setPendingSubmitXml(null);
     setDescText("");
   };
 
-  const handleSubmitDrawioImage = async (imageFile: File) => {
-    requestSubmit(imageFile);
+  const handleSubmitDrawioImage = async (imageFile: File, xmlFromExport?: string) => {
+    // The export reply normally carries the source next to the PNG, which is
+    // the diagram the image was rendered from — exactly what we want to grade.
+    // The two fallbacks only matter if draw.io omits it: ask for the XML
+    // explicitly, then failing that use the last autosave. Losing the XML is
+    // never fatal; the submission still goes through on the image alone.
+    let xml: string | null = xmlFromExport?.trim() || null;
+    if (!xml) {
+      try {
+        xml = drawioRef.current ? await drawioRef.current.exportXml() : null;
+      } catch {
+        xml = null;
+      }
+    }
+    requestSubmit(imageFile, xml?.trim() || lastAutosavedXmlRef.current || null);
   };
 
   const handleSubmitImage = async () => {

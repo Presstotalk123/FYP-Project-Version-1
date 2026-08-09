@@ -14,10 +14,22 @@ from langgraph.graph import StateGraph, START, END
 from app.services.erd_tutor.state import GraphState
 from app.services.erd_tutor.nodes import observe_node, normalize_node, grade_node
 from app.services.erd_tutor.scoring import compute_grade
+from app.services.erd_tutor.deterministic_checks import apply_deterministic_overrides
 
 
 def _score_node(state: dict) -> dict:
-    return {"result": compute_grade(state["judge"], _as_dict(state["rubric_json"]),
+    rubric = _as_dict(state["rubric_json"])
+    # Cardinality checks whose rubric target names two explicit endpoints are
+    # decided by comparing those values against the canonical model in Python.
+    # Measured: the judge repeatedly failed endpoint-for-endpoint matches as
+    # "unclear or unknown" (45 of 51 lost points in one run) and separately
+    # passed a definite mismatch. Comparing two small JSON fragments is not a
+    # judgment call. Everything the comparison cannot decide mechanically —
+    # equivalences, unlocatable structure, unparseable values — keeps the
+    # judge's verdict untouched.
+    judge = apply_deterministic_overrides(state["judge"], rubric,
+                                          state.get("canonical_erd") or {})
+    return {"result": compute_grade(judge, rubric,
                                     state.get("last_submit_report", {}))}
 
 

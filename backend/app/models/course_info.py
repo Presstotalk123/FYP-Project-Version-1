@@ -1,10 +1,5 @@
-from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, Text
 from app.database import Base
-
-# Import FK-target models so their tables are registered on Base.metadata
-# (required for create_all / FK resolution when this model is imported directly).
-from app.models import user as _user  # noqa: F401
 
 
 class CourseInfo(Base):
@@ -19,7 +14,3 @@ class CourseInfo(Base):
 
     id = Column(Integer, primary_key=True)              # always 1
     content = Column(Text, nullable=False)              # Markdown
-    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    updated_at = Column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )

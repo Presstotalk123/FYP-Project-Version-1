@@ -58,6 +58,10 @@ export interface GraphEdge {
   /** Human-readable label, e.g. "purchase.cID = customer.cID" or "NOT IN". */
   label: string;
   kind: 'join' | 'subquery';
+  /** Column on the `from` node the edge should anchor to (for row-aligned routing). */
+  fromColumn?: string;
+  /** Column on the `to` node the edge should anchor to. */
+  toColumn?: string;
 }
 
 /** A subquery scope, drawn as a shaded cluster containing its nodes. */

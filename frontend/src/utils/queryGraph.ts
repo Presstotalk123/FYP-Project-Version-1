@@ -395,7 +395,12 @@ function buildScope(
   if (select.having) walkConditions(select.having, (leaf) => classifyLeaf(leaf));
 
   /** Recurse into a subquery and connect it; `outerId` is the outer node (or null). */
-  function maybeSubquery(subAst: any, outerId: string | null, label: string): boolean {
+  function maybeSubquery(
+    subAst: any,
+    outerId: string | null,
+    label: string,
+    outerColumn?: string,
+  ): boolean {
     if (!subAst) return false;
     if (depth >= MAX_DEPTH) {
       ctx.notes.push('A deeply nested subquery was not expanded.');
@@ -406,7 +411,7 @@ function buildScope(
     const childOut = buildScope(subAst, subId, subId, ctx, localResolve, depth + 1);
     const source = outerId ?? rels[0]?.id ?? null;
     if (source && childOut) {
-      ctx.edges.push({ from: source, to: childOut, label, kind: 'subquery' });
+      ctx.edges.push({ from: source, to: childOut, label, kind: 'subquery', fromColumn: outerColumn });
     }
     return true;
   }
@@ -445,7 +450,7 @@ function buildScope(
           ? leaf.right
           : null;
       const outerId = outerCol ? localResolve(outerCol.table ?? null) : null;
-      maybeSubquery(subRight ?? subLeft, outerId, opUpper);
+      maybeSubquery(subRight ?? subLeft, outerId, opUpper, outerCol ? colName(outerCol.column) : undefined);
       return;
     }
 
@@ -464,7 +469,7 @@ function buildScope(
       const lName = relById.get(lId)?.table ?? leaf.left.table ?? '';
       const rName = relById.get(rId)?.table ?? leaf.right.table ?? '';
       const label = `${lName}.${lCol} ${op} ${rName}.${rCol}`;
-      pushEdge(lId, rId, label, 'join');
+      pushEdge(lId, rId, label, 'join', lCol, rCol);
     } else if (leftCol || rightCol) {
       // column op literal → a filter
       if (!COMPARATORS.has(opUpper)) return;
@@ -485,11 +490,18 @@ function buildScope(
   }
 
   const edgeSeen = new Set<string>();
-  function pushEdge(a: string, b: string, label: string, kind: 'join' | 'subquery') {
+  function pushEdge(
+    a: string,
+    b: string,
+    label: string,
+    kind: 'join' | 'subquery',
+    fromColumn?: string,
+    toColumn?: string,
+  ) {
     const key = [a, b].sort().join('|') + '|' + label;
     if (edgeSeen.has(key)) return;
     edgeSeen.add(key);
-    ctx.edges.push({ from: a, to: b, label, kind });
+    ctx.edges.push({ from: a, to: b, label, kind, fromColumn, toColumn });
   }
 
   // ── run predicate classification over ON + WHERE ──

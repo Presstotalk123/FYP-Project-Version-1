@@ -12,11 +12,11 @@ interface QueryGraphProps {
 }
 
 /* ── layout constants ── */
-const HEADER_H = 34;
-const ROW_H = 24;
-const PAD = 12;
-const MIN_W = 150;
-const MAX_W = 340;
+const HEADER_H = 36;
+const ROW_H = 26;
+const PAD = 14;
+const MIN_W = 176;
+const MAX_W = 360;
 const JUNCTION_R = 46;
 const CHAR_TITLE = 7.6;
 const CHAR_COL = 7;
@@ -50,12 +50,41 @@ function measure(node: GraphNode): { width: number; height: number } {
   return { width, height };
 }
 
-/** Build an SVG path string from dagre's edge points. */
-function edgePath(points: { x: number; y: number }[]): string {
-  if (!points || points.length === 0) return '';
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) d += ` L ${points[i].x} ${points[i].y}`;
-  return d;
+interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Anchor an edge endpoint on the row of the joined column, on the box side that
+ * faces the other node. Junction/agg nodes (and missing columns) anchor at the
+ * node's vertical centre — for a circle that lands on its boundary.
+ */
+function anchorFor(p: Placed, columnName: string | undefined, otherCx: number): Point {
+  const leftSide = otherCx < p.cx;
+  const x = leftSide ? p.cx - p.w / 2 : p.cx + p.w / 2;
+  const node = p.node;
+  if (node.kind === 'entity' && node.columns.length) {
+    let idx = -1;
+    if (columnName) {
+      idx = node.columns.findIndex((c) => c.name.toLowerCase() === columnName.toLowerCase());
+    }
+    if (idx < 0) idx = node.columns.findIndex((c) => c.projected);
+    if (idx >= 0) {
+      const top = p.cy - p.h / 2;
+      return { x, y: top + HEADER_H + idx * ROW_H + ROW_H / 2 };
+    }
+  }
+  return { x, y: p.cy };
+}
+
+/** A horizontal-tangent cubic bézier between two anchor points. */
+function edgeCurve(a: Point, b: Point): string {
+  const sign = Math.sign(b.x - a.x) || 1;
+  const dx = Math.max(30, Math.abs(b.x - a.x) * 0.5);
+  const c1x = a.x + sign * dx;
+  const c2x = b.x - sign * dx;
+  return `M ${a.x} ${a.y} C ${c1x} ${a.y}, ${c2x} ${b.y}, ${b.x} ${b.y}`;
 }
 
 function groupDepth(g: GraphGroup, byId: Map<string, GraphGroup>): number {
@@ -122,17 +151,25 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
       })
       .sort((a, b) => a.depth - b.depth); // outer clusters drawn first
 
+    // Draw edges anchored to the joined column rows (dagre still spaced the nodes).
+    const placedById = new Map(placed.map((p) => [p.node.id, p]));
     const routedEdges = edges
-      .map((e, i) => {
-        const ge = g.edge(e.from, e.to, `e${i}`) as unknown as {
-          points: { x: number; y: number }[];
-          x: number;
-          y: number;
-        };
-        return { edge: e, points: ge.points, lx: ge.x, ly: ge.y };
-      })
       // Aggregation cards are anchored by an invisible layout edge — don't draw it.
-      .filter((re) => nodeById.get(re.edge.to)?.kind !== 'agg');
+      .filter((e) => nodeById.get(e.to)?.kind !== 'agg')
+      .map((e) => {
+        const a = placedById.get(e.from);
+        const b = placedById.get(e.to);
+        if (!a || !b) return null;
+        const p1 = anchorFor(a, e.fromColumn, b.cx);
+        const p2 = anchorFor(b, e.toColumn, a.cx);
+        return {
+          edge: e,
+          path: edgeCurve(p1, p2),
+          lx: (p1.x + p2.x) / 2,
+          ly: (p1.y + p2.y) / 2,
+        };
+      })
+      .filter((re): re is NonNullable<typeof re> => re !== null);
 
     const size = g.graph() as { width?: number; height?: number };
     return {
@@ -244,7 +281,7 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
           {routedEdges.map((re, i) => (
             <g key={`edge-${i}`}>
               <path
-                d={edgePath(re.points)}
+                d={re.path}
                 fill="none"
                 stroke={re.edge.kind === 'subquery' ? 'var(--brand-lilac)' : 'var(--border-strong)'}
                 strokeWidth={1.5}

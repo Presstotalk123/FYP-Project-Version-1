@@ -1006,7 +1006,7 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
             >
               <Tabs.List>
                 <Tabs.Tab value="ai-chat" leftSection={<BalooAvatar size={16} />}>
-                  {TUTOR_NAME}
+                  Ask {TUTOR_NAME}
                 </Tabs.Tab>
                 {showRubricTab ? <Tabs.Tab value="rubric">Rubric</Tabs.Tab> : null}
               </Tabs.List>

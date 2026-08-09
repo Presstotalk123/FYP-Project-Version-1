@@ -12,7 +12,6 @@ from sqlalchemy import create_engine
 from app.config import settings
 from app.database import Base
 from app.models.course_info import CourseInfo
-from app.models.user import User  # FK target (users.id) — ensure it is registered  # noqa: F401
 
 
 def main():

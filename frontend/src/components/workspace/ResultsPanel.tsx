@@ -73,7 +73,7 @@ export function ResultsPanel({
     { id: 'results', label: 'Results' },
     { id: 'diagram', label: 'Diagram' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
-    { id: 'chat', label: 'Bagheera' },
+    { id: 'chat', label: 'Ask Bagheera' },
   ];
 
   return (

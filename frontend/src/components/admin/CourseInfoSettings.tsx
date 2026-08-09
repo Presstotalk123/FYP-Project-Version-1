@@ -80,9 +80,6 @@ export function CourseInfoSettings() {
           <Text fw={700}>Course Info</Text>
           <Text size="xs" c="dimmed">
             Markdown shown on the student Course Info page. Changes go live on save.
-            {courseQuery.data?.updated_by_email
-              ? ` · Last edited by ${courseQuery.data.updated_by_email}`
-              : ''}
           </Text>
         </div>
         <SegmentedControl

@@ -153,7 +153,7 @@ export function LabResultsPanel({
     { id: 'diagram', label: 'Diagram' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
-    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'Bagheera' }]),
+    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'Ask Bagheera' }]),
   ];
 
   // If the AI Tutor tab gets hidden while it's the active tab, fall back to Results.

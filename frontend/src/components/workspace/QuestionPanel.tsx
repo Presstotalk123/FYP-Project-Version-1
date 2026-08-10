@@ -1,6 +1,7 @@
 'use client';
 
 import { QuestionDetail } from '@/types/question.types';
+import { DescriptionMarkdown } from '@/components/common/DescriptionMarkdown';
 
 interface QuestionPanelProps {
   question: QuestionDetail;
@@ -24,9 +25,7 @@ export function QuestionPanel({ question }: QuestionPanelProps) {
           </span>
         </div>
 
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          {question.description}
-        </p>
+        <DescriptionMarkdown content={question.description} fontSize={13} />
 
         <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 

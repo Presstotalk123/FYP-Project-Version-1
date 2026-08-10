@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic';
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 import { LabDetail } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
+import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 
 interface LabFormProps {
   lab?: LabDetail;
@@ -135,21 +136,15 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
       </div>
 
       {/* Description */}
-      <div style={{ display: 'grid', gap: 6 }}>
-        <label htmlFor="lab-description" style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
-          Description <span style={{ color: 'var(--error)' }}>*</span>
-        </label>
-        <textarea
-          id="lab-description"
-          className="da-input"
-          style={{ width: '100%', minHeight: 100, resize: 'vertical', fontFamily: 'var(--font-geist-sans)' }}
-          placeholder="Enter lab description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          disabled={isDisabled}
-          required
-        />
-      </div>
+      <MarkdownDescriptionField
+        id="lab-description"
+        label="Description"
+        required
+        placeholder="Enter lab description"
+        value={description}
+        onChange={setDescription}
+        disabled={isDisabled}
+      />
 
       {/* SQL / Graph editors */}
       {labType === 'graph' ? (

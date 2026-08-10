@@ -30,6 +30,7 @@ export const API_ENDPOINTS = {
     GENERATE_RUBRIC: '/er-diagram/rubric/generate',
     QUESTIONS: '/er-diagram/questions',
     QUESTIONS_COUNT: '/er-diagram/questions/count',
+    PROGRESS: '/er-diagram/progress',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
     QUESTION_PUBLISH: (id: number) => `/er-diagram/questions/${id}/publish`,
     QUESTION_UNPUBLISH: (id: number) => `/er-diagram/questions/${id}/unpublish`,

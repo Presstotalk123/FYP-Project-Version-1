@@ -12,6 +12,9 @@ export const queryKeys = {
   attempts: ['attempts'] as const,
   erdPrompts: ['erdPrompts'] as const,
   erdPromptVersions: (key: string) => ['erdPromptVersions', key] as const,
+  // The staff-tunable ERD toggle. Reads are open to any authenticated user, so
+  // this is shared by the staff settings page and the student question list.
+  erdSettings: ['erdSettings'] as const,
 
   // Student-scoped keys. SQL Questions and SQL Labs hit the same endpoints as the
   // staff pages (the backend role-filters), so students get their own keys to
@@ -21,6 +24,8 @@ export const queryKeys = {
   studentQuestions: (params: { difficulty: string; search: string }) =>
     ['studentQuestions', params] as const,
   studentProgress: ['studentProgress'] as const,
+  // ERD's counterpart to studentProgress: per-question completion for the list.
+  studentErdProgress: ['studentErdProgress'] as const,
   // Course syllabus — shared by the student Course Info page and the staff editor
   // (same content). Invalidated after a staff save so the student page refetches.
   courseInfo: ['courseInfo'] as const,

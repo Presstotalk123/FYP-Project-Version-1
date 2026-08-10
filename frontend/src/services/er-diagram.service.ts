@@ -4,6 +4,7 @@ import {
   ERDiagramQuestion,
   ERDiagramQuestionListItem,
   ERDiagramQuestionCount,
+  ERDiagramQuestionProgress,
   ERSubmissionRequest,
   ERSubmissionResponse,
   ERSubmissionStreamEvent,
@@ -164,6 +165,13 @@ export const erDiagramService = {
   // Dashboard tile: backend-cached total + per-user attempted count (no full list fetch).
   async getQuestionCount(): Promise<ERDiagramQuestionCount> {
     const response = await api.get<ERDiagramQuestionCount>(API_ENDPOINTS.ER_DIAGRAM.QUESTIONS_COUNT);
+    return response.data;
+  },
+
+  // Per-question progress for the student list. Only attempted questions come
+  // back, so absence means untouched — there is no row saying so.
+  async getProgress(): Promise<ERDiagramQuestionProgress[]> {
+    const response = await api.get<ERDiagramQuestionProgress[]>(API_ENDPOINTS.ER_DIAGRAM.PROGRESS);
     return response.data;
   },
 

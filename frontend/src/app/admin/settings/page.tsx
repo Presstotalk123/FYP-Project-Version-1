@@ -255,6 +255,14 @@ export default function AdminSettingsPage() {
                 setSavingAuthoring(true);
                 try {
                   await settingsService.updateErdSettings({ student_authoring_enabled: next });
+                  // The student question list reads this to decide whether to badge a
+                  // question's author. `refetchType: 'all'` because the query client
+                  // sets refetchOnMount: false — a plain invalidate would leave that
+                  // unmounted list holding the old value.
+                  await queryClient.invalidateQueries({
+                    queryKey: queryKeys.erdSettings,
+                    refetchType: 'all',
+                  });
                   notifications.show({
                     color: 'green',
                     title: next ? 'Student authoring on' : 'Student authoring off',

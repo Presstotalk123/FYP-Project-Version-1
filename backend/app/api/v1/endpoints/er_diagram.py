@@ -27,6 +27,7 @@ from app.schemas.er_diagram import (
     ERDiagramQuestionResponse,
     ERDiagramQuestionListItem,
     ERDiagramQuestionCountResponse,
+    ERDiagramQuestionProgressItem,
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
@@ -1108,6 +1109,58 @@ def get_er_question_count(
     )
 
     return ERDiagramQuestionCountResponse(total=total, attempted=attempted)
+
+
+@router.get("/progress", response_model=list[ERDiagramQuestionProgressItem])
+def get_er_question_progress(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Per-question standalone progress for the current user's question list.
+
+    The same signal `/questions/count` aggregates, itemised: one row per question
+    with a graded standalone submission. Untouched questions are simply absent.
+
+    `completed` reads the grader's own verdict out of the `last_submit_score` JSON
+    rather than thresholding `percent`, so a question counts as done exactly when
+    the student was told it passed. A row whose JSON is unreadable degrades to
+    attempted-but-not-completed — a list badge is not worth a 500.
+    """
+    rows = (
+        db.query(
+            ErdTutorConversation.er_diagram_question_id,
+            ErdTutorConversation.last_submit_score,
+        )
+        .join(
+            ERDiagramQuestion,
+            ERDiagramQuestion.id == ErdTutorConversation.er_diagram_question_id,
+        )
+        .filter(
+            ErdTutorConversation.user_id == current_user.id,
+            ErdTutorConversation.context_type == "standalone",
+            ErdTutorConversation.er_diagram_question_id.isnot(None),
+            ErdTutorConversation.last_submit_score.isnot(None),
+            ERDiagramQuestion.is_deleted == 0,
+        )
+        .all()
+    )
+
+    progress: list[ERDiagramQuestionProgressItem] = []
+    for question_id, raw_score in rows:
+        completed = False
+        try:
+            data = json.loads(raw_score)
+            completed = isinstance(data, dict) and data.get("label") == "pass"
+        except (TypeError, ValueError):
+            logger.warning(
+                "Unreadable last_submit_score for user %s question %s",
+                current_user.id,
+                question_id,
+            )
+        progress.append(
+            ERDiagramQuestionProgressItem(question_id=question_id, completed=completed)
+        )
+    return progress
 
 
 @router.get("/questions/{question_id}", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)

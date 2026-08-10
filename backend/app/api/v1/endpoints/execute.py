@@ -121,6 +121,7 @@ def execute_query(
     q_check_query = question.check_query
     q_correct_hash = question.correct_answer_hash
     q_hide_correctness = bool(question.hide_correctness)
+    q_order_sensitive = bool(question.order_sensitive)
     db_path = get_question_db_path(question.db_file_path)
 
     # Assessment timer: cloned assessment content carries owner_assessment_id. When set,
@@ -203,7 +204,8 @@ def execute_query(
                 is_correct = validate_answer(
                     result["raw_results"],
                     result["columns"],
-                    q_correct_hash
+                    q_correct_hash,
+                    order_sensitive=q_order_sensitive
                 )
             else:
                 # Query failed, so it's definitely not correct

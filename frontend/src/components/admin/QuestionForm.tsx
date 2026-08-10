@@ -40,6 +40,7 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
   const [advancedSqlTesting, setAdvancedSqlTesting] = useState(question?.advanced_sql_testing ?? false);
   const [testScript, setTestScript] = useState(question?.test_script || '');
   const [checkQuery, setCheckQuery] = useState(question?.check_query || '');
+  const [orderSensitive, setOrderSensitive] = useState(question?.order_sensitive ?? false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +92,8 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         advanced_sql_testing: advancedSqlTesting,
         test_script: advancedSqlTesting ? testScript : null,
         check_query: advancedSqlTesting ? checkQuery : null,
+        // Row-order grading is a standard-mode concept; advanced mode ignores it.
+        order_sensitive: advancedSqlTesting ? false : orderSensitive,
       };
 
       if (isEdit && question) {
@@ -272,6 +275,40 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
           the submission&apos;s own output directly.
         </p>
       </div>
+
+      {/* Order-sensitive grading toggle (standard mode only) */}
+      {!advancedSqlTesting && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={orderSensitive}
+              aria-label="Order-sensitive grading"
+              onClick={() => setOrderSensitive((v) => !v)}
+              style={{
+                position: 'relative', width: 40, height: 22, borderRadius: 999,
+                border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0,
+                background: orderSensitive ? 'var(--brand-lilac)' : 'var(--border-strong)',
+                transition: 'background 140ms ease',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: orderSensitive ? 20 : 2,
+                width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                transition: 'left 140ms ease',
+              }} />
+            </button>
+            <span style={labelStyle}>Order-sensitive grading</span>
+          </div>
+          <p style={helpStyle}>
+            Require students&apos; rows in the exact order your correct query
+            returns them (enforces <code>ORDER BY</code>). Off by default — row
+            order is ignored during comparison.
+          </p>
+        </div>
+      )}
 
       {advancedSqlTesting && (
         <>

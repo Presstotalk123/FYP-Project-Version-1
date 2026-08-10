@@ -22,6 +22,7 @@ class QuestionCreate(QuestionBase):
     test_script: Optional[str] = Field(None, description="Staff-only hidden script that exercises the submission (e.g. an INSERT that fires a trigger)")
     check_query: Optional[str] = Field(None, description="Staff-only hidden SELECT that captures the resulting state to hash")
     hide_correctness: bool = Field(False, description="When on, students see a neutral 'Submitted' result instead of Correct/Incorrect")
+    order_sensitive: bool = Field(False, description="When on, grading requires the student's rows in the same order as the correct query (enforces ORDER BY). Standard mode only.")
 
     @model_validator(mode="after")
     def _validate_advanced_fields(self):
@@ -45,6 +46,7 @@ class QuestionUpdate(BaseModel):
     test_script: Optional[str] = None
     check_query: Optional[str] = None
     hide_correctness: Optional[bool] = None
+    order_sensitive: Optional[bool] = None
 
 
 class QuestionResponse(QuestionBase):
@@ -57,6 +59,7 @@ class QuestionResponse(QuestionBase):
     test_script: Optional[str] = None
     check_query: Optional[str] = None
     hide_correctness: bool = False
+    order_sensitive: bool = False
     is_published: bool = False
 
     class Config:

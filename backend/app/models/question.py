@@ -47,6 +47,12 @@ class Question(Base):
     # 0/1 flag, following the same Integer-flag convention as is_deleted.
     hide_correctness = Column(Integer, nullable=False, default=0)
 
+    # When set, grading is row-order-sensitive: the student's rows must be in the
+    # same order as the correct answer query (enforces an explicit ORDER BY).
+    # When unset (default), row order is ignored during comparison.
+    # 0/1 flag, following the same Integer-flag convention as is_deleted.
+    order_sensitive = Column(Integer, nullable=False, default=0)
+
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

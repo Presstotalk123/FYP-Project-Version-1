@@ -55,7 +55,7 @@ interface LabDescriptionPanelProps {
   taskProgress: Record<number, LabTaskProgress>;
   onCreateTask: (taskData: LabTaskCreate) => Promise<void>;
   onDeleteTask: (taskId: number) => Promise<void>;
-  onEditTask: (taskId: number, data: { title: string; description: string }) => Promise<void>;
+  onEditTask: (taskId: number, data: { title: string; description: string; order_sensitive?: boolean }) => Promise<void>;
   onReorderTasks: (reorderedTasks: LabTask[]) => void;
   reviewMode?: boolean;
   studentQueries?: LabQueryHistoryResponse[];
@@ -167,6 +167,50 @@ function SortableTaskCard({
   );
 }
 
+// Order-sensitive grading toggle. Mirrors the switch in the admin QuestionForm so
+// staff see a consistent control for the same concept across questions and lab tasks.
+function OrderSensitiveToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          aria-label="Order-sensitive grading"
+          onClick={() => onChange(!checked)}
+          style={{
+            position: 'relative', width: 40, height: 22, borderRadius: 999,
+            border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0,
+            background: checked ? 'var(--brand-lilac)' : 'var(--border-strong)',
+            transition: 'background 140ms ease',
+          }}
+        >
+          <span style={{
+            position: 'absolute', top: 2, left: checked ? 20 : 2,
+            width: 18, height: 18, borderRadius: '50%', background: '#fff',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+            transition: 'left 140ms ease',
+          }} />
+        </button>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+          Order-sensitive grading
+        </span>
+      </div>
+      <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+        Require students&apos; rows in the exact order your correct query returns them
+        (enforces <code>ORDER BY</code>). Off by default — row order is ignored.
+      </p>
+    </div>
+  );
+}
+
 export function LabDescriptionPanel({
   lab,
   sessionId,
@@ -191,11 +235,13 @@ export function LabDescriptionPanel({
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
+  const [newTaskOrderSensitive, setNewTaskOrderSensitive] = useState(false);
 
   // Edit modal state
   const [editingTask, setEditingTask] = useState<LabTask | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editOrderSensitive, setEditOrderSensitive] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const handleOpenEdit = (taskId: number, data: { title: string; description: string }) => {
@@ -203,13 +249,14 @@ export function LabDescriptionPanel({
     setEditingTask(task);
     setEditTitle(data.title);
     setEditDescription(data.description);
+    setEditOrderSensitive(task.order_sensitive);
   };
 
   const handleSaveEdit = async () => {
     if (!editingTask || !editTitle.trim() || !editDescription.trim()) return;
     setIsSavingEdit(true);
     try {
-      await onEditTask(editingTask.id, { title: editTitle, description: editDescription });
+      await onEditTask(editingTask.id, { title: editTitle, description: editDescription, order_sensitive: editOrderSensitive });
       setEditingTask(null);
     } finally {
       setIsSavingEdit(false);
@@ -235,9 +282,10 @@ export function LabDescriptionPanel({
     }
     setIsCreatingTask(true);
     try {
-      await onCreateTask({ title: taskTitle, description: taskDescription, order_index: tasks.length });
+      await onCreateTask({ title: taskTitle, description: taskDescription, order_index: tasks.length, order_sensitive: newTaskOrderSensitive });
       setTaskTitle('');
       setTaskDescription('');
+      setNewTaskOrderSensitive(false);
     } finally {
       setIsCreatingTask(false);
     }
@@ -394,6 +442,11 @@ export function LabDescriptionPanel({
                       minHeight={70}
                     />
 
+                    <OrderSensitiveToggle
+                      checked={newTaskOrderSensitive}
+                      onChange={setNewTaskOrderSensitive}
+                    />
+
                     <div className="da-alert alert-info" style={{ fontSize: 12 }}>
                       After creating the task, execute a query and assign its result as the correct answer from the Results panel.
                     </div>
@@ -455,6 +508,11 @@ export function LabDescriptionPanel({
                 value={editDescription}
                 onChange={setEditDescription}
                 minHeight={80}
+              />
+
+              <OrderSensitiveToggle
+                checked={editOrderSensitive}
+                onChange={setEditOrderSensitive}
               />
             </div>
 

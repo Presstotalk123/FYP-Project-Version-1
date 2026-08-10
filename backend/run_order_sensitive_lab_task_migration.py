@@ -1,0 +1,66 @@
+"""Migration: add order_sensitive column to lab_tasks table."""
+import sys
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+
+from app.config import settings
+
+NEW_COLUMNS = [
+    ("order_sensitive", "INTEGER NOT NULL DEFAULT 0"),
+]
+
+
+def run_postgres():
+    import psycopg2
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            for column_name, column_def in NEW_COLUMNS:
+                cur.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'lab_tasks' AND column_name = %s
+                    """,
+                    (column_name,),
+                )
+                if cur.fetchone():
+                    print(f"[OK] Column '{column_name}' already exists in lab_tasks table.")
+                    continue
+                cur.execute(f"ALTER TABLE lab_tasks ADD COLUMN {column_name} {column_def};")
+                print(f"[OK] Added '{column_name}' column to lab_tasks table.")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def run_sqlite():
+    import sqlite3
+    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute("PRAGMA table_info(lab_tasks)")
+        existing_cols = [row[1] for row in cur.fetchall()]
+        for column_name, column_def in NEW_COLUMNS:
+            if column_name in existing_cols:
+                print(f"[OK] Column '{column_name}' already exists in lab_tasks table.")
+                continue
+            conn.execute(f"ALTER TABLE lab_tasks ADD COLUMN {column_name} {column_def}")
+            print(f"[OK] Added '{column_name}' column to lab_tasks table.")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Lab Tasks Column Migration: add order_sensitive column")
+    print("=" * 60)
+    if settings.DATABASE_URL.startswith("sqlite"):
+        run_sqlite()
+    else:
+        run_postgres()

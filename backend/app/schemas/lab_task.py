@@ -8,6 +8,7 @@ class LabTaskCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(..., min_length=1)
     order_index: Optional[int] = Field(0, description="Display order")
+    order_sensitive: bool = Field(False, description="When on, grading requires the student's rows in the same order as the correct query (enforces ORDER BY).")
 
 
 class LabTaskAssignAnswer(BaseModel):
@@ -20,6 +21,7 @@ class LabTaskUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, min_length=1)
     order_index: Optional[int] = None
+    order_sensitive: Optional[bool] = None
 
 
 class LabTaskResponse(BaseModel):
@@ -29,6 +31,7 @@ class LabTaskResponse(BaseModel):
     title: str
     description: str
     order_index: int
+    order_sensitive: bool = False
     has_answer: bool  # Computed: whether correct_answer_hash is not null
     created_by: int
     created_at: datetime

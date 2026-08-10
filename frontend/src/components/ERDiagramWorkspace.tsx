@@ -23,6 +23,7 @@ import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel, TUTOR_NAME, type ChatHistoryMessage } from "@/components/ChatPanel";
+import { DescriptionMarkdown } from "@/components/common/DescriptionMarkdown";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
 import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
@@ -732,7 +733,7 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
 
   const problemDrawerContent: ReactNode = (
     <Stack gap="md">
-      <Text style={{ whiteSpace: "pre-wrap" }}>{question.description}</Text>
+      <DescriptionMarkdown content={question.description} />
       {latestStudentMessage ? (
         <Paper withBorder radius="md" p="md">
           <Stack gap={4}>
@@ -870,7 +871,7 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
                   </Badge>
                 ) : null}
               </Group>
-              <Text>{question.description}</Text>
+              <DescriptionMarkdown content={question.description} />
 
               <Stack gap="sm">
                 <Group justify="space-between" align="center">

@@ -20,6 +20,7 @@ import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { IconAlertCircle, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import Editor from "@monaco-editor/react";
 import { useAuth } from "@/contexts/AuthContext";
+import { MarkdownDescriptionField } from "@/components/common/MarkdownDescriptionField";
 import { erDiagramService } from "@/services/er-diagram.service";
 import { queryKeys } from "@/services/query-keys";
 import type {
@@ -353,14 +354,15 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
                 setHasUnsavedChanges(true);
               }}
             />
-            <Textarea
+            <MarkdownDescriptionField
+              id="er-problem-description"
               label="Problem description"
               placeholder="Describe the ER diagram problem here."
-              rows={8}
+              minHeight={180}
               required
               value={problemStatement}
-              onChange={(event) => {
-                setProblemStatement(event.currentTarget.value);
+              onChange={(value) => {
+                setProblemStatement(value);
                 setHasUnsavedChanges(true);
               }}
             />

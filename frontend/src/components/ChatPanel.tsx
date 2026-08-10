@@ -21,14 +21,24 @@ type ChatMessage = {
 /** The ER-diagram tutor's name, shown beside every message he sends. */
 export const TUTOR_NAME = "Baloo";
 
-const seedMessages: ChatMessage[] = [
-  {
-    id: "assistant-1",
-    role: "assistant",
-    content: `Hi, I am ${TUTOR_NAME}. Share your entities and relationships, and I will review them.`,
-    animate: false,
-  },
-];
+/** Shown in place of the transcript until there is something to show, mirroring
+ *  the SQL workspace's chat tab (`workspace/ChatTab.tsx`). */
+function EmptyState() {
+  return (
+    <Stack
+      align="center"
+      justify="center"
+      gap={10}
+      style={{ flex: 1, textAlign: "center", padding: "24px 16px" }}
+    >
+      <BalooAvatar size={56} alt={`${TUTOR_NAME}, the ER diagram tutor`} />
+      <Text c="dimmed" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 280 }}>
+        Ask the AI tutor for help with this ER diagram. I can explain concepts,
+        review your entities and relationships, and guide you toward the solution.
+      </Text>
+    </Stack>
+  );
+}
 
 export type ChatHistoryMessage = {
   id: string;
@@ -98,7 +108,7 @@ export function ChatPanel({
   onSendingChange,
   historyMessages,
 }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const lastInjectedMessageRef = useRef<string>("");
@@ -124,13 +134,9 @@ export function ChatPanel({
     if (injectedAssistantMessage?.trim()) {
       lastInjectedMessageRef.current = normalizeMessage(injectedAssistantMessage.trim());
     }
-    // Greeting first, then the persisted transcript, then anything the user
-    // already typed this session (normally nothing — history loads on mount).
-    setMessages((prev) => [
-      ...seedMessages,
-      ...restored,
-      ...prev.filter((m) => !seedMessages.some((s) => s.id === m.id)),
-    ]);
+    // The persisted transcript first, then anything the user already typed this
+    // session (normally nothing — history loads on mount).
+    setMessages((prev) => [...restored, ...prev]);
   }, [historyMessages, injectedAssistantMessage]);
 
   const scrollToLatest = useCallback(() => {
@@ -252,45 +258,49 @@ export function ChatPanel({
           flexDirection: "column",
         }}
       >
-        <Stack gap="sm" style={{ marginTop: "auto" }}>
-          {messages.map((message) => (
-            <Box
-              key={message.id}
-              style={{
-                alignSelf: message.role === "user" ? "flex-end" : "flex-start",
-                maxWidth: "85%",
-              }}
-            >
-              {message.role === "assistant" ? (
-                <Group gap={6} align="center" mb={4}>
-                  <BalooAvatar size={20} />
-                  <Text size="xs" fw={600} c="dimmed">
-                    {TUTOR_NAME}
-                  </Text>
-                </Group>
-              ) : null}
+        {messages.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <Stack gap="sm" style={{ marginTop: "auto" }}>
+            {messages.map((message) => (
               <Box
+                key={message.id}
                 style={{
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  background:
-                    message.role === "user"
-                      // Follows the surrounding theme: blue by default, brand
-                      // purple inside the ER-diagram workspace, which scopes it
-                      // via DrawioTheme.module.css.
-                      ? "var(--mantine-primary-color-filled)"
-                      : "var(--mantine-color-gray-1)",
-                  color:
-                    message.role === "user"
-                      ? "var(--mantine-color-white)"
-                      : "var(--mantine-color-black)",
+                  alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+                  maxWidth: "85%",
                 }}
               >
-                <TypewriterMessage message={message} onTextUpdate={scrollToLatest} />
+                {message.role === "assistant" ? (
+                  <Group gap={6} align="center" mb={4}>
+                    <BalooAvatar size={20} />
+                    <Text size="xs" fw={600} c="dimmed">
+                      {TUTOR_NAME}
+                    </Text>
+                  </Group>
+                ) : null}
+                <Box
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background:
+                      message.role === "user"
+                        // Follows the surrounding theme: blue by default, brand
+                        // purple inside the ER-diagram workspace, which scopes it
+                        // via DrawioTheme.module.css.
+                        ? "var(--mantine-primary-color-filled)"
+                        : "var(--mantine-color-gray-1)",
+                    color:
+                      message.role === "user"
+                        ? "var(--mantine-color-white)"
+                        : "var(--mantine-color-black)",
+                  }}
+                >
+                  <TypewriterMessage message={message} onTextUpdate={scrollToLatest} />
+                </Box>
               </Box>
-            </Box>
-          ))}
-        </Stack>
+            ))}
+          </Stack>
+        )}
       </Box>
       <Group align="stretch" gap="xs">
         <Textarea

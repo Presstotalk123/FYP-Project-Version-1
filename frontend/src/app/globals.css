@@ -109,6 +109,19 @@ a {
   font-weight: 600;
 }
 
+/* Beside the brand rather than centred, matching the home header. Same
+   mechanism: .topbar is space-between across brand / nav / user tools, so an
+   auto right margin on the nav takes the free space and leaves the two on the
+   left reading as one group.
+
+   The explicit left margin is needed here but not on the home header, which
+   declares gap: 18px; .topbar declares none, so without it the nav would butt
+   straight up against the wordmark. */
+.topbar .app-nav {
+  margin-right: auto;
+  margin-left: 28px;
+}
+
 .app-nav a,
 .app-nav span {
   color: var(--brand-charcoal);
@@ -760,7 +773,11 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 76px;
+  /* Matches .topbar exactly. A logged-in user's home header IS .topbar, so any
+     difference would show as a jump when auth resolves and this one stands
+     down. It also agrees with .home-screen above, which has always reserved
+     calc(100vh - 64px) for a header this file rendered at 76px. */
+  min-height: 64px;
   padding: 0 56px;
   border-bottom: 1px solid rgba(64, 49, 111, 0.12);
   background: rgba(255, 255, 255, 0.9);
@@ -771,6 +788,7 @@ a {
   font-size: 16px;
   font-weight: 850;
 }
+
 
 .home-nav,
 .home-actions,

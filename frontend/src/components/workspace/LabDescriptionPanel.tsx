@@ -514,6 +514,19 @@ export function LabDescriptionPanel({
                 checked={editOrderSensitive}
                 onChange={setEditOrderSensitive}
               />
+
+              {/* Changing order-sensitivity on an already-answered task recomputes the
+                  correct-answer hash by re-running the saved query against the current
+                  lab template. If the lab's schema/data changed since the answer was
+                  assigned, the recomputed answer may differ — warn staff before saving. */}
+              {editingTask.has_answer && editOrderSensitive !== editingTask.order_sensitive && (
+                <div className="da-alert alert-warn" style={{ fontSize: 12 }}>
+                  Changing this setting will recompute this task&apos;s correct answer by
+                  re-running its query against the current lab template. If you&apos;ve edited
+                  the lab&apos;s schema or sample data since assigning the answer, the result
+                  may change. Re-assign the answer if you want to be certain.
+                </div>
+              )}
             </div>
 
             <div className="button-row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>

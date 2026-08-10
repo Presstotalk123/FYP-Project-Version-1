@@ -142,6 +142,7 @@ export interface LabTask {
   title: string;
   description: string;
   order_index: number;
+  order_sensitive: boolean;
   has_answer: boolean;
   created_by: number;
   created_at: string;
@@ -156,6 +157,7 @@ export interface LabTaskCreate {
   title: string;
   description: string;
   order_index?: number;
+  order_sensitive?: boolean;
 }
 
 export interface LabTaskAssignAnswer {
@@ -166,6 +168,7 @@ export interface LabTaskUpdate {
   title?: string;
   description?: string;
   order_index?: number;
+  order_sensitive?: boolean;
 }
 
 export interface LabTaskValidateRequest {

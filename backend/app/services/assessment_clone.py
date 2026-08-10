@@ -168,6 +168,7 @@ def clone_lab_for_assessment(
                 correct_answer_hash=task.correct_answer_hash,
                 correct_query=task.correct_query,
                 order_index=task.order_index,
+                order_sensitive=task.order_sensitive,
                 created_by=task.created_by,
                 is_deleted=0,
                 owner_assessment_id=assessment_id,

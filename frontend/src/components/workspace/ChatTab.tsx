@@ -42,10 +42,32 @@ export function ChatTab({ questionId }: ChatTabProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Clear messages when question changes
+  // Restore the persisted transcript when the question changes (best-effort).
+  // Clears first so a new question never briefly shows the previous one's chat.
   useEffect(() => {
+    let cancelled = false;
     setMessages([]);
     setError(null);
+    chatbotService
+      .getQuestionConversation(questionId)
+      .then((conv) => {
+        if (cancelled || !conv.exists) return;
+        const restored: ChatMessage[] = conv.messages
+          .filter((m) => m.content)
+          .map((m) => ({
+            id: `stored-${m.id}`,
+            role: m.role,
+            content: m.content ?? '',
+            timestamp: m.created_at ?? new Date().toISOString(),
+          }));
+        setMessages(restored);
+      })
+      .catch(() => {
+        // Restore is best-effort; on failure just leave the chat empty.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [questionId]);
 
   const handleSend = async () => {

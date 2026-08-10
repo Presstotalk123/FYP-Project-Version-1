@@ -71,6 +71,11 @@ const IconReview = () => (
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
   </svg>
 );
+const IconChart = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+  </svg>
+);
 const IconEdit = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -332,6 +337,15 @@ export default function AdminLabsPage() {
                           style={{ color: '#2563eb' }}
                         >
                           <IconReview />
+                        </button>
+                        {/* Student analytics */}
+                        <button
+                          className="icon-btn"
+                          title="Student analytics"
+                          onClick={() => router.push(`/admin/lab-analytics/${lab.id}`)}
+                          style={{ color: '#7c3aed' }}
+                        >
+                          <IconChart />
                         </button>
                         {/* Start/Stop */}
                         {lab.is_published && (

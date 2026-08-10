@@ -24,6 +24,22 @@ export interface LabQueryReviewResponse {
   hint: string;
 }
 
+// ── Persisted tutor transcript (restore on mount) ────────────────────────────
+
+export interface StoredTutorMessage {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string | null;
+  created_at: string | null;
+}
+
+export interface TutorConversationResponse {
+  exists: boolean;
+  conversation_id: number | null;
+  context_type?: 'question' | 'lab';
+  messages: StoredTutorMessage[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const chatbotService = {
@@ -84,6 +100,29 @@ export const chatbotService = {
       },
       body: JSON.stringify({ lab_id, session_id, user_message }),
     });
+  },
+
+  // NEW: Restore the current user's saved SQL-question tutor transcript
+  async getQuestionConversation(
+    question_id: number
+  ): Promise<TutorConversationResponse> {
+    const response = await api.get<TutorConversationResponse>(
+      API_ENDPOINTS.CHATBOT.CONVERSATION,
+      { params: { question_id } }
+    );
+    return response.data;
+  },
+
+  // NEW: Restore the current user's saved SQL-lab tutor transcript for a session
+  async getLabConversation(
+    lab_id: number,
+    session_id: number
+  ): Promise<TutorConversationResponse> {
+    const response = await api.get<TutorConversationResponse>(
+      API_ENDPOINTS.CHATBOT.LAB_CONVERSATION,
+      { params: { lab_id, session_id } }
+    );
+    return response.data;
   },
 
   // NEW: Conversational course assistant for the course info page (Streaming)

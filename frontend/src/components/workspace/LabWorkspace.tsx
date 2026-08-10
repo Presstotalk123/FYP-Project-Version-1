@@ -665,7 +665,7 @@ export function LabWorkspace({
     }
   };
 
-  const handleUpdateTask = async (taskId: number, data: { title: string; description: string }) => {
+  const handleUpdateTask = async (taskId: number, data: { title: string; description: string; order_sensitive?: boolean }) => {
     try {
       const updatedTask = await labService.updateLabTask(labId, taskId, data);
       setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));

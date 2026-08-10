@@ -446,6 +446,28 @@ export default function ProblemsPage() {
                                       <IconChart />
                                     </button>
                                   )}
+                                  {problem.problemType === 'sql-question' && (
+                                    <button
+                                      className="icon-btn"
+                                      title="Student analytics"
+                                      aria-label={`Analytics for ${problem.title}`}
+                                      onClick={() => router.push(`/admin/sql-analytics/${problem.id}`)}
+                                      style={{ color: '#0d9488' }}
+                                    >
+                                      <IconChart />
+                                    </button>
+                                  )}
+                                  {(problem.problemType === 'sql-lab' || problem.problemType === 'graph-lab') && (
+                                    <button
+                                      className="icon-btn"
+                                      title="Student analytics"
+                                      aria-label={`Analytics for ${problem.title}`}
+                                      onClick={() => router.push(`/admin/lab-analytics/${problem.id}`)}
+                                      style={{ color: '#0d9488' }}
+                                    >
+                                      <IconChart />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>

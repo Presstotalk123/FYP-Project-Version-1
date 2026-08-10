@@ -22,6 +22,7 @@ from app.utils.db_generator import (
     create_sqlite_from_sql,
     execute_query_on_database,
     delete_question_database,
+    get_question_db_path,
     SQLValidationError,
     DatabaseGenerationError
 )
@@ -154,7 +155,14 @@ def create_question(
                 raise
 
             # Generate hash from correct answer
-            correct_hash = generate_hash(results, columns)
+            correct_hash = generate_hash(
+                results, columns, order_sensitive=question_data.order_sensitive
+            )
+
+        # order_sensitive is a standard-mode concept only; advanced grading ignores it.
+        order_sensitive_flag = (
+            1 if (not is_advanced and question_data.order_sensitive) else 0
+        )
 
         # Create question in database
         new_question = Question(
@@ -168,6 +176,7 @@ def create_question(
             test_script=question_data.test_script if is_advanced else None,
             check_query=question_data.check_query if is_advanced else None,
             hide_correctness=1 if question_data.hide_correctness else 0,
+            order_sensitive=order_sensitive_flag,
             db_file_path=db_filename,
             correct_answer_hash=correct_hash,
             created_by=current_user.id
@@ -419,6 +428,16 @@ def update_question(
             else bool(question.advanced_sql_testing)
         )
 
+        # Resolve order-sensitivity: explicit value wins, else keep current.
+        # It's a standard-mode concept only — advanced grading forces it off.
+        order_sensitive = (
+            question_data.order_sensitive
+            if question_data.order_sensitive is not None
+            else bool(question.order_sensitive)
+        )
+        if advanced_sql_testing:
+            order_sensitive = False
+
         # Check if SQL needs to be regenerated
         sql_changed = (
             question_data.schema_sql is not None or
@@ -489,7 +508,9 @@ def update_question(
                 except HTTPException:
                     delete_question_database(db_filename)
                     raise
-                correct_hash = generate_hash(results, columns)
+                correct_hash = generate_hash(
+                    results, columns, order_sensitive=order_sensitive
+                )
 
             # Only replace the existing database after the new answer has been validated.
             delete_question_database(question.db_file_path)
@@ -503,6 +524,8 @@ def update_question(
             question.advanced_sql_testing = 1 if advanced_sql_testing else 0
             question.db_file_path = db_filename
             question.correct_answer_hash = correct_hash
+            # Hash above was computed with this flag; keep the column consistent.
+            question.order_sensitive = 1 if order_sensitive else 0
 
         # Update other fields if provided
         if question_data.title is not None:
@@ -514,6 +537,26 @@ def update_question(
         # hide_correctness is independent of SQL regeneration — apply it on its own.
         if question_data.hide_correctness is not None:
             question.hide_correctness = 1 if question_data.hide_correctness else 0
+
+        # order_sensitive changes the meaning of the stored hash. When it's toggled
+        # without an accompanying SQL change (which already recomputes the hash above),
+        # recompute the hash against the existing database so grading stays correct.
+        # Advanced-mode questions ignore order-sensitivity, so they never enter here.
+        if (
+            not sql_changed
+            and question_data.order_sensitive is not None
+            and not bool(question.advanced_sql_testing)
+            and bool(question.order_sensitive) != bool(question_data.order_sensitive)
+        ):
+            columns, results = execute_query_on_database(
+                get_question_db_path(question.db_file_path),
+                question.correct_answer_query,
+            )
+            _require_answer_rows(results)
+            question.correct_answer_hash = generate_hash(
+                results, columns, order_sensitive=question_data.order_sensitive
+            )
+            question.order_sensitive = 1 if question_data.order_sensitive else 0
 
         db.commit()
         db.refresh(question)

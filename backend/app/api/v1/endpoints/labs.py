@@ -1408,6 +1408,7 @@ def create_lab_task(
         title=task_data.title,
         description=task_data.description,
         order_index=task_data.order_index,
+        order_sensitive=1 if task_data.order_sensitive else 0,
         created_by=current_user.id,
         correct_answer_hash=None,  # Will be assigned later
         correct_query=None
@@ -1424,6 +1425,7 @@ def create_lab_task(
         title=task.title,
         description=task.description,
         order_index=task.order_index,
+        order_sensitive=bool(task.order_sensitive),
         has_answer=task.correct_answer_hash is not None,
         created_by=task.created_by,
         created_at=task.created_at,
@@ -1479,6 +1481,7 @@ def list_lab_tasks(
                 title=task.title,
                 description=task.description,
                 order_index=task.order_index,
+                order_sensitive=bool(task.order_sensitive),
                 has_answer=task.correct_answer_hash is not None,
                 created_by=task.created_by,
                 created_at=task.created_at,
@@ -1536,8 +1539,12 @@ def assign_task_answer(
             for row in result["results"]
         ]
 
-        # Generate hash from results
-        correct_hash = generate_hash(results_tuples, result["columns"])
+        # Generate hash from results. Row order is preserved in the hash only when
+        # the task is order-sensitive (student rows must then match this order).
+        correct_hash = generate_hash(
+            results_tuples, result["columns"],
+            order_sensitive=bool(task.order_sensitive)
+        )
 
         # Update task with answer
         task.correct_query = assign_data.query
@@ -1566,6 +1573,7 @@ def assign_task_answer(
         title=task.title,
         description=task.description,
         order_index=task.order_index,
+        order_sensitive=bool(task.order_sensitive),
         has_answer=task.correct_answer_hash is not None,
         created_by=task.created_by,
         created_at=task.created_at,
@@ -1601,6 +1609,7 @@ def get_lab_task(
         title=task.title,
         description=task.description,
         order_index=task.order_index,
+        order_sensitive=bool(task.order_sensitive),
         has_answer=task.correct_answer_hash is not None,
         correct_query=task.correct_query,
         created_by=task.created_by,
@@ -1641,6 +1650,47 @@ def update_lab_task(
     if task_data.order_index is not None:
         task.order_index = task_data.order_index
 
+    # Order-sensitivity changes the meaning of the stored correct-answer hash, so a
+    # flip on an already-answered task must recompute that hash against the template
+    # DB (otherwise grading silently breaks). Tasks without an answer just store the
+    # new flag; the assign endpoint will use it when the answer is added.
+    if task_data.order_sensitive is not None:
+        toggled_on_answered = (
+            bool(task.order_sensitive) != bool(task_data.order_sensitive)
+            and task.correct_answer_hash is not None
+            and task.correct_query
+        )
+        if toggled_on_answered:
+            try:
+                template_path = get_lab_template_path(lab_id)
+                lab_for_task = db.query(Lab).filter(Lab.id == lab_id).first()
+                if lab_for_task and lab_for_task.lab_type == "graph":
+                    result = execute_graph_query(template_path, task.correct_query, timeout=15)
+                else:
+                    result = execute_lab_query(template_path, task.correct_query, timeout=15)
+
+                if not result["success"]:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to recompute answer hash: {result['error_message']}"
+                    )
+
+                results_tuples = [
+                    tuple(row[col] for col in result["columns"])
+                    for row in result["results"]
+                ]
+                task.correct_answer_hash = generate_hash(
+                    results_tuples, result["columns"],
+                    order_sensitive=bool(task_data.order_sensitive)
+                )
+            except LabDatabaseError as e:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to recompute answer hash: {str(e)}"
+                )
+        task.order_sensitive = 1 if task_data.order_sensitive else 0
+
     task.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(task)
@@ -1651,6 +1701,7 @@ def update_lab_task(
         title=task.title,
         description=task.description,
         order_index=task.order_index,
+        order_sensitive=bool(task.order_sensitive),
         has_answer=task.correct_answer_hash is not None,
         created_by=task.created_by,
         created_at=task.created_at,
@@ -1746,6 +1797,7 @@ def validate_task_answer(
     lab_type = validate_lab.lab_type if validate_lab else None
     session_db_path = session.db_file_path
     task_correct_hash = task.correct_answer_hash
+    task_order_sensitive = bool(task.order_sensitive)
     db.commit()
 
     try:
@@ -1768,7 +1820,9 @@ def validate_task_answer(
         tuple(row[col] for col in result["columns"])
         for row in result["results"]
     ]
-    user_hash = generate_hash(results_tuples, result["columns"])
+    user_hash = generate_hash(
+        results_tuples, result["columns"], order_sensitive=task_order_sensitive
+    )
 
     # Compare hashes (task_correct_hash was captured before the connection was released)
     is_correct = user_hash == task_correct_hash
@@ -1840,7 +1894,10 @@ def submit_task_answer(
         tuple(row[col] for col in submit_request.columns)
         for row in submit_request.results
     ]
-    submitted_hash = generate_hash(results_tuples, submit_request.columns)
+    submitted_hash = generate_hash(
+        results_tuples, submit_request.columns,
+        order_sensitive=bool(task.order_sensitive)
+    )
 
     # 5. Compare hashes
     is_correct = submitted_hash == task.correct_answer_hash

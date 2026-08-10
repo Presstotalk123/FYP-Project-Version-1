@@ -46,6 +46,16 @@ export const API_ENDPOINTS = {
     OVERVIEW: '/er-diagram/analytics/overview',
     CLASS_GROUPS: '/er-diagram/analytics/class-groups',
   },
+  SQL_ANALYTICS: {
+    QUESTION: (id: number) => `/questions/${id}/analytics`,
+    STUDENT: (id: number, studentId: number) =>
+      `/questions/${id}/students/${studentId}/detail`,
+  },
+  LAB_ANALYTICS: {
+    LAB: (id: number) => `/labs/${id}/analytics`,
+    STUDENT: (id: number, studentId: number) =>
+      `/labs/${id}/students/${studentId}/detail`,
+  },
   SETTINGS: {
     ERD: '/settings/erd',
   },
@@ -65,6 +75,8 @@ export const API_ENDPOINTS = {
     LAB_CHAT: '/chatbot/lab-chat',
     LAB_QUERY_REVIEW: '/chatbot/lab-query-review',
     COURSE_CHAT: '/chatbot/course-chat',
+    CONVERSATION: '/chatbot/conversation',
+    LAB_CONVERSATION: '/chatbot/lab-conversation',
   },
   LABS: {
     BASE: '/labs',

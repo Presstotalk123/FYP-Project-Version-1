@@ -24,6 +24,7 @@ export interface QuestionDetail extends Question {
   test_script?: string | null;
   check_query?: string | null;
   hide_correctness: boolean;
+  order_sensitive: boolean;
 }
 
 export interface QuestionCount {
@@ -44,4 +45,5 @@ export interface QuestionCreate {
   test_script?: string | null;
   check_query?: string | null;
   hide_correctness?: boolean;
+  order_sensitive?: boolean;
 }

@@ -3,13 +3,20 @@ import json
 from typing import List, Dict, Any, Tuple
 
 
-def normalize_results(results: List[Tuple], columns: List[str]) -> List[Dict[str, Any]]:
+def normalize_results(
+    results: List[Tuple],
+    columns: List[str],
+    order_sensitive: bool = False
+) -> List[Dict[str, Any]]:
     """
     Normalize query results for consistent comparison.
 
     Args:
         results: Raw query results as list of tuples
         columns: Column names
+        order_sensitive: When True, preserve row order (do not sort rows).
+            Used for questions that require results in a specific order
+            (e.g. an explicit ORDER BY). Column order is always normalized.
 
     Returns:
         Normalized results as list of dictionaries
@@ -39,6 +46,11 @@ def normalize_results(results: List[Tuple], columns: List[str]) -> List[Dict[str
 
         result_dicts.append(row_dict)
 
+    # When grading is order-sensitive, preserve the original row order so that
+    # a different ordering produces a different hash.
+    if order_sensitive:
+        return result_dicts
+
     # Sort results by all columns for consistent ordering
     # Convert each dict to a sorted tuple of items for comparison
     sorted_results = sorted(
@@ -49,19 +61,24 @@ def normalize_results(results: List[Tuple], columns: List[str]) -> List[Dict[str
     return sorted_results
 
 
-def generate_hash(results: List[Tuple], columns: List[str]) -> str:
+def generate_hash(
+    results: List[Tuple],
+    columns: List[str],
+    order_sensitive: bool = False
+) -> str:
     """
     Generate SHA256 hash of normalized query results.
 
     Args:
         results: Raw query results as list of tuples
         columns: Column names
+        order_sensitive: When True, row order is preserved and affects the hash.
 
     Returns:
         SHA256 hash string
     """
     # Normalize results
-    normalized = normalize_results(results, columns)
+    normalized = normalize_results(results, columns, order_sensitive=order_sensitive)
 
     # Convert to JSON string with sorted keys
     json_str = json.dumps(normalized, sort_keys=True, default=str)
@@ -74,7 +91,8 @@ def generate_hash(results: List[Tuple], columns: List[str]) -> str:
 def validate_answer(
     user_results: List[Tuple],
     user_columns: List[str],
-    correct_hash: str
+    correct_hash: str,
+    order_sensitive: bool = False
 ) -> bool:
     """
     Validate user query results against correct answer hash.
@@ -83,11 +101,13 @@ def validate_answer(
         user_results: User's query results
         user_columns: Column names from user's query
         correct_hash: Expected hash of correct answer
+        order_sensitive: When True, the user's rows must be in the same order
+            as the correct answer to match.
 
     Returns:
         True if answer is correct, False otherwise
     """
-    user_hash = generate_hash(user_results, user_columns)
+    user_hash = generate_hash(user_results, user_columns, order_sensitive=order_sensitive)
     return user_hash == correct_hash
 
 

@@ -38,6 +38,34 @@ export function LabChatTab({ labId, sessionId }: LabChatTabProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
+  // Restore the persisted transcript for this (lab, session) on mount / change
+  // (best-effort). Clears first so a new session never shows a stale chat.
+  useEffect(() => {
+    let cancelled = false;
+    setMessages([]);
+    setError(null);
+    chatbotService
+      .getLabConversation(labId, sessionId)
+      .then((conv) => {
+        if (cancelled || !conv.exists) return;
+        const restored: ChatMessage[] = conv.messages
+          .filter((m) => m.content)
+          .map((m) => ({
+            id: `stored-${m.id}`,
+            role: m.role,
+            content: m.content ?? '',
+            timestamp: m.created_at ?? new Date().toISOString(),
+          }));
+        setMessages(restored);
+      })
+      .catch(() => {
+        // Restore is best-effort; on failure just leave the chat empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [labId, sessionId]);
+
   const handleSend = async () => {
     const trimmed = inputValue.trim();
     if (!trimmed || isLoading) return;

@@ -14,5 +14,8 @@ from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
 from app.models.erd_prompt_version import ErdPromptVersion
 from app.models.er_submission import ErSubmission  # noqa: F401
+from app.models.tutor_chat_conversation import TutorChatConversation
+from app.models.tutor_chat_message import TutorChatMessage
+from app.models.query_review import QueryReview
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview"]

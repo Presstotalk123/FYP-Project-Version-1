@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications';
 import { LabExecuteResponse, LabQueryHistoryResponse, DatabaseState, LabTask, LabTaskProgress, DB_RESET_SENTINEL } from '@/types/lab.types';
 import { LabQueryReviewResponse } from '@/services/chatbot.service';
 import { QueryReviewCard } from './QueryReviewCard';
+import { QueryGraph } from './QueryGraph';
 import { LabChatTab } from './LabChatTab';
 
 /* ── SVG icons ── */
@@ -144,11 +145,15 @@ export function LabResultsPanel({
   // turned off independent of correctness.
   const aiTutorDisabled = (hideCorrectness || disableAiAssist) && !isStaffMode;
 
+  // Concatenated CREATE TABLE DDL feeds the diagram's junction detection + column lists.
+  const schemaSql = databaseState?.tables.map(t => t.create_sql).filter(Boolean).join(';\n') ?? null;
+
   const tabs = [
     { id: 'results', label: 'Results' },
+    { id: 'diagram', label: 'Diagram' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
     { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
-    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'Bagheera' }]),
+    ...(aiTutorDisabled ? [] : [{ id: 'ai-tutor', label: 'Ask Bagheera' }]),
   ];
 
   // If the AI Tutor tab gets hidden while it's the active tab, fall back to Results.
@@ -366,6 +371,11 @@ export function LabResultsPanel({
               )}
             </div>
           )
+        )}
+
+        {/* ── Diagram Tab ── */}
+        {activeTab === 'diagram' && (
+          <QueryGraph query={currentQuery} schemaSql={schemaSql} />
         )}
 
         {/* ── History Tab ── */}

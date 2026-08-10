@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import json
+import asyncio
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -15,9 +16,54 @@ from app.models.lab_task import LabTask
 from app.models.lab_session import LabSession
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_task_submission import LabTaskSubmission
+from app.models.query_review import QueryReview
 from app.utils.lab_db_manager import get_schema_info
+from app.services.tutor_chat import persistence as tutor_persistence
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
+
+# How many prior messages (user+assistant) to feed back to the LLM as memory.
+# 10 messages ≈ 5 turns — enough continuity without bloating the prompt.
+TUTOR_CHAT_MEMORY_TURNS = 10
+
+
+def _persist_query_review(db: Session, **fields) -> None:
+    """Store an AI query-review so staff analytics can show its history. Never-raise:
+    persistence must not break the student-facing review response."""
+    try:
+        db.add(QueryReview(**fields))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _openai_history(messages) -> list:
+    """Prior TutorChatMessage rows → OpenAI chat messages (oldest first)."""
+    return [{"role": m.role, "content": m.content or ""} for m in messages]
+
+
+def _gemini_history(messages) -> list:
+    """Prior TutorChatMessage rows → Gemini history (assistant→model, oldest first)."""
+    return [
+        {"role": ("model" if m.role == "assistant" else "user"), "parts": [m.content or ""]}
+        for m in messages
+    ]
+
+
+async def _persist_assistant_reply(db: Session, conv, text: str) -> None:
+    """Best-effort save of the fully-streamed assistant reply (offloaded so the
+    blocking DB write never blocks the event loop). Never raises."""
+    if not (text or "").strip():
+        return
+
+    def _write():
+        tutor_persistence.append_message(db, conv, role="assistant", content=text)
+
+    try:
+        await asyncio.to_thread(_write)
+    except Exception:
+        # Never let a persistence failure break the already-delivered stream.
+        pass
 
 
 
@@ -84,8 +130,19 @@ Your rules:
 - Reference specific table and column names from the schema when relevant
 - Keep responses concise and focused"""
 
+    # Persist + memory: load prior turns for this (user, question), then record
+    # the incoming message. History is fetched BEFORE appending so the current
+    # message isn't duplicated in the prompt.
+    conv = tutor_persistence.get_or_create_question_conversation(
+        db, user_id=current_user.id, question_id=request.question_id,
+    )
+    history = tutor_persistence.recent_turns(db, conv, limit=TUTOR_CHAT_MEMORY_TURNS)
+    tutor_persistence.append_message(db, conv, role="user", content=request.user_message)
+
     async def _chat_stream():
         provider = settings.AI_PROVIDER.lower()
+        full_reply = ""
+        stream_ok = True
 
         if provider in ("azure_openai", "openai"):
             from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -103,6 +160,7 @@ Your rules:
                 "model": settings.AI_MODEL,
                 "messages": [
                     {"role": "system", "content": system_prompt},
+                    *_openai_history(history),
                     {"role": "user", "content": request.user_message},
                 ],
                 "timeout": 30,
@@ -121,8 +179,10 @@ Your rules:
                     if chunk.choices and len(chunk.choices) > 0:
                         content = chunk.choices[0].delta.content
                         if content:
+                            full_reply += content
                             yield content
             except Exception as e:
+                stream_ok = False
                 yield f"\n[Error connecting to AI Tutor: {str(e)}]"
 
         elif provider == "gemini":
@@ -139,19 +199,26 @@ Your rules:
                 gemini_kwargs["temperature"] = 0.5
 
             try:
-                response = await model.generate_content_async(
+                chat = model.start_chat(history=_gemini_history(history))
+                response = await chat.send_message_async(
                     request.user_message,
                     generation_config=gemini_kwargs if gemini_kwargs else None,
                     stream=True
                 )
                 async for chunk in response:
                     if chunk.text:
+                        full_reply += chunk.text
                         yield chunk.text
             except Exception as e:
+                stream_ok = False
                 yield f"\n[Error connecting to AI Tutor: {str(e)}]"
 
         else:
+            stream_ok = False
             yield f"\n[Unsupported AI_PROVIDER: {provider}]"
+
+        if stream_ok:
+            await _persist_assistant_reply(db, conv, full_reply)
 
     return StreamingResponse(_chat_stream(), media_type="text/plain")
 
@@ -343,11 +410,23 @@ async def review_query(
 
     try:
         result = await call_ai_for_review(QUERY_REVIEW_SYSTEM_PROMPT, context)
+        _persist_query_review(
+            db,
+            user_id=current_user.id,
+            context_type="question",
+            question_id=question.id,
+            student_query=request.student_query,
+            problem_token=result.get("problem_token", ""),
+            explanation=result.get("explanation", ""),
+            hint=result.get("hint", ""),
+        )
         return QueryReviewResponse(
             problem_token=result.get("problem_token", ""),
             explanation=result.get("explanation", ""),
             hint=result.get("hint", ""),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI review failed: {str(e)}")
 
@@ -490,6 +569,20 @@ async def review_lab_query(
 
     try:
         result = await call_ai_for_review(LAB_QUERY_REVIEW_SYSTEM_PROMPT, context)
+        _persist_query_review(
+            db,
+            user_id=current_user.id,
+            context_type="lab",
+            lab_id=lab.id,
+            task_id=request.task_id,
+            session_id=request.session_id,
+            student_query=request.student_query,
+            problem_token=result.get("problem_token", ""),
+            explanation=result.get("explanation", ""),
+            hint=result.get("hint", ""),
+            db_state_issue=("corrupted" if bool(result.get("db_state_issue", False)) else None),
+            db_state_message=result.get("db_state_message", "") or None,
+        )
         return LabQueryReviewResponse(
             db_state_issue=bool(result.get("db_state_issue", False)),
             db_state_message=result.get("db_state_message", ""),
@@ -497,6 +590,8 @@ async def review_lab_query(
             explanation=result.get("explanation", ""),
             hint=result.get("hint", ""),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI review failed: {str(e)}")
 
@@ -567,8 +662,19 @@ Your rules:
 - Reference specific table and column names from the schema when relevant
 - Keep responses concise and focused"""
 
+    # Persist + memory: load prior turns for this (user, lab session), then
+    # record the incoming message. History is fetched BEFORE appending so the
+    # current message isn't duplicated in the prompt.
+    conv = tutor_persistence.get_or_create_lab_conversation(
+        db, user_id=current_user.id, lab_id=request.lab_id, session_id=request.session_id,
+    )
+    history = tutor_persistence.recent_turns(db, conv, limit=TUTOR_CHAT_MEMORY_TURNS)
+    tutor_persistence.append_message(db, conv, role="user", content=request.user_message)
+
     async def _chat_stream():
         provider = settings.AI_PROVIDER.lower()
+        full_reply = ""
+        stream_ok = True
 
         if provider in ("azure_openai", "openai"):
             from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -586,6 +692,7 @@ Your rules:
                 "model": settings.AI_MODEL,
                 "messages": [
                     {"role": "system", "content": system_prompt},
+                    *_openai_history(history),
                     {"role": "user", "content": request.user_message},
                 ],
                 "timeout": 30,
@@ -604,8 +711,10 @@ Your rules:
                     if chunk.choices and len(chunk.choices) > 0:
                         content = chunk.choices[0].delta.content
                         if content:
+                            full_reply += content
                             yield content
             except Exception as e:
+                stream_ok = False
                 yield f"\n[Error connecting to AI Tutor: {str(e)}]"
 
         elif provider == "gemini":
@@ -622,19 +731,26 @@ Your rules:
                 gemini_kwargs["temperature"] = 0.5
 
             try:
-                response = await model.generate_content_async(
+                chat = model.start_chat(history=_gemini_history(history))
+                response = await chat.send_message_async(
                     request.user_message,
                     generation_config=gemini_kwargs if gemini_kwargs else None,
                     stream=True
                 )
                 async for chunk in response:
                     if chunk.text:
+                        full_reply += chunk.text
                         yield chunk.text
             except Exception as e:
+                stream_ok = False
                 yield f"\n[Error connecting to AI Tutor: {str(e)}]"
 
         else:
+            stream_ok = False
             yield f"\n[Unsupported AI_PROVIDER: {provider}]"
+
+        if stream_ok:
+            await _persist_assistant_reply(db, conv, full_reply)
 
     return StreamingResponse(_chat_stream(), media_type="text/plain")
 
@@ -732,4 +848,68 @@ suggest they ask the instructor. Keep answers concise and clear.
             yield f"\n[Unsupported AI_PROVIDER: {provider}]"
 
     return StreamingResponse(_chat_stream(), media_type="text/plain")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Read endpoints: restore a student's own saved tutor transcript
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EMPTY_TUTOR_CONVERSATION = {"exists": False, "conversation_id": None, "messages": []}
+
+
+def _tutor_conversation_payload(db: Session, conv) -> dict:
+    """Serialize a tutor conversation + transcript for the GET endpoints."""
+    return {
+        "exists": True,
+        "conversation_id": conv.id,
+        "context_type": conv.context_type,
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in tutor_persistence.transcript(db, conv)
+        ],
+    }
+
+
+@router.get("/conversation")
+def get_question_conversation(
+    question_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fetch the current user's SQL-question tutor transcript.
+
+    Read-only — never creates a conversation. Returns ``exists: false`` with an
+    empty transcript when there is nothing yet.
+    """
+    conv = tutor_persistence.find_question_conversation(
+        db, user_id=current_user.id, question_id=question_id,
+    )
+    if conv is None:
+        return _EMPTY_TUTOR_CONVERSATION
+    return _tutor_conversation_payload(db, conv)
+
+
+@router.get("/lab-conversation")
+def get_lab_conversation(
+    lab_id: int,
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fetch the current user's SQL-lab tutor transcript for a session.
+
+    Read-only — never creates a conversation. Returns ``exists: false`` with an
+    empty transcript when there is nothing yet.
+    """
+    conv = tutor_persistence.find_lab_conversation(
+        db, user_id=current_user.id, session_id=session_id,
+    )
+    if conv is None:
+        return _EMPTY_TUTOR_CONVERSATION
+    return _tutor_conversation_payload(db, conv)
 

@@ -65,6 +65,8 @@ class Ns:
     ASSESSMENTS = "assessments"
     ERD_PROMPTS = "erd_prompts"
     ER_ANALYTICS = "er_analytics"
+    SQL_ANALYTICS = "sql_analytics"
+    LAB_ANALYTICS = "lab_analytics"
     COURSE_INFO = "course_info"
 
 
@@ -77,6 +79,8 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.ASSESSMENTS,
     Ns.ERD_PROMPTS,
     Ns.ER_ANALYTICS,
+    Ns.SQL_ANALYTICS,
+    Ns.LAB_ANALYTICS,
     Ns.COURSE_INFO,
 )
 
@@ -244,19 +248,42 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.assessment_item import AssessmentItem
     from app.models.user import User
     from app.models.course_info import CourseInfo
+    from app.models.attempt import Attempt
+    from app.models.progress import UserProgress
+    from app.models.lab_attempt import LabAttempt
+    from app.models.lab_task_submission import LabTaskSubmission
+    from app.models.query_review import QueryReview
+    from app.models.tutor_chat_conversation import TutorChatConversation
+    from app.models.tutor_chat_message import TutorChatMessage
+
+    namespaces: set[str] = set()
 
     if isinstance(obj, Question):
-        return {Ns.QUESTIONS}
+        namespaces.add(Ns.QUESTIONS)
+        namespaces.add(Ns.SQL_ANALYTICS)  # analytics show the question title
     # Staff analytics aggregate submissions, chat messages (query topics) and
     # user class groups, so any of those changing must invalidate the payloads.
     if isinstance(obj, (ErSubmission, ErdTutorMessage, User)):
-        return {Ns.ER_ANALYTICS}
+        namespaces.add(Ns.ER_ANALYTICS)
+    # SQL-question analytics aggregate attempts, progress, persisted query reviews,
+    # tutor-chat usage and user class groups.
+    if isinstance(obj, (Attempt, UserProgress, QueryReview,
+                        TutorChatConversation, TutorChatMessage, User)):
+        namespaces.add(Ns.SQL_ANALYTICS)
+    # Lab analytics aggregate lab attempts/submissions, persisted query reviews,
+    # tutor-chat usage and user class groups.
+    if isinstance(obj, (LabAttempt, LabTaskSubmission, QueryReview,
+                        TutorChatConversation, TutorChatMessage, User)):
+        namespaces.add(Ns.LAB_ANALYTICS)
+    if namespaces:
+        return namespaces
     if isinstance(obj, CourseInfo):
         return {Ns.COURSE_INFO}
     # A lab's cached detail and its cached task list both live under Ns.LABS, so a
     # LabTask change must invalidate that namespace too.
     if isinstance(obj, (Lab, LabTask)):
-        return {Ns.LABS}
+        # Lab analytics show the lab/task titles and per-task means.
+        return {Ns.LABS, Ns.LAB_ANALYTICS}
     if isinstance(obj, ERDiagramQuestion):
         return {Ns.ER_QUESTIONS}
     if isinstance(obj, Assessment):

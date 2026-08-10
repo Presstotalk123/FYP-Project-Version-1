@@ -28,6 +28,9 @@ from app.models.er_lab_session import ErLabSession
 from app.models.er_lab_submission import ErLabSubmission
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
+from app.models.tutor_chat_conversation import TutorChatConversation
+from app.models.tutor_chat_message import TutorChatMessage
+from app.models.query_review import QueryReview
 from app.models.erd_prompt_version import ErdPromptVersion
 from app.models.course_info import CourseInfo
 from app.core.cache import CacheVersion  # register cache_versions on Base
@@ -53,6 +56,8 @@ def create_tables():
             'ix_er_lab_submissions_question_user', 'ix_er_lab_submissions_user_lab',
             'ix_er_lab_submissions_question_time',
             'ix_erd_tutor_conv_lab', 'ix_erd_tutor_conv_standalone', 'ix_erd_tutor_msg_conv',
+            'ix_tutor_chat_conv_lookup', 'ix_tutor_chat_msg_conv',
+            'ix_query_review_question', 'ix_query_review_lab',
             'ix_erd_prompt_key_active',
         ]
         for idx in indexes:
@@ -67,6 +72,8 @@ def create_tables():
         # Drop all tables
         print("\nDropping tables...")
         tables = [
+            'query_reviews',
+            'tutor_chat_messages', 'tutor_chat_conversations',
             'erd_tutor_messages', 'erd_tutor_conversations', 'erd_prompt_versions',
             'course_info',
             'assessment_item_visits', 'er_lab_submissions',

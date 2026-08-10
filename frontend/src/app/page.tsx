@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { homeHeaderOwner } from "@/components/nav/home-header-owner";
 
 type HomepageCTA = {
   primary: { label: string; href: string };
@@ -11,6 +12,7 @@ type HomepageCTA = {
 
 export default function Home() {
   const { loading, isAuthenticated, isStaff } = useAuth();
+  const headerOwner = homeHeaderOwner(loading, isAuthenticated);
 
   const ctas = useMemo<HomepageCTA | null>(() => {
     if (loading) return null;
@@ -34,33 +36,26 @@ export default function Home() {
 
   return (
     <div className="home-screen">
-      {/* ── Home-specific header ── */}
-      <header className="home-header">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <span>Akela</span>
-        </div>
-        <nav className="home-nav" aria-label="Site navigation">
-          <Link href="/">Home</Link>
-          <span className="inactive-nav">SQL</span>
-          <span className="inactive-nav">ER Diagram</span>
-          <a href="#home-process">How It Works</a>
-        </nav>
-        <div className="home-actions">
-          {ctas ? (
-            <>
-              <Link href={ctas.secondary.href} style={{ color: 'var(--home-muted)', fontSize: 15, fontWeight: 750 }}>
-                {isAuthenticated ? ctas.secondary.label : "Log In"}
-              </Link>
+      {/* ── Home-specific header ──
+          Only for visitors. A known user gets HeaderNav instead — the same
+          header as every other page — so this stands down for them. While auth
+          resolves, the wordmark alone holds the bar's height so nothing wrong
+          is shown and nothing shifts once the answer arrives. */}
+      {headerOwner !== "app" && (
+        <header className="home-header">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true" />
+            <span>Akela</span>
+          </div>
+          {headerOwner === "marketing" && ctas && (
+            <div className="home-actions">
               <Link href={ctas.primary.href} className="home-cta">
                 {ctas.primary.label}
               </Link>
-            </>
-          ) : (
-            <span style={{ color: 'var(--home-muted)', fontSize: 14 }}>Loading…</span>
+            </div>
           )}
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* ── Hero ── */}
       <div className="home-hero">

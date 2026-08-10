@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { homeHeaderOwner } from "@/components/nav/home-header-owner";
 import { useEffect, useRef, useState } from "react";
 
 export function HeaderNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAuthenticated, isStaff, isAdmin } = useAuth();
+  const { user, logout, loading, isAuthenticated, isStaff, isAdmin } = useAuth();
   
   const [pillStyle, setPillStyle] = useState({ width: 0, left: 0, opacity: 0 });
   const segmentedRef = useRef<HTMLDivElement>(null);
@@ -18,7 +19,7 @@ export function HeaderNav() {
   const staffLinks = [
     { label: "Dashboard", href: "/admin", exact: true },
     { label: "Problems", href: "/admin/problems" },
-    { label: "Manage Labs", href: "/admin/labs" },
+    { label: "Labs", href: "/admin/labs" },
     { label: "Assessments", href: "/admin/assessments" },
     // Staff + admin (deliberately outside the isAdmin gate below): the
     // /admin/settings prompt editor is editable by both roles.
@@ -26,7 +27,7 @@ export function HeaderNav() {
   ];
 
   if (isAdmin) {
-    staffLinks.push({ label: "Manage Users", href: "/admin/users" });
+    staffLinks.push({ label: "Users", href: "/admin/users" });
   }
 
   const studentLinks = [
@@ -64,9 +65,16 @@ export function HeaderNav() {
     }
   }, [pathname, isStaffMember, isAuthenticated]);
 
-  // Hide global header on the home page — the home page renders its own header
-  // Also hide on the login page so nav buttons don't appear there
-  if (pathname === "/" || pathname === "/login") return null;
+  // Hidden on the login page so nav buttons don't appear there.
+  //
+  // On the home page this header IS the logged-in header: a known user gets the
+  // same brand / role nav / account controls they see everywhere else, and the
+  // page's own marketing header stands down. A visitor gets the marketing one
+  // instead, so this returns null for them. See home-header-owner.
+  if (pathname === "/login") return null;
+  if (pathname === "/" && homeHeaderOwner(loading, isAuthenticated) !== "app") {
+    return null;
+  }
 
   const handleLogout = () => {
     logout();

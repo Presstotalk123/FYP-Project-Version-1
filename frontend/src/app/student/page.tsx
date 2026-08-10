@@ -325,8 +325,18 @@ export default function StudentDashboard() {
                           {item.title}
                         </h3>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          {/* Tested per type rather than as an either/or, so a third
+                              problem type added later shows no badge until someone gives
+                              it one, instead of silently inheriting SQL's.
+
+                              Blue rather than /admin/problems' green for SQL: there the
+                              type and difficulty sit in separate table columns, here they
+                              are adjacent, and badge-success is the same green as easy. */}
                           {item.problemType === 'erd-question' && (
                             <span className="badge brand-badge">ERD</span>
+                          )}
+                          {item.problemType === 'sql-question' && (
+                            <span className="badge badge-info">SQL</span>
                           )}
                           <span className={`badge ${difficultyClass[item.difficulty] || 'neutral'}`}>
                             {capitalize(item.difficulty)}

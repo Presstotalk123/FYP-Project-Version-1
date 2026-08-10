@@ -18,6 +18,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { notifications } from '@mantine/notifications';
 import { LabDetail, LabTask, LabTaskCreate, LabTaskProgress, LabQueryHistoryResponse } from '@/types/lab.types';
 import { StudentQueryReviewPanel } from './StudentQueryReviewPanel';
+import { DescriptionMarkdown } from '@/components/common/DescriptionMarkdown';
+import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 
 /* ── SVG icons ── */
 const IconPlus = () => (
@@ -136,9 +138,7 @@ function SortableTaskCard({
                 </span>
                 {getTaskBadge()}
               </div>
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                {task.description}
-              </p>
+              <DescriptionMarkdown content={task.description} fontSize={12} />
             </div>
           </div>
           {isStaffMode && !reviewMode && (
@@ -282,9 +282,7 @@ export function LabDescriptionPanel({
               {sessionId && <span className="badge badge-success">Active Session</span>}
             </div>
 
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              {lab.description}
-            </p>
+            <DescriptionMarkdown content={lab.description} fontSize={13} />
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 
@@ -386,19 +384,15 @@ export function LabDescriptionPanel({
                       />
                     </div>
 
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
-                        Task Description <span style={{ color: 'var(--error)' }}>*</span>
-                      </label>
-                      <textarea
-                        className="da-input"
-                        style={{ width: '100%', minHeight: 70, resize: 'vertical', fontSize: 13, fontFamily: 'var(--font-geist-sans)' }}
-                        placeholder="Describe what students need to accomplish..."
-                        value={taskDescription}
-                        onChange={(e) => setTaskDescription(e.target.value)}
-                        rows={3}
-                      />
-                    </div>
+                    <MarkdownDescriptionField
+                      id="task-description"
+                      label="Task Description"
+                      required
+                      placeholder="Describe what students need to accomplish..."
+                      value={taskDescription}
+                      onChange={setTaskDescription}
+                      minHeight={70}
+                    />
 
                     <div className="da-alert alert-info" style={{ fontSize: 12 }}>
                       After creating the task, execute a query and assign its result as the correct answer from the Results panel.
@@ -454,19 +448,14 @@ export function LabDescriptionPanel({
                 />
               </div>
 
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
-                  Task Description <span style={{ color: 'var(--error)' }}>*</span>
-                </label>
-                <textarea
-                  className="da-input"
-                  style={{ width: '100%', minHeight: 80, resize: 'vertical', fontFamily: 'var(--font-geist-sans)' }}
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.currentTarget.value)}
-                  rows={3}
-                  required
-                />
-              </div>
+              <MarkdownDescriptionField
+                id="edit-task-description"
+                label="Task Description"
+                required
+                value={editDescription}
+                onChange={setEditDescription}
+                minHeight={80}
+              />
             </div>
 
             <div className="button-row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>

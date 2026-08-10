@@ -9,6 +9,7 @@ const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 import { QuestionDetail, Difficulty } from '@/types/question.types';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
+import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 
 interface QuestionFormProps {
   question?: QuestionDetail;
@@ -154,20 +155,14 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
       </div>
 
       {/* Description */}
-      <div style={{ display: 'grid', gap: 6 }}>
-        <label htmlFor="question-description" style={labelStyle}>
-          Description <span style={{ color: 'var(--error)' }}>*</span>
-        </label>
-        <textarea
-          id="question-description"
-          className="da-input"
-          style={{ width: '100%', minHeight: 100, resize: 'vertical', fontFamily: 'var(--font-geist-sans)' }}
-          placeholder="Enter question description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
-        />
-      </div>
+      <MarkdownDescriptionField
+        id="question-description"
+        label="Description"
+        required
+        placeholder="Enter question description"
+        value={description}
+        onChange={setDescription}
+      />
 
       {/* Difficulty */}
       <div style={{ display: 'grid', gap: 6 }}>

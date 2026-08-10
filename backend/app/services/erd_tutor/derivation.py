@@ -117,8 +117,18 @@ def participation_from_min(lo):
     return "partial" if lo == 0 else "total"
 
 
-def derive_endpoint(marker, cue):
-    """(marker, cue) -> (normalized_cardinality, participation_type, why)."""
+def derive_endpoint(marker, cue, trust_absent_cue=True):
+    """(marker, cue) -> (normalized_cardinality, participation_type, why).
+
+    ``trust_absent_cue`` says whether "no arrow visible" means "there is no
+    arrow". From draw.io source it does. From a vision reading it does not:
+    measured on a professor-authored model answer, the vision stage detected 0
+    of 5 curved cues, and could not discriminate them at any magnification or
+    prompting — it denies real arcs when asked tersely and reports them at every
+    endpoint when asked openly. A detector with no recall tells you nothing by
+    staying silent, so its silence must not become "maximum 1". A positive
+    detection is still used; only the absence is distrusted.
+    """
     lo, hi, status = parse_marker(marker)
     if status == "unreadable":
         return ("unknown", "unknown",
@@ -126,7 +136,11 @@ def derive_endpoint(marker, cue):
                 f"notation this grader recognises, so no bound was assumed from it")
     from_cue = False
     if hi is None:
-        cue_max = _CUE_MAX.get((cue or "").strip())
+        cue = (cue or "").strip()
+        if cue == "no_arrow_visible" and not trust_absent_cue:
+            cue_max = None          # absence of evidence, not evidence of absence
+        else:
+            cue_max = _CUE_MAX.get(cue)
         if cue_max is not None:
             hi, from_cue = cue_max, True
     why = (f"text marker {marker!r} gives "
@@ -144,12 +158,15 @@ def derive(observation: dict):
     Keyed by (relationship_id, entity_id): relationships sharing a name stay
     distinct, which is exactly what the LLM path got wrong.
     """
+    obs = observation or {}
+    # Only draw.io source can prove an arc is absent; see derive_endpoint.
+    trust_absent_cue = obs.get("source_mode") == "xml"
     cards, parts = [], []
-    for ep in (observation or {}).get("relationship_endpoints") or []:
+    for ep in obs.get("relationship_endpoints") or []:
         rid, eid = ep.get("relationship_id"), ep.get("entity_id")
         marker = ep.get("observed_text_marker") or ""
         cue = ep.get("observed_endpoint_cue") or ""
-        card, part, why = derive_endpoint(marker, cue)
+        card, part, why = derive_endpoint(marker, cue, trust_absent_cue)
         cards.append({
             "relationship_id": rid, "entity_id": eid,
             "raw_marker": marker or cue,

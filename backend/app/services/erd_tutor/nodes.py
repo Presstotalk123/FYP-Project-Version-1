@@ -24,6 +24,7 @@ from app.services.erd_tutor.llm import make_llm
 from app.services.erd_tutor import prompts
 from app.services.erd_tutor.drawio_parser import parse_drawio
 from app.services.erd_tutor.derivation import derive
+from app.services.erd_tutor.description_claims import fill_unknown_endpoints
 
 logger = logging.getLogger(__name__)
 # Only tutor_system and grade_system are admin-editable (see
@@ -76,7 +77,16 @@ async def normalize_node(state: dict) -> dict:
     # correctly. Keyed by id here, so same-named relationships cannot merge.
     cards, parts = derive(state.get("observation"))
     if cards:
+        # Where the diagram yielded nothing, the student's own description may
+        # say what they intended. It can only fill gaps, never overrule a mark
+        # that was actually read, and each filled value carries the quote it
+        # came from. The call is skipped entirely when there is no description
+        # or nothing unknown, which is the normal draw.io case.
+        cards, parts, filled = await fill_unknown_endpoints(
+            cards, parts, state.get("observation"), state.get("submission_description"))
         out["cardinalities"], out["participation"] = cards, parts
+        if filled:
+            logger.info("normalize: %d endpoint value(s) came from the description", filled)
     return {"canonical_erd": out}
 
 

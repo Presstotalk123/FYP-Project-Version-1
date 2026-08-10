@@ -83,7 +83,8 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
   const attemptCount = question?.attempt_count ?? 0;
 
   // Validation and API errors surface as toasts, not an inline Alert: an Alert
-  // mounted above the form grows the fixed-height card and shifts the buttons.
+  // inside the form card shifts every control below it down mid-edit. The
+  // "Already attempted" warning sits outside that card for the same reason.
   const showErrorNotification = (message: string) =>
     notifications.show({ title: "Error", message, color: "red" });
 
@@ -324,15 +325,25 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
 
   return (
     <Grid gutter="lg">
+      {/* Full width, above both cards: inside the form card it pushed the
+          controls at the bottom — refinement box, switch, Submit — out of view. */}
+      {isEdit && attemptCount > 0 ? (
+        <Grid.Col span={12}>
+          <Alert icon={<IconAlertCircle size={16} />} color="yellow" title="Already attempted">
+            {attemptCount} student{attemptCount === 1 ? " has" : "s have"} been graded against the
+            current rubric. Editing it will not recalculate their scores.
+          </Alert>
+        </Grid.Col>
+      ) : null}
       <Grid.Col span={{ base: 12, md: 6 }}>
-        <Card withBorder padding="lg" radius="md" style={{ height: 720 }}>
+        {/* No fixed height: the row grows to whatever the fields need, so the
+            form never scrolls and never clips. It has to grow — the description
+            field can be dragged taller and swaps to a Preview pane of unknown
+            length, so no height chosen here would hold. `height: 100%` only
+            keeps the card level with the editor opposite when the editor's
+            min-height is the taller of the two. */}
+        <Card withBorder padding="lg" radius="md" style={{ height: "100%" }}>
           <Stack gap="md">
-            {isEdit && attemptCount > 0 ? (
-              <Alert icon={<IconAlertCircle size={16} />} color="yellow" title="Already attempted">
-                {attemptCount} student{attemptCount === 1 ? " has" : "s have"} been graded against
-                the current rubric. Editing it will not recalculate their scores.
-              </Alert>
-            ) : null}
             <Textarea
               label="Problem Title"
               placeholder="Title for the Problem"
@@ -454,12 +465,17 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
         </Card>
       </Grid.Col>
 
+      {/* `height: 100%` fills the row, which Grid stretches to the form card
+          beside it, so the two stay level whatever the form's height is. The
+          min-height is the floor for the stacked mobile layout, where there is
+          no taller sibling to stretch against and 100% has nothing to resolve
+          against — without it Monaco would collapse to zero. */}
       <Grid.Col span={{ base: 12, md: 6 }}>
         <Card
           withBorder
           padding="lg"
           radius="md"
-          style={{ display: "flex", flexDirection: "column", height: 720 }}
+          style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 720 }}
         >
           <Stack gap="md" className={styles.outputStack}>
             <Text fw={500} size="sm">

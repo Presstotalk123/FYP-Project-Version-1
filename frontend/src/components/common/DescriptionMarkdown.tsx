@@ -2,6 +2,7 @@
 
 import { TypographyStylesProvider } from '@mantine/core';
 import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
 /**
@@ -15,6 +16,11 @@ import remarkGfm from 'remark-gfm';
  *
  * Authors wrap pre-aligned ASCII tables in a fenced code block (```) so every
  * space and newline is preserved.
+ *
+ * remark-breaks is what makes a single newline a line break. Plain Markdown
+ * folds one into a space and only starts a new block on a blank line, which
+ * silently ran descriptions together — most are typed as prose, not authored
+ * as Markdown, and nobody expects the line they pressed Enter on to vanish.
  */
 export function DescriptionMarkdown({
   content,
@@ -27,7 +33,7 @@ export function DescriptionMarkdown({
     <TypographyStylesProvider
       style={{ fontSize, color: 'var(--text-muted)', overflowX: 'auto' }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
     </TypographyStylesProvider>
   );
 }

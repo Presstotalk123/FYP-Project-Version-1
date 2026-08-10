@@ -311,11 +311,20 @@ export default function StudentDashboard() {
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => e.key === 'Enter' && handleQuestionClick(item)}
-                      aria-label={`${item.problemType === 'erd-question' ? 'ER question' : 'Question'} ${item.id}: ${item.title}`}
+                      aria-label={`${item.problemType === 'erd-question' ? 'ER question' : 'Question'}: ${item.title}`}
                     >
                       <div className="button-row" style={{ marginBottom: 8 }}>
-                        <h3 style={{ margin: 0, fontSize: 15 }}>Q{item.id}</h3>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {/* Clamped to two lines, as this title was when it sat in
+                            its own paragraph below — titles are free text and a
+                            long one would otherwise set the height of every card
+                            in its grid row. `flex: 1` holds the badges right. */}
+                        <h3 style={{
+                          margin: 0, fontSize: 15, flex: 1, minWidth: 0,
+                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                        }}>
+                          {item.title}
+                        </h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                           {item.problemType === 'erd-question' && (
                             <span className="badge brand-badge">ERD</span>
                           )}
@@ -341,9 +350,6 @@ export default function StudentDashboard() {
                             )}
                         </div>
                       </div>
-                      <p style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                        {item.title}
-                      </p>
                       {item.problemType === 'sql-question' ? (
                         item.completed ? (
                           <span className="badge badge-success">

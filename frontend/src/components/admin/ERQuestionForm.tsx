@@ -337,10 +337,11 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
       ) : null}
       <Grid.Col span={{ base: 12, md: 6 }}>
         {/* No fixed height: the row grows to whatever the fields need, so the
-            form never scrolls and never clips. Every field here is a fixed size
-            (no `autosize` textareas), so that height is stable while typing.
-            `height: 100%` only keeps the card level with the editor opposite
-            when the editor's min-height is the taller of the two. */}
+            form never scrolls and never clips. It has to grow — the description
+            field can be dragged taller and swaps to a Preview pane of unknown
+            length, so no height chosen here would hold. `height: 100%` only
+            keeps the card level with the editor opposite when the editor's
+            min-height is the taller of the two. */}
         <Card withBorder padding="lg" radius="md" style={{ height: "100%" }}>
           <Stack gap="md">
             <Textarea

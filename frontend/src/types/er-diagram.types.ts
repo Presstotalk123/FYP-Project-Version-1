@@ -42,6 +42,12 @@ export interface ERDiagramQuestionCount {
   attempted: number;
 }
 
+export interface ERDiagramQuestionProgress {
+  question_id: number;
+  /** The grader's own "pass" verdict, not a percentage threshold. */
+  completed: boolean;
+}
+
 export interface SaveERQuestionRequest {
   title: string;
   problem_statement: string;

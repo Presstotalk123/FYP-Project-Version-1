@@ -117,3 +117,14 @@ class ERDiagramQuestionCountResponse(BaseModel):
     those the current user has a graded standalone submission for (per-user)."""
     total: int
     attempted: int
+
+
+class ERDiagramQuestionProgressItem(BaseModel):
+    """One graded standalone question, for the student's question list.
+
+    Only attempted questions are returned, so presence means attempted and absence
+    means untouched — there is no row to distinguish. `completed` is the grader's
+    own "pass" verdict, not a percentage threshold, so the list agrees with the
+    label the student was shown on the attempt page."""
+    question_id: int
+    completed: bool

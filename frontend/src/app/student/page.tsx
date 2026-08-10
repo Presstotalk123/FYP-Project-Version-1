@@ -12,6 +12,7 @@ import { ERDiagramQuestionListItem } from '@/types/er-diagram.types';
 import { questionService } from '@/services/question.service';
 import { attemptService } from '@/services/attempt.service';
 import { erDiagramService } from '@/services/er-diagram.service';
+import { settingsService } from '@/services/settings.service';
 import { queryKeys } from '@/services/query-keys';
 import { useERAbility } from '@/hooks/use-er-ability';
 import { toERQuestionSubject } from '@/permissions/er-ability';
@@ -35,6 +36,9 @@ interface PooledQuestion {
   created_at: string;
   completed?: boolean;
   attempts_count?: number;
+  /** ERD only. SQL counts its attempts; ERD records no per-attempt tally, so all
+   *  the list can say is that something was graded but did not pass. */
+  attempted?: boolean;
 }
 
 const difficultyClass: Record<string, string> = {
@@ -97,12 +101,28 @@ export default function StudentDashboard() {
     queryKey: queryKeys.erdQuestions,
     queryFn: () => erDiagramService.getQuestions(),
   });
+  const erdProgressQuery = useQuery({
+    queryKey: queryKeys.studentErdProgress,
+    queryFn: () => erDiagramService.getProgress(),
+  });
+  // Decides whether the author badge is worth showing (see the badge row below).
+  // Deliberately not in the loading gate: the list must not wait on it, and until
+  // it resolves the badge is simply absent.
+  const erdSettingsQuery = useQuery({
+    queryKey: queryKeys.erdSettings,
+    queryFn: () => settingsService.getErdSettings(),
+  });
+  const showAuthorBadge = erdSettingsQuery.data?.student_authoring_enabled ?? false;
 
   const pool = useMemo<PooledQuestion[]>(() => {
     const sqlQuestions = questionsQuery.data ?? [];
     const erdQuestions = erdQuery.data ?? [];
     const progressData = progressQuery.data ?? [];
     const progressMap = new Map(progressData.map((p) => [p.question_id, p]));
+    // Only attempted questions come back, so a missing entry means untouched.
+    const erdProgressMap = new Map(
+      (erdProgressQuery.data ?? []).map((p) => [p.question_id, p]),
+    );
 
     return [
       ...sqlQuestions.map((q) => {
@@ -118,18 +138,23 @@ export default function StudentDashboard() {
           attempts_count: prog?.attempts_count || 0,
         };
       }),
-      ...erdQuestions.map((e: ERDiagramQuestionListItem) => ({
-        uid: `erd-${e.id}`,
-        id: e.id,
-        title: e.title,
-        problemType: 'erd-question' as StudentProblemType,
-        difficulty: e.difficulty_label.toLowerCase(),
-        created_by: e.created_by,
-        createdByRole: e.created_by_role,
-        created_at: e.created_at,
-      })),
+      ...erdQuestions.map((e: ERDiagramQuestionListItem) => {
+        const prog = erdProgressMap.get(e.id);
+        return {
+          uid: `erd-${e.id}`,
+          id: e.id,
+          title: e.title,
+          problemType: 'erd-question' as StudentProblemType,
+          difficulty: e.difficulty_label.toLowerCase(),
+          created_by: e.created_by,
+          createdByRole: e.created_by_role,
+          created_at: e.created_at,
+          completed: prog?.completed ?? false,
+          attempted: prog !== undefined,
+        };
+      }),
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [questionsQuery.data, erdQuery.data, progressQuery.data]);
+  }, [questionsQuery.data, erdQuery.data, progressQuery.data, erdProgressQuery.data]);
 
   // Counts reflect the unfiltered pool, like the Problems sidebar.
   const categoryCounts = useMemo(() => {
@@ -317,63 +342,95 @@ export default function StudentDashboard() {
                         {/* Clamped to two lines, as this title was when it sat in
                             its own paragraph below — titles are free text and a
                             long one would otherwise set the height of every card
-                            in its grid row. `flex: 1` holds the badges right. */}
+                            in its grid row. `flex: 1` holds the delete button right. */}
                         <h3 style={{
                           margin: 0, fontSize: 15, flex: 1, minWidth: 0,
                           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                         }}>
                           {item.title}
                         </h3>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                          {/* Tested per type rather than as an either/or, so a third
-                              problem type added later shows no badge until someone gives
-                              it one, instead of silently inheriting SQL's.
-
-                              Blue rather than /admin/problems' green for SQL: there the
-                              type and difficulty sit in separate table columns, here they
-                              are adjacent, and badge-success is the same green as easy. */}
-                          {item.problemType === 'erd-question' && (
-                            <span className="badge brand-badge">ERD</span>
+                        {item.problemType === 'erd-question' &&
+                          item.created_by !== undefined &&
+                          ability.can('delete', toERQuestionSubject({ created_by: item.created_by })) && (
+                            <button
+                              className="btn btn-ghost"
+                              style={{ minHeight: 26, padding: '0 6px', flexShrink: 0 }}
+                              disabled={deletingErdId === item.id}
+                              aria-label={`Delete ER question ${item.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteErdQuestion(item.id);
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <IconTrash />
+                            </button>
                           )}
-                          {item.problemType === 'sql-question' && (
-                            <span className="badge badge-info">SQL</span>
-                          )}
-                          <span className={`badge ${difficultyClass[item.difficulty] || 'neutral'}`}>
-                            {capitalize(item.difficulty)}
-                          </span>
-                          {item.problemType === 'erd-question' &&
-                            item.created_by !== undefined &&
-                            ability.can('delete', toERQuestionSubject({ created_by: item.created_by })) && (
-                              <button
-                                className="btn btn-ghost"
-                                style={{ minHeight: 26, padding: '0 6px' }}
-                                disabled={deletingErdId === item.id}
-                                aria-label={`Delete ER question ${item.id}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteErdQuestion(item.id);
-                                }}
-                                onKeyDown={(e) => e.stopPropagation()}
-                              >
-                                <IconTrash />
-                              </button>
-                            )}
-                        </div>
                       </div>
-                      {item.problemType === 'sql-question' ? (
-                        item.completed ? (
-                          <span className="badge badge-success">
-                            <IconCheck />
-                            Completed
-                          </span>
-                        ) : (item.attempts_count || 0) > 0 ? (
-                          <span className="badge neutral">
-                            {item.attempts_count} {(item.attempts_count || 0) === 1 ? 'attempt' : 'attempts'}
-                          </span>
-                        ) : null
-                      ) : item.createdByRole && item.createdByRole !== 'student' ? (
-                        <span className="badge neutral">Staff</span>
-                      ) : null}
+
+                      {/* One row, read left to right: who wrote it (only when that can
+                          vary — see below), what kind of question it is, how hard, then
+                          the student's own progress. Wrapping, not shrinking — the
+                          badges do not all fit across a narrow card. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {/* Author badge, shown only while staff allow students to write
+                            ERD questions. With authoring off every question is staff-
+                            written, so the badge would say "Staff" on every card it can
+                            appear on and distinguish nothing.
+
+                            ERD only: QuestionListItem carries no author role, and SQL
+                            questions are staff-only anyway (create_question is gated by
+                            require_staff_role). Admins count as staff deliberately —
+                            what a student cares about is whether a peer wrote it, not
+                            which kind of account did. */}
+                        {showAuthorBadge &&
+                          item.problemType === 'erd-question' &&
+                          item.createdByRole && (
+                            <span className="badge neutral">
+                              {item.createdByRole === 'student' ? 'Student' : 'Staff'}
+                            </span>
+                          )}
+                        {/* Tested per type rather than as an either/or, so a third
+                            problem type added later shows no badge until someone gives
+                            it one, instead of silently inheriting SQL's.
+
+                            Blue rather than /admin/problems' green for SQL: there the
+                            type and difficulty sit in separate table columns, here they
+                            are adjacent, and badge-success is the same green as easy. */}
+                        {item.problemType === 'erd-question' && (
+                          <span className="badge brand-badge">ERD</span>
+                        )}
+                        {item.problemType === 'sql-question' && (
+                          <span className="badge badge-info">SQL</span>
+                        )}
+                        <span className={`badge ${difficultyClass[item.difficulty] || 'neutral'}`}>
+                          {capitalize(item.difficulty)}
+                        </span>
+                        {item.problemType === 'sql-question' &&
+                          (item.completed ? (
+                            <span className="badge badge-success">
+                              <IconCheck />
+                              Completed
+                            </span>
+                          ) : (item.attempts_count || 0) > 0 ? (
+                            <span className="badge neutral">
+                              {item.attempts_count} {(item.attempts_count || 0) === 1 ? 'attempt' : 'attempts'}
+                            </span>
+                          ) : null)}
+                        {/* Same Completed badge as SQL, off the grader's "pass" verdict.
+                            The fallback is "Attempted" rather than a count: an ERD
+                            conversation keeps only the latest grade, so there is no
+                            attempt tally to show. */}
+                        {item.problemType === 'erd-question' &&
+                          (item.completed ? (
+                            <span className="badge badge-success">
+                              <IconCheck />
+                              Completed
+                            </span>
+                          ) : item.attempted ? (
+                            <span className="badge neutral">Attempted</span>
+                          ) : null)}
+                      </div>
                     </article>
                   ))}
                 </div>

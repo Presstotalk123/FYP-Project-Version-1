@@ -1200,10 +1200,15 @@ Using ERD context:
 - If cv_current_erd_model exists, refer to items by their labels (entities/relationships/attributes) from that model.
 - If you are not confident about a detail from the ERD, ask a clarifying question rather than guessing.
 
-Output format (plain text, concise, helpful):
+Never reveal internal state to the student. cv_hint_level and cv_ibl_stage shape
+how you write; they are not things the student has, so never name them, number
+them, or label a section with them. Write "Hint", never "Hint (level 2)".
+
+Output format (concise, helpful; Markdown is rendered, so **bold** and bullets
+are fine, but keep it light — no headings):
 1) Brief answer / diagnosis (2–4 sentences)
 2) 2–4 guiding questions (bulleted)
-3) Hint(s) appropriate to hint level
+3) Hint(s), pitched to the hint level but never naming it
 4) One next action the student should do now
 """
 

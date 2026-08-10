@@ -9,6 +9,9 @@ import {
   Text,
   Textarea,
 } from "@mantine/core";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 
 type ChatMessage = {
@@ -94,10 +97,62 @@ function TypewriterMessage({
     return () => window.clearInterval(timer);
   }, [message.content, onTextUpdate, shouldAnimate]);
 
-  return (
+  const text = shouldAnimate ? displayText : message.content;
+
+  // The tutor writes Markdown — bold, bullets — whatever the prompt asks for, so
+  // its replies are rendered as Markdown rather than shown raw with the asterisks
+  // in them. A student's own message is displayed verbatim: it is their text, and
+  // stray punctuation should not silently restyle it.
+  return message.role === "assistant" ? (
+    <ChatMarkdown content={text} />
+  ) : (
     <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-      {shouldAnimate ? displayText : message.content}
+      {text}
     </Text>
+  );
+}
+
+/** Markdown sized for a chat bubble.
+ *
+ * Not DescriptionMarkdown: that one is tuned for problem statements — muted,
+ * 13px, its own typography scale. Here the text must inherit the bubble's colour
+ * (white on the student's filled bubble, black on the tutor's) and sit tight.
+ * Block spacing comes from the grid gap so no element carries a trailing margin
+ * into the bubble's padding.
+ *
+ * remark-breaks for the same reason the description renderer uses it: the model
+ * emits single newlines between lines it means to be separate. */
+function ChatMarkdown({ content }: { content: string }) {
+  return (
+    <div style={{ display: "grid", gap: 6, fontSize: 14, lineHeight: 1.55 }}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={{
+          p: ({ children }) => <p style={{ margin: 0 }}>{children}</p>,
+          ul: ({ children }) => (
+            <ul style={{ margin: 0, paddingLeft: 18 }}>{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol style={{ margin: 0, paddingLeft: 18 }}>{children}</ol>
+          ),
+          li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+          code: ({ children }) => (
+            <code
+              style={{
+                background: "rgba(0, 0, 0, 0.06)",
+                borderRadius: 4,
+                padding: "1px 4px",
+                fontSize: 13,
+              }}
+            >
+              {children}
+            </code>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }
 

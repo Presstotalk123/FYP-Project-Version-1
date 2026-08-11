@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
   Card,
   Grid,
   Group,
+  Modal,
   Stack,
   Switch,
   Text,
@@ -81,6 +82,61 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
   const [savedQuestionId, setSavedQuestionId] = useState<number | null>(null);
 
   const attemptCount = question?.attempt_count ?? 0;
+
+  // The saved model answer, as an object URL. Fetched as a blob (the endpoint is
+  // staff-only and an <img> sends no Authorization header), and revoked on unmount
+  // so leaving the page does not leak it.
+  const savedModelAnswerKey = question?.model_answer_storage_key ?? null;
+  const [savedModelAnswerUrl, setSavedModelAnswerUrl] = useState<string | null>(null);
+  const [modelAnswerFailed, setModelAnswerFailed] = useState(false);
+  const [modelAnswerZoomed, setModelAnswerZoomed] = useState(false);
+
+  // A locally picked file, previewed straight from the browser — no upload needed,
+  // so it works while creating a question as well as while replacing an existing
+  // answer. Re-created whenever the choice changes, which is what makes the preview
+  // follow a replacement rather than keep showing the old diagram.
+  const pendingModelAnswerFile = modelAnswerFiles[0] ?? null;
+  const [pendingModelAnswerUrl, setPendingModelAnswerUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingModelAnswerFile) {
+      setPendingModelAnswerUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingModelAnswerFile);
+    setPendingModelAnswerUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingModelAnswerFile]);
+
+  // What the student's diagram will be after saving: the pending file if one is
+  // picked, otherwise whatever is already stored.
+  const previewUrl = pendingModelAnswerUrl ?? savedModelAnswerUrl;
+  const previewIsPending = pendingModelAnswerUrl !== null;
+
+  useEffect(() => {
+    if (!question || !savedModelAnswerKey) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    erDiagramService
+      .fetchModelAnswerImage(question.id)
+      .then((url) => {
+        objectUrl = url;
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        setSavedModelAnswerUrl(url);
+      })
+      // A missing file should not break the form: the note below falls back to
+      // naming the stored file, which is all this screen showed before.
+      .catch(() => {
+        if (!cancelled) setModelAnswerFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [question, savedModelAnswerKey]);
 
   // Validation and API errors surface as toasts, not an inline Alert: an Alert
   // inside the form card shifts every control below it down mid-edit. The
@@ -376,10 +432,68 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
                   (optional)
                 </Text>
               </Group>
-              {question?.model_answer_storage_key ? (
+              {previewUrl ? (
+                <Stack gap={6}>
+                  {/* Clickable: a whole ERD is unreadable at preview size, so the
+                      preview stays small and opens full size in the modal below.
+                      A button so it is keyboard-reachable, unstyled so only the
+                      image shows.
+                      next/image cannot optimise an object URL, and the
+                      attempt-image viewer opts out the same way. */}
+                  <button
+                    type="button"
+                    onClick={() => setModelAnswerZoomed(true)}
+                    title="Click to enlarge"
+                    /* Without this the button takes its name from the image it
+                       wraps and announces as a description rather than an action. */
+                    aria-label="Enlarge model answer"
+                    style={{
+                      padding: 0,
+                      border: "none",
+                      background: "none",
+                      cursor: "zoom-in",
+                      alignSelf: "flex-start",
+                      lineHeight: 0,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl}
+                      alt={
+                        previewIsPending
+                          ? "Selected model answer diagram"
+                          : "Current model answer diagram"
+                      }
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: 320,
+                        objectFit: "contain",
+                        border: "1px solid var(--mantine-color-gray-3)",
+                        borderRadius: 8,
+                        background: "#fff",
+                      }}
+                    />
+                  </button>
+                  <Text size="xs" c="dimmed">
+                    {previewIsPending
+                      ? `${pendingModelAnswerFile?.name} — click to enlarge. ${
+                          savedModelAnswerKey
+                            ? "Replaces the saved model answer when you save."
+                            : "Uploaded when you generate the rubric."
+                        }`
+                      : "This is the diagram the rubric was generated from — click it to " +
+                        "enlarge. Upload a new file to replace it; leave empty to keep."}
+                  </Text>
+                </Stack>
+              ) : savedModelAnswerKey ? (
+                // The image is missing or still loading. Name the stored file and keep
+                // the replace guidance: an answer that cannot be displayed is still an
+                // answer that is there, and staff need to know it will be kept.
                 <Text size="xs" c="dimmed">
-                  Current model answer: <code>{question.model_answer_storage_key}</code>. Upload a
-                  new file to replace it; leave empty to keep.
+                  {modelAnswerFailed
+                    ? `Saved model answer (${savedModelAnswerKey}) could not be displayed. `
+                    : `Loading the saved model answer (${savedModelAnswerKey})… `}
+                  Upload a new file to replace it; leave empty to keep.
                 </Text>
               ) : null}
               <Dropzone
@@ -414,11 +528,8 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
                   </div>
                 </Group>
               </Dropzone>
-              {modelAnswerFiles.length > 0 ? (
-                <Text size="sm" c="dimmed">
-                  Selected: {modelAnswerFiles[0]?.name}
-                </Text>
-              ) : null}
+              {/* The file name is not repeated here: the preview above already
+                  shows the chosen diagram and names it. */}
             </Stack>
             <Stack gap={6}>
               <Group justify="space-between" align="center" gap="xs">
@@ -552,6 +663,27 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
           </Stack>
         </Card>
       </Grid.Col>
+
+      {/* Full-size model answer. Fullscreen rather than a sized modal because an
+          ERD is wide, and the body scrolls so a diagram larger than the viewport
+          can still be read end to end at its natural resolution. */}
+      <Modal
+        opened={modelAnswerZoomed}
+        onClose={() => setModelAnswerZoomed(false)}
+        fullScreen
+        title={previewIsPending ? "Model answer (not yet saved)" : "Model answer"}
+      >
+        {previewUrl ? (
+          <Box style={{ overflow: "auto", maxHeight: "calc(100vh - 120px)" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt="Model answer diagram, full size"
+              style={{ display: "block", background: "#fff" }}
+            />
+          </Box>
+        ) : null}
+      </Modal>
     </Grid>
   );
 }

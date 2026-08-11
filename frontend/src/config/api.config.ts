@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
     QUESTIONS_COUNT: '/er-diagram/questions/count',
     PROGRESS: '/er-diagram/progress',
     QUESTION_DETAIL: (id: number) => `/er-diagram/questions/${id}`,
+    QUESTION_MODEL_ANSWER: (id: number) => `/er-diagram/questions/${id}/model-answer`,
     QUESTION_PUBLISH: (id: number) => `/er-diagram/questions/${id}/publish`,
     QUESTION_UNPUBLISH: (id: number) => `/er-diagram/questions/${id}/unpublish`,
     SUBMISSION: '/er-diagram/submission',

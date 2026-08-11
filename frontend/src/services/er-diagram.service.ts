@@ -175,6 +175,16 @@ export const erDiagramService = {
     return response.data;
   },
 
+  /** The author's model answer image as an object URL. Fetched as a blob because
+   *  an <img> load carries no Authorization header, and this endpoint is staff-only.
+   *  The caller owns the URL and must revokeObjectURL it. */
+  async fetchModelAnswerImage(id: number): Promise<string> {
+    const response = await api.get<Blob>(API_ENDPOINTS.ER_DIAGRAM.QUESTION_MODEL_ANSWER(id), {
+      responseType: "blob",
+    });
+    return URL.createObjectURL(response.data);
+  },
+
   async getQuestionById(id: number): Promise<ERDiagramQuestion> {
     const response = await api.get<ERDiagramQuestion>(API_ENDPOINTS.ER_DIAGRAM.QUESTION_DETAIL(id));
     return response.data;

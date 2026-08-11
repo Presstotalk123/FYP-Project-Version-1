@@ -3,11 +3,12 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from starlette.concurrency import iterate_in_threadpool
@@ -1161,6 +1162,46 @@ def get_er_question_progress(
             ERDiagramQuestionProgressItem(question_id=question_id, completed=completed)
         )
     return progress
+
+
+@router.get("/questions/{question_id}/model-answer")
+def get_er_model_answer(
+    question_id: int,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """The author's model answer image, so the edit screen can show the diagram the
+    rubric was generated from instead of a filename.
+
+    Staff only, and deliberately so: this is the answer key. The edit page is
+    already staff-gated, and no student-facing screen has a reason to fetch it.
+
+    model_answer_url is a filesystem path, not a URL — it is stored with the OS
+    separator and cannot be served — so the stored key is resolved against the
+    upload directory the same way the attempt-image endpoint does.
+    """
+    row = (
+        db.query(ERDiagramQuestion.model_answer_storage_key)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    key = row[0]
+    if not key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No model answer stored for this question")
+    # Keys are server-generated UUID filenames; anything with a path separator is
+    # not ours. Belt-and-braces against traversal via a tampered row.
+    if "/" in key or "\\" in key or ".." in key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Model answer missing from storage")
+    path = Path(settings.ER_DIAGRAM_UPLOAD_PATH) / key
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Model answer missing from storage")
+    return FileResponse(path)
 
 
 @router.get("/questions/{question_id}", response_model=ERDiagramQuestionResponse, response_model_exclude_none=True)

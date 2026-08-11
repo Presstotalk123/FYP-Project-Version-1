@@ -127,6 +127,12 @@ export default function ErQuestionAnalyticsPage() {
             <button className="btn btn-secondary" onClick={() => router.push('/admin/er-analytics')}>
               Class overview
             </button>
+            {/* Two ways out, because ERD drills one level deeper than SQL does:
+                up to the cohort view, or straight back to Problems, which is
+                where staff came in from. */}
+            <button className="btn btn-secondary" onClick={() => router.push('/admin/problems')}>
+              Back to problems
+            </button>
           </div>
         </div>
 

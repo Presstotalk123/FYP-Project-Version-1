@@ -72,6 +72,11 @@ export default function ErClassOverviewPage() {
               <option key={g} value={g}>{g}</option>
             ))}
           </select>
+          {/* Problems, not the question list: analytics is reached from there,
+              so it is where staff expect to come back to. */}
+          <button className="btn btn-secondary" onClick={() => router.push('/admin/problems')}>
+            Back to problems
+          </button>
         </div>
 
         {error && (

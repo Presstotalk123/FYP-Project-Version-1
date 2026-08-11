@@ -73,6 +73,9 @@ export const API_ENDPOINTS = {
   CHATBOT: {
     SEND: '/chatbot/send',
     QUERY_REVIEW: '/chatbot/query-review',
+    COUNTEREXAMPLE: '/chatbot/counterexample',
+    CONTRAST: '/chatbot/contrast',
+    WORKED_EXAMPLE: '/chatbot/worked-example',
     LAB_CHAT: '/chatbot/lab-chat',
     LAB_QUERY_REVIEW: '/chatbot/lab-query-review',
     COURSE_CHAT: '/chatbot/course-chat',

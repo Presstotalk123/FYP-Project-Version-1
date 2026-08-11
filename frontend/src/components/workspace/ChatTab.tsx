@@ -34,6 +34,7 @@ export function ChatTab({ questionId }: ChatTabProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [weLoading, setWeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -137,6 +138,45 @@ export function ChatTab({ questionId }: ChatTabProps) {
       setError(e.message || 'Failed to get response from AI tutor');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Surface a similar question the student has already solved, as an assistant
+  // message they can look at and adapt (does not reveal the current answer).
+  const handleWorkedExample = async () => {
+    if (isLoading || weLoading) return;
+    setWeLoading(true);
+    setError(null);
+    try {
+      const data = await chatbotService.getWorkedExample(questionId);
+      let content: string;
+      if (!data.available || !data.source_question) {
+        content =
+          "Once you've solved a few more questions, I can point you to a similar one you've already cracked and we can adapt it together. Keep going!";
+      } else {
+        content = [
+          `Here's a similar problem you already solved — "${data.source_question.title}".`,
+          data.mapping_note,
+          'Your solution was:',
+          data.solution_query,
+          'Try adapting that same approach to the current question.',
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `worked-${Date.now()}`,
+          role: 'assistant',
+          content,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    } catch {
+      setError('Could not load a similar problem right now.');
+    } finally {
+      setWeLoading(false);
     }
   };
 
@@ -258,6 +298,19 @@ export function ChatTab({ questionId }: ChatTabProps) {
           </button>
         </div>
       )}
+
+      {/* ── Quick action: similar solved problem ─────────────────────── */}
+      <div style={{ padding: '0 12px 8px', flexShrink: 0 }}>
+        <button
+          className="btn btn-ghost"
+          style={{ fontSize: 12 }}
+          onClick={handleWorkedExample}
+          disabled={isLoading || weLoading}
+          aria-label="Show me a similar problem I solved"
+        >
+          {weLoading ? 'Finding a similar problem…' : '💡 Show me a similar problem I solved'}
+        </button>
+      </div>
 
       {/* ── Input bar ────────────────────────────────────────────────── */}
       <div style={{

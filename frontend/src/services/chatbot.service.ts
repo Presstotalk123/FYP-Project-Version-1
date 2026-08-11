@@ -24,6 +24,48 @@ export interface LabQueryReviewResponse {
   hint: string;
 }
 
+// ── Counterexample (execution-verified) ──────────────────────────────────────
+
+export interface ResultBlock {
+  columns: string[];
+  rows: unknown[][];
+}
+
+export interface CounterexampleResponse {
+  available: boolean;
+  injected_rows: string[];
+  student_result: ResultBlock | null;
+  correct_result: ResultBlock | null;
+  explanation: string;
+}
+
+// ── Contrasting cases ─────────────────────────────────────────────────────────
+
+export interface ContrastResult {
+  columns: string[];
+  rows: unknown[][];
+  diff: boolean[];
+}
+
+export interface ContrastResponse {
+  available: boolean;
+  concept: string;
+  explanation: string;
+  your_query: string;
+  corrected_query: string;
+  your_result: ContrastResult | null;
+  corrected_result: ContrastResult | null;
+}
+
+// ── Worked example (similar solved question) ─────────────────────────────────
+
+export interface WorkedExampleResponse {
+  available: boolean;
+  source_question: { id: number; title: string; description: string } | null;
+  solution_query: string;
+  mapping_note: string;
+}
+
 // ── Persisted tutor transcript (restore on mount) ────────────────────────────
 
 export interface StoredTutorMessage {
@@ -67,6 +109,41 @@ export const chatbotService = {
     const response = await api.post<QueryReviewResponse>(
       API_ENDPOINTS.CHATBOT.QUERY_REVIEW,
       { question_id, student_query }
+    );
+    return response.data;
+  },
+
+  // NEW: Execution-verified counterexample for a wrong-but-valid SQL query
+  async getCounterexample(
+    question_id: number,
+    student_query: string
+  ): Promise<CounterexampleResponse> {
+    const response = await api.post<CounterexampleResponse>(
+      API_ENDPOINTS.CHATBOT.COUNTEREXAMPLE,
+      { question_id, student_query }
+    );
+    return response.data;
+  },
+
+  // NEW: Contrasting cases — student query vs a minimally-corrected variant
+  async getContrast(
+    question_id: number,
+    student_query: string
+  ): Promise<ContrastResponse> {
+    const response = await api.post<ContrastResponse>(
+      API_ENDPOINTS.CHATBOT.CONTRAST,
+      { question_id, student_query }
+    );
+    return response.data;
+  },
+
+  // NEW: A similar question the student already solved (with their own answer)
+  async getWorkedExample(
+    question_id: number
+  ): Promise<WorkedExampleResponse> {
+    const response = await api.post<WorkedExampleResponse>(
+      API_ENDPOINTS.CHATBOT.WORKED_EXAMPLE,
+      { question_id }
     );
     return response.data;
   },

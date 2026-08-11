@@ -176,6 +176,7 @@ export function ResultsPanel({
                   problemToken={reviewData?.problem_token ?? ''}
                   explanation={reviewData?.explanation ?? ''}
                   hint={reviewData?.hint ?? ''}
+                  questionId={questionId}
                 />
               )}
             </div>

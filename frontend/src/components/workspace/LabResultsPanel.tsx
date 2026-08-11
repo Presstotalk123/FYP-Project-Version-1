@@ -164,7 +164,7 @@ export function LabResultsPanel({
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Tab bar */}
-      <div className="tabs" style={{ margin: 0, padding: '0 12px', flexShrink: 0 }}>
+      <div className="tabs tabs-compact" style={{ margin: 0, padding: '0 8px', flexShrink: 0 }}>
         {tabs.map(tab => (
           <button
             key={tab.id}

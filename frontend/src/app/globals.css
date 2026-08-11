@@ -764,6 +764,18 @@ a {
   color: var(--brand-lilac);
 }
 
+/* Lab results panel packs 5 tabs (Results/Diagram/History/Database/Ask Bagheera)
+   into the same width other tab bars split 4 ways, so "Ask Bagheera" clips on
+   the right at typical panel widths. Tighten padding/gap/font so all five fit. */
+.tabs.tabs-compact {
+  gap: 2px;
+}
+
+.tabs.tabs-compact .tab {
+  padding: 8px 9px;
+  font-size: 13px;
+}
+
 /* ============================================================
    HOME PAGE SPECIFIC
    ============================================================ */

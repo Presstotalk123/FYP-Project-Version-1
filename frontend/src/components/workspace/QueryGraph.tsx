@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import dagre from 'dagre';
 import { buildQueryGraph } from '@/utils/queryGraph';
-import { isQueryGraphError, GraphNode, GraphGroup } from '@/types/queryGraph.types';
+import { isQueryGraphError, GraphNode, GraphGroup, GraphEdge } from '@/types/queryGraph.types';
 
 interface QueryGraphProps {
   query: string;
@@ -97,6 +97,59 @@ function groupDepth(g: GraphGroup, byId: Map<string, GraphGroup>): number {
   return d;
 }
 
+/** Pixel width of a rendered edge-label pill — must match EdgeLabel's own layout. */
+function labelBoxWidth(text: string): number {
+  return text.length * 6 + 10;
+}
+
+const LABEL_H = 20;
+const LABEL_GAP = 4; // minimum breathing room enforced between two label pills
+
+/**
+ * Nudge overlapping join-label pills apart along the vertical axis — the
+ * layout's free axis in a left-to-right diagram — so labels never stack on
+ * top of each other, another label, or an unrelated edge's midpoint.
+ * Mutates `labelX`/`labelY` in place; `lx`/`ly` (the true curve midpoint)
+ * are left untouched so callers can draw a short leader line back to the
+ * curve when a label has moved noticeably.
+ */
+function resolveLabelOverlaps(
+  routed: { edge: GraphEdge; lx: number; ly: number; labelX: number; labelY: number }[],
+): void {
+  const boxes = routed
+    .map((re, i) => (re.edge.label ? { i, x: re.lx, y: re.ly, w: labelBoxWidth(re.edge.label), h: LABEL_H } : null))
+    .filter((b): b is { i: number; x: number; y: number; w: number; h: number } => b !== null)
+    // Fixed left-to-right, top-to-bottom order keeps resolution stable and
+    // independent of edge parse order.
+    .sort((a, b) => a.x - b.x || a.y - b.y || a.i - b.i);
+
+  const passes = Math.max(4, boxes.length);
+  for (let pass = 0; pass < passes; pass++) {
+    let moved = false;
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const overlapX = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
+        const overlapY = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        const push = overlapY / 2 + LABEL_GAP / 2;
+        if (a.y < b.y || (a.y === b.y && a.i < b.i)) {
+          a.y -= push;
+          b.y += push;
+        } else {
+          a.y += push;
+          b.y -= push;
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  for (const b of boxes) routed[b.i].labelY = b.y;
+}
+
 export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
   const layout = useMemo(() => {
     const result = buildQueryGraph(query, schemaSql);
@@ -162,14 +215,14 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
         if (!a || !b) return null;
         const p1 = anchorFor(a, e.fromColumn, b.cx);
         const p2 = anchorFor(b, e.toColumn, a.cx);
-        return {
-          edge: e,
-          path: edgeCurve(p1, p2),
-          lx: (p1.x + p2.x) / 2,
-          ly: (p1.y + p2.y) / 2,
-        };
+        const lx = (p1.x + p2.x) / 2;
+        const ly = (p1.y + p2.y) / 2;
+        return { edge: e, path: edgeCurve(p1, p2), lx, ly, labelX: lx, labelY: ly };
       })
       .filter((re): re is NonNullable<typeof re> => re !== null);
+
+    // Nudge overlapping join-label pills apart so they stay legible.
+    resolveLabelOverlaps(routedEdges);
 
     const size = g.graph() as { width?: number; height?: number };
     return {
@@ -288,7 +341,12 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
                 strokeDasharray={re.edge.kind === 'subquery' ? '6 4' : undefined}
               />
               {re.edge.label && (
-                <EdgeLabel x={re.lx} y={re.ly} text={re.edge.label} accent={re.edge.kind === 'subquery'} />
+                <>
+                  {Math.abs(re.labelY - re.ly) > 6 && (
+                    <line x1={re.lx} y1={re.ly} x2={re.labelX} y2={re.labelY} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 2" />
+                  )}
+                  <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} accent={re.edge.kind === 'subquery'} />
+                </>
               )}
             </g>
           ))}
@@ -461,7 +519,7 @@ function AggNode({ p }: { p: Placed }) {
 }
 
 function EdgeLabel({ x, y, text, accent }: { x: number; y: number; text: string; accent?: boolean }) {
-  const w = text.length * 6 + 10;
+  const w = labelBoxWidth(text);
   return (
     <g>
       <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={4} fill="var(--surface)" stroke={accent ? 'var(--brand-lilac)' : 'var(--border)'} strokeWidth={1} />

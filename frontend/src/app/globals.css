@@ -430,6 +430,12 @@ a {
 .question-card {
   cursor: pointer;
   transition: transform 140ms ease, box-shadow 140ms ease;
+  /* A column so the badge row can be pushed to the bottom with margin-top: auto.
+     The grid already stretches every card to the tallest in its row, so without
+     this a one-line title leaves its badges floating mid-card while a two-line
+     neighbour's sit lower — the rows never line up. */
+  display: flex;
+  flex-direction: column;
 }
 
 .question-card:hover {

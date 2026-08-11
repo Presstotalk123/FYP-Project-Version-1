@@ -371,8 +371,14 @@ export default function StudentDashboard() {
                       {/* One row, read left to right: who wrote it (only when that can
                           vary — see below), what kind of question it is, how hard, then
                           the student's own progress. Wrapping, not shrinking — the
-                          badges do not all fit across a narrow card. */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          badges do not all fit across a narrow card.
+
+                          `marginTop: auto` pins the row to the bottom of the card, which
+                          .question-card makes a flex column for exactly this. Titles
+                          clamp to two lines but may take one, and the grid stretches
+                          every card to the tallest in its row; without this the badges
+                          would sit at whatever height each title happened to end. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
                         {/* Author badge, shown only while staff allow students to write
                             ERD questions. With authoring off every question is staff-
                             written, so the badge would say "Staff" on every card it can

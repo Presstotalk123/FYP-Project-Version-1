@@ -446,6 +446,17 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
               }}
             />
             <Group justify="flex-end">
+              {/* Leaves by the same door a successful save does, so abandoning a
+                  question and finishing one land in the same place. Matches the
+                  SQL QuestionForm, where Cancel sits beside the submit button
+                  rather than being an arrow up in the page heading. */}
+              <Button
+                variant="default"
+                onClick={() => router.push(isStaff ? "/admin/problems" : "/student")}
+                disabled={isGenerating || isSaving}
+              >
+                Cancel
+              </Button>
               {isSubmitted ? (
                 <Button
                   variant="light"

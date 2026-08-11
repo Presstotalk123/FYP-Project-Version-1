@@ -31,4 +31,9 @@ export const questionService = {
     const response = await api.post<Question>(API_ENDPOINTS.QUESTIONS.UNPUBLISH(id));
     return response.data;
   },
+
+  /** Soft delete, matching the backend's is_deleted flag. */
+  async deleteQuestion(id: number): Promise<void> {
+    await api.delete(API_ENDPOINTS.QUESTIONS.DETAIL(id));
+  },
 };

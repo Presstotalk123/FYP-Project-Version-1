@@ -86,8 +86,10 @@ export default function SqlQuestionAnalyticsPage() {
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
-            <button className="btn btn-secondary" onClick={() => router.push('/admin/questions')}>
-              Back to questions
+            {/* Problems, not the question list: analytics is reached from there,
+                so it is where staff expect to come back to. */}
+            <button className="btn btn-secondary" onClick={() => router.push('/admin/problems')}>
+              Back to problems
             </button>
           </div>
         </div>

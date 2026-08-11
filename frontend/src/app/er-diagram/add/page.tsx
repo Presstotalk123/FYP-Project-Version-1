@@ -1,8 +1,6 @@
 "use client";
 
-import { ActionIcon, Container, Group, Stack, Text, Title } from "@mantine/core";
-import { IconArrowLeft } from "@tabler/icons-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { Container, Stack, Text, Title } from "@mantine/core";
 import { ERQuestionForm } from "@/components/admin/ERQuestionForm";
 
 /**
@@ -13,27 +11,18 @@ import { ERQuestionForm } from "@/components/admin/ERQuestionForm";
  * the same split QuestionForm uses for SQL questions.
  */
 export default function AddERDiagramQuestionPage() {
-  const { isStaff } = useAuth();
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
-        <Group align="baseline" gap="sm">
-          <ActionIcon
-            component="a"
-            href={isStaff ? "/admin/problems" : "/student"}
-            variant="subtle"
-            size="sm"
-            aria-label={isStaff ? "Back to problems" : "Back to questions"}
-          >
-            <IconArrowLeft size={18} />
-          </ActionIcon>
-          <div>
-            <Title order={2}>Add ER Diagram Question</Title>
-            <Text c="dimmed" mt={6}>
-              Create a new ER diagram practice question.
-            </Text>
-          </div>
-        </Group>
+        {/* No back arrow: leaving is Cancel, beside the form's own action
+            button, as on the SQL question pages. The form routes it by role,
+            the same way it routes a successful save. */}
+        <div>
+          <Title order={2}>Add ER Diagram Question</Title>
+          <Text c="dimmed" mt={6}>
+            Create a new ER diagram practice question.
+          </Text>
+        </div>
 
         <ERQuestionForm />
       </Stack>

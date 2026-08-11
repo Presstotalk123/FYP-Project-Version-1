@@ -264,6 +264,28 @@ a {
   margin-bottom: 22px;
 }
 
+/* The heading side absorbs a long title rather than pushing the controls out of
+   the corner. min-width: 0 lets it wrap instead of holding the line open at its
+   intrinsic width; overflow-wrap breaks a single unspaced run — a pasted id, a
+   long token in a question title — which would otherwise ignore the wrap and
+   run under the controls. */
+.page-head > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* The controls hold their natural width and stay pinned top-right at any title
+   length, which is the whole point: staff always find the filters in the same
+   place. .page-head deliberately does NOT wrap, so this can never be pushed
+   onto a line of its own — see the narrow-screen exception at 720px, where
+   there is no longer room to keep both on one line. */
+.page-head .button-row {
+  flex-shrink: 0;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
 .page-head h2 {
   margin: 0;
   font-size: 28px;
@@ -1196,6 +1218,13 @@ a {
 @media (max-width: 720px) {
   .topbar {
     padding: 0 16px;
+  }
+
+  /* Below this there is no room to keep a title and a row of controls side by
+     side, so the controls drop under the heading — still right-aligned, by the
+     margin-left: auto they already carry. */
+  .page-head {
+    flex-wrap: wrap;
   }
 
   .layout {

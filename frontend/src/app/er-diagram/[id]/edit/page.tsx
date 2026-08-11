@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ActionIcon, Alert, Container, Group, Loader, Stack, Text, Title } from "@mantine/core";
-import { IconAlertCircle, IconArrowLeft } from "@tabler/icons-react";
+import { Alert, Container, Group, Loader, Stack, Text, Title } from "@mantine/core";
+import { IconAlertCircle } from "@tabler/icons-react";
 import { ProtectedRoute } from "@/components/common/ProtectedRoute";
 import { DashboardLayout } from "@/components/common/DashboardLayout";
 import { ERQuestionForm } from "@/components/admin/ERQuestionForm";
@@ -51,23 +51,14 @@ export default function EditERQuestionPage() {
       <DashboardLayout>
         <Container size="xl" py="xl">
           <Stack gap="lg">
-            <Group align="baseline" gap="sm">
-              <ActionIcon
-                component="a"
-                href="/admin/problems"
-                variant="subtle"
-                size="sm"
-                aria-label="Back to problems"
-              >
-                <IconArrowLeft size={18} />
-              </ActionIcon>
-              <div>
-                <Title order={2}>Edit ER Diagram Question</Title>
-                <Text c="dimmed" mt={6}>
-                  {question ? question.title : "Loading…"}
-                </Text>
-              </div>
-            </Group>
+            {/* No back arrow: leaving is Cancel, beside the form's own action
+                button, as on the SQL question pages. */}
+            <div>
+              <Title order={2}>Edit ER Diagram Question</Title>
+              <Text c="dimmed" mt={6}>
+                {question ? question.title : "Loading…"}
+              </Text>
+            </div>
 
             {loading ? (
               <Group justify="center" py="xl">

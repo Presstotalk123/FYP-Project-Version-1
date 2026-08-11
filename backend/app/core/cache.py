@@ -68,6 +68,7 @@ class Ns:
     SQL_ANALYTICS = "sql_analytics"
     LAB_ANALYTICS = "lab_analytics"
     COURSE_INFO = "course_info"
+    WHITELIST = "whitelist"
 
 
 # Static namespaces that get a seed row on startup. `assessment_body:{id}` rows are
@@ -82,6 +83,7 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.SQL_ANALYTICS,
     Ns.LAB_ANALYTICS,
     Ns.COURSE_INFO,
+    Ns.WHITELIST,
 )
 
 
@@ -255,8 +257,12 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.query_review import QueryReview
     from app.models.tutor_chat_conversation import TutorChatConversation
     from app.models.tutor_chat_message import TutorChatMessage
+    from app.models.whitelist import WhitelistEntry
 
     namespaces: set[str] = set()
+
+    if isinstance(obj, WhitelistEntry):
+        return {Ns.WHITELIST}
 
     if isinstance(obj, Question):
         namespaces.add(Ns.QUESTIONS)

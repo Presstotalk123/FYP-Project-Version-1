@@ -7,6 +7,7 @@ from app.models.whitelist import WhitelistEntry
 from app.schemas.auth import GoogleAuthRequest, MicrosoftAuthRequest, Token
 from app.schemas.user import UserResponse
 from app.core.security import verify_google_token, verify_microsoft_token, create_access_token
+from app.core.cache import cache_read, Ns
 from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -24,7 +25,15 @@ def _issue_token_for_whitelisted_email(email: str, db: Session) -> dict:
     """
     email = email.lower()
 
-    entry = db.query(WhitelistEntry).filter(WhitelistEntry.email == email).first()
+    def _lookup_whitelist_entry() -> dict | None:
+        # Fully serialize while the session is open -- a cached payload must never
+        # be a session-bound ORM row (see app.core.cache module docstring).
+        entry = db.query(WhitelistEntry).filter(WhitelistEntry.email == email).first()
+        if not entry:
+            return None
+        return {"role": entry.role, "name": entry.name, "class_group": entry.class_group}
+
+    entry = cache_read(db, Ns.WHITELIST, key=("email", email), producer=_lookup_whitelist_entry)
     if not entry:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -33,19 +42,19 @@ def _issue_token_for_whitelisted_email(email: str, db: Session) -> dict:
 
     user = db.query(User).filter(User.email == email).first()
     if user:
-        if user.role != entry.role:
-            user.role = entry.role
+        if user.role != entry["role"]:
+            user.role = entry["role"]
         # Sync profile info from whitelist
-        user.name = entry.name
-        user.class_group = entry.class_group
+        user.name = entry["name"]
+        user.class_group = entry["class_group"]
         user.is_active = 1
     else:
         user = User(
             email=email,
             hashed_password="",
-            role=entry.role,
-            name=entry.name,
-            class_group=entry.class_group,
+            role=entry["role"],
+            name=entry["name"],
+            class_group=entry["class_group"],
             is_active=1,
         )
         db.add(user)

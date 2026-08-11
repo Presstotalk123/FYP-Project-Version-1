@@ -117,7 +117,7 @@ export function ResultsPanel({
 
         {/* ── Results Tab (mounted once, kept alive across tab switches) ── */}
         {visitedTabs.has('results') && (
-          <div hidden={activeTab !== 'results'} style={{ height: '100%' }}>
+          <div style={{ height: '100%', display: activeTab === 'results' ? 'block' : 'none' }}>
           {!result ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
               Run a query to see results
@@ -263,7 +263,7 @@ export function ResultsPanel({
         {/* ── AI Tutor Tab (mounted once, kept alive across tab switches so the
               transcript isn't re-fetched on every visit) ── */}
         {visitedTabs.has('chat') && (
-          <div hidden={activeTab !== 'chat'} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ height: '100%', display: activeTab === 'chat' ? 'flex' : 'none', flexDirection: 'column' }}>
             <ChatTab
               questionId={questionId}
               question={question}

@@ -361,7 +361,7 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => router.push('/admin/questions')}
+          onClick={() => router.push('/admin/problems')}
           disabled={loading}
         >
           Cancel

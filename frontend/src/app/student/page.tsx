@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -46,6 +46,10 @@ const difficultyClass: Record<string, string> = {
   medium: 'medium',
   hard: 'hard',
 };
+
+// One-shot handoff: saved right before entering a lab, consumed (and cleared)
+// on the next mount of this page so it never affects unrelated visits.
+const SCROLL_STORAGE_KEY = 'student-problems-scroll';
 
 const capitalize = (value: string): string =>
   value.charAt(0).toUpperCase() + value.slice(1);
@@ -186,7 +190,39 @@ export default function StudentDashboard() {
     erdQuery.refetch();
   };
 
+  // Restore scroll position once, after the list has finished loading (so
+  // the cards are actually in the DOM), when returning from a lab.
+  const restoredScrollRef = useRef(false);
+
+  useEffect(() => {
+    if (restoredScrollRef.current || loading) return;
+    restoredScrollRef.current = true;
+
+    let raw: string | null = null;
+    try {
+      raw = window.sessionStorage.getItem(SCROLL_STORAGE_KEY);
+      window.sessionStorage.removeItem(SCROLL_STORAGE_KEY); // one-shot: consume regardless of outcome
+    } catch {
+      return;
+    }
+    if (raw === null) return;
+
+    const y = Number(raw);
+    if (!Number.isFinite(y)) return;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: y, behavior: 'auto' });
+      });
+    });
+  }, [loading]);
+
   const handleQuestionClick = (item: PooledQuestion) => {
+    try {
+      window.sessionStorage.setItem(SCROLL_STORAGE_KEY, String(window.scrollY));
+    } catch {
+      // best-effort only — never block navigation on storage failures
+    }
     router.push(item.problemType === 'erd-question' ? `/er-diagram/${item.id}` : `/student/workspace/${item.id}`);
   };
 

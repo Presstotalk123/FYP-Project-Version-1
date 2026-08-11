@@ -305,7 +305,7 @@ export default function ProblemsPage() {
       <DashboardLayout>
         <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start', minHeight: '100%' }}>
           {/* Left Category Sidebar */}
-          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', position: 'sticky', top: '84px', alignSelf: 'flex-start' }}>
             <span style={{ fontSize: '12px', fontWeight: 650, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '4px', padding: '0 12px', letterSpacing: '0.05em' }}>
               Categories
             </span>

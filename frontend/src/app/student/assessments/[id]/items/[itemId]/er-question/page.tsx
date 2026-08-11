@@ -95,7 +95,7 @@ export default function AssessmentErQuestionPage() {
 
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
-      <ERDiagramWorkspace question={question} weight={weight} />
+      <ERDiagramWorkspace question={question} weight={weight} backUrl={backUrl} />
     </ProtectedRoute>
   );
 }

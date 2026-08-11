@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ActionIcon,
   Alert,
   Badge,
   Box,
@@ -21,7 +20,7 @@ import {
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
-import { IconAlertCircle, IconArrowLeft, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconLogout, IconPhoto, IconUpload, IconX } from "@tabler/icons-react";
 import { ChatPanel, TUTOR_NAME, type ChatHistoryMessage } from "@/components/ChatPanel";
 import { DescriptionMarkdown } from "@/components/common/DescriptionMarkdown";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
@@ -65,6 +64,11 @@ type WorkspaceProps = {
   question: ERDiagramWorkspaceQuestion;
   /** Assessment weightage (%) for this question; omitted outside assessments. */
   weight?: number;
+  /** Where "Save and Exit" goes. Defaults to the pooled questions list; an
+   *  assessment passes its overview. Mirrors SqlWorkspace's prop of the same
+   *  name — a named destination rather than router.back(), which depends on how
+   *  the student got here and lands anywhere after a refresh. */
+  backUrl?: string;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -201,7 +205,7 @@ const clearDraft = (userId: number | null, questionId: number): void => {
   }
 };
 
-export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
+export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps) {
   const router = useRouter();
   const progress = useAssessmentProgress();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
@@ -823,20 +827,24 @@ export function ERDiagramWorkspace({ question, weight }: WorkspaceProps) {
   return (
     <Container fluid px="sm" py="md" className={BRAND_THEME_CLASS}>
       <Stack gap="md">
-        <Group align="baseline" gap="sm">
-          <ActionIcon
-            onClick={() => router.back()}
-            variant="subtle"
-            size="sm"
-            aria-label="Back to previous page"
+        <Group justify="space-between" align="flex-start" gap="sm" wrap="nowrap">
+          <Group align="baseline" gap="sm">
+            <Title order={2}>{question.title}</Title>
+            <Text c="dimmed" mt={4}>
+              Difficulty: {question.difficulty}
+            </Text>
+            <QuestionWeightBadge weight={weight} />
+          </Group>
+          {/* Named "Save and Exit" like SqlWorkspace's, and like it this only
+              navigates: the diagram is already on disk, written to the draft on
+              every draw.io autosave. */}
+          <Button
+            leftSection={<IconLogout size={16} />}
+            onClick={() => router.push(backUrl ?? "/student")}
+            style={{ flexShrink: 0 }}
           >
-            <IconArrowLeft size={18} />
-          </ActionIcon>
-          <Title order={2}>{question.title}</Title>
-          <Text c="dimmed" mt={4}>
-            Difficulty: {question.difficulty}
-          </Text>
-          <QuestionWeightBadge weight={weight} />
+            Save and Exit
+          </Button>
         </Group>
         <QuestionNavigator />
         <Box

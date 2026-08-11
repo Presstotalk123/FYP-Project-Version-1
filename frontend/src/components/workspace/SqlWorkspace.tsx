@@ -263,7 +263,7 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
   const rightPercent = 100 - leftPercent - centerPercent;
 
   return (
-    <div style={{ padding: '12px 16px', display: 'grid', gap: 12 }}>
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 60px)' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
         <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -293,7 +293,8 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
           borderRadius: 'var(--radius-lg)',
           overflow: 'hidden',
           width: '100%',
-          height: '70vh',
+          flex: 1,
+          minHeight: 0,
         }}
       >
           {/* Left Panel - Question Details */}

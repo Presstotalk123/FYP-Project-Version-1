@@ -78,13 +78,26 @@ function anchorFor(p: Placed, columnName: string | undefined, otherCx: number): 
   return { x, y: p.cy };
 }
 
-/** A horizontal-tangent cubic bézier between two anchor points. */
-function edgeCurve(a: Point, b: Point): string {
+function curveControls(a: Point, b: Point): { c1: Point; c2: Point } {
   const sign = Math.sign(b.x - a.x) || 1;
   const dx = Math.max(30, Math.abs(b.x - a.x) * 0.5);
-  const c1x = a.x + sign * dx;
-  const c2x = b.x - sign * dx;
-  return `M ${a.x} ${a.y} C ${c1x} ${a.y}, ${c2x} ${b.y}, ${b.x} ${b.y}`;
+  return { c1: { x: a.x + sign * dx, y: a.y }, c2: { x: b.x - sign * dx, y: b.y } };
+}
+
+/** A horizontal-tangent cubic bézier between two anchor points. */
+function edgeCurve(a: Point, b: Point): string {
+  const { c1, c2 } = curveControls(a, b);
+  return `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
+}
+
+/** A point on that same curve at parameter t (0 = a, 1 = b). */
+function curvePoint(a: Point, b: Point, t: number): Point {
+  const { c1, c2 } = curveControls(a, b);
+  const mt = 1 - t;
+  return {
+    x: mt * mt * mt * a.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * b.x,
+    y: mt * mt * mt * a.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * b.y,
+  };
 }
 
 function groupDepth(g: GraphGroup, byId: Map<string, GraphGroup>): number {
@@ -97,13 +110,17 @@ function groupDepth(g: GraphGroup, byId: Map<string, GraphGroup>): number {
   return d;
 }
 
-/** Pixel width of a rendered edge-label pill — must match EdgeLabel's own layout. */
+/** Pixel width of a rendered edge-label pill — must match EdgeLabel's own layout.
+ *  Uses CHAR_FILTER, the file's measured width for this exact font/size (11px mono). */
 function labelBoxWidth(text: string): number {
-  return text.length * 6 + 10;
+  return text.length * CHAR_FILTER + 12;
 }
 
 const LABEL_H = 20;
-const LABEL_GAP = 14; // minimum breathing room enforced between two label pills
+const LABEL_GAP = 10; // minimum breathing room enforced between two label pills
+const LABEL_T_MIN = 0.2;
+const LABEL_T_MAX = 0.8;
+const LABEL_T_STEP = 0.08;
 
 // Distinct hues cycled across join/subquery edges so overlapping lines and
 // their label pills stay visually distinguishable from one another. Separate
@@ -111,48 +128,50 @@ const LABEL_GAP = 14; // minimum breathing room enforced between two label pills
 const EDGE_PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
 
 /**
- * Nudge overlapping join-label pills apart along the vertical axis — the
- * layout's free axis in a left-to-right diagram — so labels never stack on
- * top of each other, another label, or an unrelated edge's midpoint.
- * Mutates `labelX`/`labelY` in place; `lx`/`ly` (the true curve midpoint)
- * are left untouched so callers can draw a short leader line back to the
- * curve when a label has moved noticeably.
+ * Place each edge's label pill on its own curve, sliding away from the
+ * midpoint (t = 0.5) toward whichever nearby point on the *same* curve
+ * doesn't collide with an already-placed label. The label always sits
+ * exactly on its line — never off to the side — so the line visibly flows
+ * through the pill no matter how it had to move to avoid a collision.
  */
-function resolveLabelOverlaps(
-  routed: { edge: GraphEdge; lx: number; ly: number; labelX: number; labelY: number }[],
+function placeEdgeLabels(
+  routed: { edge: GraphEdge; p1: Point; p2: Point; labelX: number; labelY: number }[],
 ): void {
-  const boxes = routed
-    .map((re, i) => (re.edge.label ? { i, x: re.lx, y: re.ly, w: labelBoxWidth(re.edge.label), h: LABEL_H } : null))
-    .filter((b): b is { i: number; x: number; y: number; w: number; h: number } => b !== null)
-    // Fixed left-to-right, top-to-bottom order keeps resolution stable and
-    // independent of edge parse order.
-    .sort((a, b) => a.x - b.x || a.y - b.y || a.i - b.i);
+  const placedBoxes: { x: number; y: number; w: number; h: number }[] = [];
 
-  const passes = Math.max(4, boxes.length);
-  for (let pass = 0; pass < passes; pass++) {
-    let moved = false;
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i];
-        const b = boxes[j];
-        const overlapX = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
-        const overlapY = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-        const push = overlapY / 2 + LABEL_GAP / 2;
-        if (a.y < b.y || (a.y === b.y && a.i < b.i)) {
-          a.y -= push;
-          b.y += push;
-        } else {
-          a.y += push;
-          b.y -= push;
-        }
-        moved = true;
+  const order = routed
+    .map((_, i) => i)
+    .filter((i) => routed[i].edge.label)
+    // Fixed left-to-right, top-to-bottom order keeps placement stable and
+    // independent of edge parse order.
+    .sort((i, j) => routed[i].p1.x - routed[j].p1.x || routed[i].p1.y - routed[j].p1.y || i - j);
+
+  for (const i of order) {
+    const re = routed[i];
+    const w = labelBoxWidth(re.edge.label);
+
+    const candidates = [0.5];
+    for (let d = LABEL_T_STEP; 0.5 - d >= LABEL_T_MIN || 0.5 + d <= LABEL_T_MAX; d += LABEL_T_STEP) {
+      if (0.5 - d >= LABEL_T_MIN) candidates.push(0.5 - d);
+      if (0.5 + d <= LABEL_T_MAX) candidates.push(0.5 + d);
+    }
+
+    let chosen = curvePoint(re.p1, re.p2, 0.5);
+    for (const t of candidates) {
+      const p = curvePoint(re.p1, re.p2, t);
+      const collides = placedBoxes.some(
+        (bx) => Math.abs(p.x - bx.x) * 2 < w + bx.w + LABEL_GAP && Math.abs(p.y - bx.y) * 2 < LABEL_H + bx.h + LABEL_GAP,
+      );
+      if (!collides) {
+        chosen = p;
+        break;
       }
     }
-    if (!moved) break;
-  }
 
-  for (const b of boxes) routed[b.i].labelY = b.y;
+    re.labelX = chosen.x;
+    re.labelY = chosen.y;
+    placedBoxes.push({ x: chosen.x, y: chosen.y, w, h: LABEL_H });
+  }
 }
 
 export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
@@ -220,15 +239,14 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
         if (!a || !b) return null;
         const p1 = anchorFor(a, e.fromColumn, b.cx);
         const p2 = anchorFor(b, e.toColumn, a.cx);
-        const lx = (p1.x + p2.x) / 2;
-        const ly = (p1.y + p2.y) / 2;
         const color = EDGE_PALETTE[i % EDGE_PALETTE.length];
-        return { edge: e, path: edgeCurve(p1, p2), lx, ly, labelX: lx, labelY: ly, color };
+        return { edge: e, p1, p2, path: edgeCurve(p1, p2), color, labelX: 0, labelY: 0 };
       })
       .filter((re): re is NonNullable<typeof re> => re !== null);
 
-    // Nudge overlapping join-label pills apart so they stay legible.
-    resolveLabelOverlaps(routedEdges);
+    // Place each label on its own curve, sliding away from the midpoint only
+    // far enough to clear a collision with another label.
+    placeEdgeLabels(routedEdges);
 
     const size = g.graph() as { width?: number; height?: number };
     return {
@@ -347,12 +365,7 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
                 strokeDasharray={re.edge.kind === 'subquery' ? '6 4' : undefined}
               />
               {re.edge.label && (
-                <>
-                  {Math.abs(re.labelY - re.ly) > 6 && (
-                    <line x1={re.lx} y1={re.ly} x2={re.labelX} y2={re.labelY} stroke={re.color} strokeWidth={1} strokeDasharray="2 2" opacity={0.6} />
-                  )}
-                  <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} color={re.color} bold={re.edge.kind === 'subquery'} />
-                </>
+                <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} color={re.color} bold={re.edge.kind === 'subquery'} />
               )}
             </g>
           ))}

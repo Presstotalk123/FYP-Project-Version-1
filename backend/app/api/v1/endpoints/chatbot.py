@@ -550,10 +550,14 @@ async def counterexample(
         "reference_query": correct_query,
     }
 
-    def _run(inserts_sql: str, query: str):
+    async def _run(inserts_sql: str, query: str):
         # Isolated in-memory clone (injected rows applied, then the query run as
         # the "check query"); the canonical DB file is never touched.
-        return run_advanced_pipeline(db_path, inserts_sql, "", query, timeout_seconds=10)
+        # Runs off the event loop thread — run_advanced_pipeline blocks on a
+        # thread.join() internally, which would otherwise stall the server.
+        return await asyncio.to_thread(
+            run_advanced_pipeline, db_path, inserts_sql, "", query, timeout_seconds=10
+        )
 
     # ONE LLM call for several candidates, then verify each locally (cheap).
     try:
@@ -583,8 +587,8 @@ async def counterexample(
             continue
 
         try:
-            s_cols, s_rows, _t1 = _run(inserts_sql, request.student_query)
-            c_cols, c_rows, _t2 = _run(inserts_sql, correct_query)
+            s_cols, s_rows, _t1 = await _run(inserts_sql, request.student_query)
+            c_cols, c_rows, _t2 = await _run(inserts_sql, correct_query)
         except AdvancedGradingError:
             continue
 
@@ -722,8 +726,12 @@ async def contrast(
 
     try:
         # No injected rows — run both queries against the real question data.
-        s_cols, s_rows, _t1 = run_advanced_pipeline(db_path, "", "", request.student_query, timeout_seconds=10)
-        v_cols, v_rows, _t2 = run_advanced_pipeline(db_path, "", "", corrected_query, timeout_seconds=10)
+        s_cols, s_rows, _t1 = await asyncio.to_thread(
+            run_advanced_pipeline, db_path, "", "", request.student_query, timeout_seconds=10
+        )
+        v_cols, v_rows, _t2 = await asyncio.to_thread(
+            run_advanced_pipeline, db_path, "", "", corrected_query, timeout_seconds=10
+        )
     except AdvancedGradingError:
         return ContrastResponse(available=False)
 

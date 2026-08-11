@@ -38,8 +38,11 @@ const isPublishable = (p: Problem): boolean => {
   return false;
 };
 
+// Coloured by family, not by row type: blue for SQL, brand purple for ERD, so a
+// question carries the same colour here as on the student list. The label is
+// what separates a question from a lab — the colour was never doing that work.
 const typeBadge: Record<ProblemType, { label: string; className: string }> = {
-  'sql-question': { label: 'SQL Question', className: 'badge-success' },
+  'sql-question': { label: 'SQL Question', className: 'badge-info' },
   'sql-lab': { label: 'SQL Lab', className: 'badge-info' },
   'graph-lab': { label: 'Graph Lab', className: 'badge-warn' },
   'erd-question': { label: 'ERD Question', className: 'brand-badge' },

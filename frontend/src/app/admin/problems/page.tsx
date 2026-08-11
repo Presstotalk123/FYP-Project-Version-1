@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 // The other icons on this page are hand-rolled SVGs, the convention across the
 // plain-HTML admin pages. Tabler's stroke and currentColor defaults match them,
 // so only the size needs stating — the siblings are 15px to suit .icon-btn.
-import { IconTrash } from '@tabler/icons-react';
+import { IconTrash, IconDatabase, IconHierarchy, IconChartDots3, IconChevronDown } from '@tabler/icons-react';
+import { Menu } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -94,6 +95,15 @@ const IconUnpublish = () => (
     <line x1="1" y1="1" x2="23" y2="23"/>
   </svg>
 );
+// Question types offered from the "Create Question" dropdown, same 4 choices
+// (and destinations) the old /admin/problems/new chooser page offered as cards.
+const createQuestionTypes: { label: string; icon: React.ReactNode; destination: string }[] = [
+  { label: 'SQL question', icon: <IconDatabase size={16} />, destination: '/admin/questions/new' },
+  { label: 'ERD question', icon: <IconHierarchy size={16} />, destination: '/er-diagram/add' },
+  { label: 'SQL lab question', icon: <IconDatabase size={16} />, destination: '/admin/labs/wizard' },
+  { label: 'Graph question', icon: <IconChartDots3 size={16} />, destination: '/admin/labs/wizard?type=graph' },
+];
+
 export default function ProblemsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -344,10 +354,26 @@ export default function ProblemsPage() {
                   <IconRefresh />
                   {refreshing ? 'Refreshing…' : 'Refresh'}
                 </button>
-                <button className="btn btn-brand" onClick={() => router.push('/admin/problems/new')}>
-                  <IconPlus />
-                  Create Question
-                </button>
+                <Menu shadow="md" position="bottom-end" withinPortal>
+                  <Menu.Target>
+                    <button className="btn btn-brand">
+                      <IconPlus />
+                      Create Question
+                      <IconChevronDown size={14} />
+                    </button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    {createQuestionTypes.map((t) => (
+                      <Menu.Item
+                        key={t.label}
+                        leftSection={t.icon}
+                        onClick={() => router.push(t.destination)}
+                      >
+                        {t.label}
+                      </Menu.Item>
+                    ))}
+                  </Menu.Dropdown>
+                </Menu>
               </div>
             </div>
 

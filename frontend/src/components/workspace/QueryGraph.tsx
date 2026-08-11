@@ -103,7 +103,12 @@ function labelBoxWidth(text: string): number {
 }
 
 const LABEL_H = 20;
-const LABEL_GAP = 4; // minimum breathing room enforced between two label pills
+const LABEL_GAP = 14; // minimum breathing room enforced between two label pills
+
+// Distinct hues cycled across join/subquery edges so overlapping lines and
+// their label pills stay visually distinguishable from one another. Separate
+// from GraphNode.color (table identity) — this is per-connection, not per-table.
+const EDGE_PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
 
 /**
  * Nudge overlapping join-label pills apart along the vertical axis — the
@@ -209,7 +214,7 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
     const routedEdges = edges
       // Aggregation cards are anchored by an invisible layout edge — don't draw it.
       .filter((e) => nodeById.get(e.to)?.kind !== 'agg')
-      .map((e) => {
+      .map((e, i) => {
         const a = placedById.get(e.from);
         const b = placedById.get(e.to);
         if (!a || !b) return null;
@@ -217,7 +222,8 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
         const p2 = anchorFor(b, e.toColumn, a.cx);
         const lx = (p1.x + p2.x) / 2;
         const ly = (p1.y + p2.y) / 2;
-        return { edge: e, path: edgeCurve(p1, p2), lx, ly, labelX: lx, labelY: ly };
+        const color = EDGE_PALETTE[i % EDGE_PALETTE.length];
+        return { edge: e, path: edgeCurve(p1, p2), lx, ly, labelX: lx, labelY: ly, color };
       })
       .filter((re): re is NonNullable<typeof re> => re !== null);
 
@@ -293,7 +299,7 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
         </LegendItem>
         <LegendItem>
           <svg width="22" height="8" aria-hidden="true">
-            <line x1="0" y1="4" x2="22" y2="4" stroke="var(--brand-lilac)" strokeWidth="1.5" strokeDasharray="4 3" />
+            <line x1="0" y1="4" x2="22" y2="4" stroke="var(--border-strong)" strokeWidth="1.5" strokeDasharray="4 3" />
           </svg>
           Subquery link
         </LegendItem>
@@ -336,16 +342,16 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
               <path
                 d={re.path}
                 fill="none"
-                stroke={re.edge.kind === 'subquery' ? 'var(--brand-lilac)' : 'var(--border-strong)'}
+                stroke={re.color}
                 strokeWidth={1.5}
                 strokeDasharray={re.edge.kind === 'subquery' ? '6 4' : undefined}
               />
               {re.edge.label && (
                 <>
                   {Math.abs(re.labelY - re.ly) > 6 && (
-                    <line x1={re.lx} y1={re.ly} x2={re.labelX} y2={re.labelY} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 2" />
+                    <line x1={re.lx} y1={re.ly} x2={re.labelX} y2={re.labelY} stroke={re.color} strokeWidth={1} strokeDasharray="2 2" opacity={0.6} />
                   )}
-                  <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} accent={re.edge.kind === 'subquery'} />
+                  <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} color={re.color} bold={re.edge.kind === 'subquery'} />
                 </>
               )}
             </g>
@@ -518,12 +524,12 @@ function AggNode({ p }: { p: Placed }) {
   );
 }
 
-function EdgeLabel({ x, y, text, accent }: { x: number; y: number; text: string; accent?: boolean }) {
+function EdgeLabel({ x, y, text, color, bold }: { x: number; y: number; text: string; color: string; bold?: boolean }) {
   const w = labelBoxWidth(text);
   return (
     <g>
-      <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={4} fill="var(--surface)" stroke={accent ? 'var(--brand-lilac)' : 'var(--border)'} strokeWidth={1} />
-      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11} fontFamily="var(--font-geist-mono)" fontWeight={accent ? 700 : 400} fill={accent ? 'var(--brand-lilac)' : 'var(--text-muted)'}>
+      <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={4} fill="var(--surface)" stroke={color} strokeWidth={1} />
+      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11} fontFamily="var(--font-geist-mono)" fontWeight={bold ? 700 : 400} fill={color}>
         {text}
       </text>
     </g>

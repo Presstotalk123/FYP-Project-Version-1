@@ -40,6 +40,26 @@ export function ResultsPanel({
   const [reviewData, setReviewData] = useState<QueryReviewResponse | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
 
+  // Tabs that have ever been activated. 'results' is the default active tab, so
+  // it's pre-seeded to match today's initial render. Once a tab is visited it
+  // stays mounted (see the `hidden`-based rendering below) instead of being
+  // unmounted/remounted on every switch — that unmount was destroying the
+  // counterexample/contrast sections inside QueryReviewCard and forcing the
+  // Bagheera chat to re-fetch its transcript on every tab revisit.
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['results']));
+
+  const selectTab = (id: string) => {
+    setActiveTab(id);
+    setVisitedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  };
+
+  // Bumped only when a genuinely NEW wrong submission is reviewed (see the effect
+  // below). Passed as `key` to QueryReviewCard so it remounts — and its lazy
+  // counterexample/contrast sections reset to idle — exactly on a new attempt,
+  // while tab switches (which never touch `result`) leave it untouched and the
+  // card's state persists.
+  const [reviewKey, setReviewKey] = useState(0);
+
   // When on, students never see correct/incorrect — just a neutral "Submitted" state.
   const hideCorrectness = question.hide_correctness;
 
@@ -60,6 +80,7 @@ export function ResultsPanel({
     // Wrong-but-valid query → trigger review
     setReviewData(null);
     setIsReviewing(true);
+    setReviewKey((k) => k + 1);
 
     chatbotService
       .reviewQuery(questionId, currentQuery)
@@ -84,7 +105,7 @@ export function ResultsPanel({
           <button
             key={tab.id}
             className={`tab${activeTab === tab.id ? ' active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => selectTab(tab.id)}
           >
             {tab.label}
           </button>
@@ -94,9 +115,10 @@ export function ResultsPanel({
       {/* Tab content */}
       <div style={{ flex: 1, overflow: 'auto' }}>
 
-        {/* ── Results Tab ── */}
-        {activeTab === 'results' && (
-          !result ? (
+        {/* ── Results Tab (mounted once, kept alive across tab switches) ── */}
+        {visitedTabs.has('results') && (
+          <div hidden={activeTab !== 'results'} style={{ height: '100%' }}>
+          {!result ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
               Run a query to see results
             </div>
@@ -168,9 +190,13 @@ export function ResultsPanel({
                 </div>
               )}
 
-              {/* AI Query Review Card — only for wrong-but-valid queries */}
+              {/* AI Query Review Card — only for wrong-but-valid queries. Keyed on
+                  reviewKey so a genuinely new submission resets its lazy
+                  counterexample/contrast sections; tab switches don't touch the
+                  key, so those sections persist across switches. */}
               {(isReviewing || reviewData) && (
                 <QueryReviewCard
+                  key={reviewKey}
                   query={currentQuery}
                   isLoading={isReviewing}
                   problemToken={reviewData?.problem_token ?? ''}
@@ -180,7 +206,8 @@ export function ResultsPanel({
                 />
               )}
             </div>
-          )
+          )}
+          </div>
         )}
 
         {/* ── Diagram Tab ── */}
@@ -233,9 +260,10 @@ export function ResultsPanel({
           </div>
         )}
 
-        {/* ── AI Tutor Tab ── */}
-        {activeTab === 'chat' && (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {/* ── AI Tutor Tab (mounted once, kept alive across tab switches so the
+              transcript isn't re-fetched on every visit) ── */}
+        {visitedTabs.has('chat') && (
+          <div hidden={activeTab !== 'chat'} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <ChatTab
               questionId={questionId}
               question={question}

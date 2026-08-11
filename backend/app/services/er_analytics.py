@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session, load_only
 
+from app.models.assessment_item import AssessmentItem
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.er_submission import ErSubmission
 from app.models.erd_tutor_conversation import ErdTutorConversation
@@ -59,12 +60,44 @@ def _context_filter(query, context: str):
     return query
 
 
+def question_family(db: Session, question_id: int) -> list[int]:
+    """A bank question and every assessment clone taken from it (or vice versa).
+
+    Publishing an assessment deep-copies its questions, so a student's assessment
+    attempt is recorded against the clone, not the question staff see in Problems.
+    Without this the master's analytics read as empty however many assessments used
+    it, and the clone's data is only reachable by knowing an id nothing links to.
+
+    The link lives on the assessment item, which keeps the original id in
+    source_item_id when it repoints item_id at the clone. Accepts either end: given
+    a clone, the master is resolved first so siblings come along too.
+    """
+    master_id = (
+        db.query(AssessmentItem.source_item_id)
+        .filter(AssessmentItem.item_type == "er_question",
+                AssessmentItem.item_id == question_id,
+                AssessmentItem.source_item_id.isnot(None))
+        .scalar()
+    ) or question_id
+
+    clone_ids = [
+        row[0]
+        for row in db.query(AssessmentItem.item_id)
+        .filter(AssessmentItem.item_type == "er_question",
+                AssessmentItem.source_item_id == master_id)
+        .all()
+    ]
+    # Deduped and ordered so the cache key below is stable across calls.
+    return sorted({master_id, question_id, *clone_ids})
+
+
 def _submissions(
     db: Session,
     context: str,
     question_id: Optional[int] = None,
     class_group: Optional[str] = None,
     student_id: Optional[int] = None,
+    question_ids: Optional[list[int]] = None,
 ):
     q = (
         db.query(ErSubmission)
@@ -87,7 +120,9 @@ def _submissions(
         .filter(ERDiagramQuestion.is_deleted == 0)
     )
     q = _context_filter(q, context)
-    if question_id is not None:
+    if question_ids is not None:
+        q = q.filter(ErSubmission.er_diagram_question_id.in_(question_ids))
+    elif question_id is not None:
         q = q.filter(ErSubmission.er_diagram_question_id == question_id)
     if student_id is not None:
         q = q.filter(ErSubmission.user_id == student_id)
@@ -218,7 +253,11 @@ def question_analytics(
     if question is None:
         return None
 
-    rows = _submissions(db, context, question_id, class_group)
+    # The whole family, so a bank question shows the assessment attempts taken
+    # against its clones. `context` then does the splitting it always did: the
+    # master carries the practice rows, its clones the assessment ones.
+    rows = _submissions(db, context, class_group=class_group,
+                        question_ids=question_family(db, question_id))
     percents = [r.score_percent for r in rows if r.score_percent is not None]
 
     histogram = [{"bucket": b, "count": 0} for b in range(0, 100, 10)]
@@ -283,7 +322,10 @@ def question_analytics(
 
 
 def student_submissions(db: Session, question_id: int, student_id: int) -> dict:
-    rows = _submissions(db, "all", question_id, student_id=student_id)
+    # Same family as question_analytics, so a student listed there by an assessment
+    # attempt still has a journey to drill into from the master's page.
+    rows = _submissions(db, "all", student_id=student_id,
+                        question_ids=question_family(db, question_id))
     attempts = [{
         "id": r.id,
         "created_at": r.created_at.isoformat() if r.created_at else None,

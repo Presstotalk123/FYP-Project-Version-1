@@ -2,6 +2,10 @@
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+// The other icons on this page are hand-rolled SVGs, the convention across the
+// plain-HTML admin pages. Tabler's stroke and currentColor defaults match them,
+// so only the size needs stating — the siblings are 15px to suit .icon-btn.
+import { IconTrash } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -90,7 +94,6 @@ const IconUnpublish = () => (
     <line x1="1" y1="1" x2="23" y2="23"/>
   </svg>
 );
-
 export default function ProblemsPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -98,6 +101,10 @@ export default function ProblemsPage() {
   const queryClient = useQueryClient();
   const [publishing, setPublishing] = useState<Record<string, boolean>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  // The whole Problem, not just an id: the confirmation names what is going and
+  // the handler needs the type to know which endpoint deletes it.
+  const [deleteTarget, setDeleteTarget] = useState<Problem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
@@ -206,6 +213,42 @@ export default function ProblemsPage() {
       setActionError(e.response?.data?.detail || 'Failed to update publish status');
     } finally {
       setPublishing((prev) => ({ ...prev, [problem.uid]: false }));
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    setActionError(null);
+    try {
+      // One list, four backing resources — the row's type picks the endpoint,
+      // then the row is dropped from that source list. Editing the cache rather
+      // than refetching matches togglePublish above, and keeps the other three
+      // lists untouched.
+      if (target.problemType === 'sql-question') {
+        await questionService.deleteQuestion(target.id);
+        queryClient.setQueryData<typeof questionsQuery.data>(queryKeys.questions, (old) =>
+          old?.filter((q) => q.id !== target.id)
+        );
+      } else if (target.problemType === 'sql-lab' || target.problemType === 'graph-lab') {
+        await labService.deleteLab(target.id);
+        queryClient.setQueryData<typeof labsQuery.data>(queryKeys.labs, (old) =>
+          old?.filter((l) => l.id !== target.id)
+        );
+      } else {
+        await erDiagramService.deleteQuestion(target.id);
+        queryClient.setQueryData<typeof erdQuery.data>(queryKeys.erdQuestions, (old) =>
+          old?.filter((e) => e.id !== target.id)
+        );
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setActionError(e.response?.data?.detail || 'Failed to delete');
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -366,8 +409,11 @@ export default function ProblemsPage() {
               </div>
             )}
 
-            {/* Problems table */}
-            {!loading && !error && (
+            {/* Gated on the fetch, not on `error`: an action that fails — a
+                delete the backend refuses, a publish that errors — reports in
+                the banner above and leaves the list alone. Only a failed load
+                means there is nothing to show. */}
+            {!loading && !loadFailed && (
               <>
                 {filtered.length === 0 ? (
                   <div className="da-alert alert-info">
@@ -471,6 +517,15 @@ export default function ProblemsPage() {
                                       <IconChart />
                                     </button>
                                   )}
+                                  <button
+                                    className="icon-btn"
+                                    title="Delete"
+                                    aria-label={`Delete ${problem.title}`}
+                                    onClick={() => setDeleteTarget(problem)}
+                                    style={{ color: '#ef4444' }}
+                                  >
+                                    <IconTrash size={15} />
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -484,6 +539,32 @@ export default function ProblemsPage() {
             )}
           </div>
         </div>
+
+        {/* Names the row and its kind: unlike /admin/questions this list mixes
+            questions and labs, so "this question" would not always be true. */}
+        {deleteTarget && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-problem-title">
+            <div className="modal">
+              <h3 id="delete-problem-title">Delete {typeBadge[deleteTarget.problemType].label}</h3>
+              <p>
+                Are you sure you want to delete <strong>{deleteTarget.title}</strong>? This action
+                cannot be undone.
+              </p>
+              <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

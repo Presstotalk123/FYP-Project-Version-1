@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
@@ -90,6 +90,20 @@ export default function ErQuestionAnalyticsPage() {
       cancelled = true;
     };
   }, [questionId, context, classGroup, reloadKey]);
+
+  // ?student=<id> opens that student's attempts straight away, so a link from the
+  // assessment gradebook lands on the person being looked at rather than on the
+  // class table with them still to be found.
+  const focusStudent = Number(useSearchParams().get('student')) || null;
+  const autoOpened = useRef(false);
+
+  useEffect(() => {
+    if (!focusStudent || autoOpened.current || !data) return;
+    autoOpened.current = true;
+    openJourney(focusStudent);
+    // openJourney is redefined every render; the ref is what makes this run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusStudent, data]);
 
   const openJourney = (studentId: number) => {
     setOpenStudent(studentId);

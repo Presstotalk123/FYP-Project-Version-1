@@ -163,15 +163,37 @@ export default function AssessmentStudentsPage() {
           {count > 0 && (
             <Text size="sm" c="dimmed">{count} attempt{count !== 1 ? 's' : ''}</Text>
           )}
+          <Button
+            size="xs"
+            variant="light"
+            color="teal"
+            leftSection={<IconEye size={12} />}
+            /* item_id is the assessment's own clone of the question, which is what
+               the student actually attempted, so this lands on their real work. */
+            onClick={() => router.push(`/admin/sql-analytics/${item.item_id}?student=${studentId}`)}
+          >
+            View Submissions
+          </Button>
         </Group>
       );
     }
 
     if (item.item_type === 'er_question') {
       return (
-        <Badge color={item.visited ? 'blue' : 'gray'} variant="light">
-          {item.visited ? 'Visited' : 'Not Visited'}
-        </Badge>
+        <Group gap="xs">
+          <Badge color={item.visited ? 'blue' : 'gray'} variant="light">
+            {item.visited ? 'Visited' : 'Not Visited'}
+          </Badge>
+          <Button
+            size="xs"
+            variant="light"
+            color="teal"
+            leftSection={<IconEye size={12} />}
+            onClick={() => router.push(`/admin/er-analytics/${item.item_id}?student=${studentId}`)}
+          >
+            View Submissions
+          </Button>
+        </Group>
       );
     }
 

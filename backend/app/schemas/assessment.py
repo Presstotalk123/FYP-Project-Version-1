@@ -74,6 +74,58 @@ class AssessmentUpdate(BaseModel):
         return self
 
 
+class ClassWindowIn(BaseModel):
+    """One per-class-group access window in a Timing-Gateway save payload."""
+    class_group: str = Field(..., min_length=1, max_length=100)
+    start_at: datetime
+    end_at: datetime
+    is_enabled: bool = True
+
+    @model_validator(mode="after")
+    def _check_bounds(self):
+        if self.end_at <= self.start_at:
+            raise ValueError(
+                f"End time must be after start time for class group '{self.class_group}'."
+            )
+        return self
+
+
+class GatewayConfigUpdate(BaseModel):
+    """Full replace of an assessment's Timing-Gateway configuration."""
+    gateway_enabled: bool = False
+    windows: List[ClassWindowIn] = []
+
+    @model_validator(mode="after")
+    def _check_unique_groups(self):
+        groups = [w.class_group for w in self.windows]
+        if len(groups) != len(set(groups)):
+            raise ValueError("Each class group may have at most one window.")
+        return self
+
+
+class ClassWindowOut(BaseModel):
+    id: int
+    class_group: str
+    start_at: datetime
+    end_at: datetime
+    is_enabled: bool
+    # Computed lifecycle relative to server time: upcoming | active | completed.
+    status: str
+    # Count of students currently mid-attempt in this group's window (for edit warnings).
+    active_session_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class GatewayConfigResponse(BaseModel):
+    assessment_id: int
+    gateway_enabled: bool
+    windows: List[ClassWindowOut]
+    # Non-fatal warnings surfaced after a save (e.g. edited a window with active sessions).
+    warnings: List[str] = []
+
+
 class AssessmentItemResponse(BaseModel):
     id: int
     item_type: AssessmentItemType
@@ -98,6 +150,8 @@ class AssessmentListItem(BaseModel):
     item_count: int
     has_password: bool
     time_limit_minutes: Optional[int] = None
+    # Timing Gateway master toggle — when true, access is driven by per-class-group windows.
+    gateway_enabled: bool = False
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -116,6 +170,8 @@ class AssessmentResponse(BaseModel):
     password: Optional[str]
     has_password: bool
     time_limit_minutes: Optional[int] = None
+    # Timing Gateway master toggle — when true, access is driven by per-class-group windows.
+    gateway_enabled: bool = False
     created_at: datetime
     updated_at: Optional[datetime]
 

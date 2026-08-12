@@ -61,16 +61,29 @@ export function AssessmentTimerProvider({
   const [remainingMs, setRemainingMs] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const submittingRef = useRef(false);
+  // The gateway hard cap rarely changes, and the query-run "resume" fast path only carries
+  // the credited end_time — so remember the cap here and re-fold it in on every apply.
+  const hardDeadlineRef = useRef<string | null>(null);
 
-  const applyEndTime = useCallback((endTimeIso: string | null | undefined) => {
-    if (endTimeIso) {
-      const ms = new Date(endTimeIso).getTime();
-      setDeadline(ms);
-      setRemainingMs(Math.max(0, ms - Date.now()));
-    } else {
-      setDeadline(null);
-    }
-  }, []);
+  // The effective deadline is the EARLIER of the personal timer (end_time, which query
+  // credit pushes forward) and the Timing-Gateway class-group window cap (hard_deadline,
+  // which never moves). This is the client half of requirement #5 — the student's screen
+  // ends at whichever comes first. The backend enforces the same rule authoritatively.
+  const applyEndTime = useCallback(
+    (endTimeIso: string | null | undefined, hardDeadlineIso?: string | null) => {
+      const candidates: number[] = [];
+      if (endTimeIso) candidates.push(new Date(endTimeIso).getTime());
+      if (hardDeadlineIso) candidates.push(new Date(hardDeadlineIso).getTime());
+      if (candidates.length > 0) {
+        const ms = Math.min(...candidates);
+        setDeadline(ms);
+        setRemainingMs(Math.max(0, ms - Date.now()));
+      } else {
+        setDeadline(null);
+      }
+    },
+    []
+  );
 
   // Sync the session's end_time on mount and on every in-assessment navigation.
   // The provider is mounted by the shared [id] layout, which persists across client
@@ -82,7 +95,10 @@ export function AssessmentTimerProvider({
     studentAssessmentService
       .getSession(assessmentId)
       .then((session) => {
-        if (!cancelled) applyEndTime(session.end_time);
+        if (!cancelled) {
+          hardDeadlineRef.current = session.hard_deadline ?? null;
+          applyEndTime(session.end_time, hardDeadlineRef.current);
+        }
       })
       .catch(() => {
         // No active session (not joined yet, or already submitted) — no timer.
@@ -137,8 +153,9 @@ export function AssessmentTimerProvider({
         return;
       }
       if (newEndTimeIso) {
-        // Fast path: the run response already carried the credited end_time — no extra request.
-        applyEndTime(newEndTimeIso);
+        // Fast path: the run response already carried the credited end_time — no extra
+        // request. Re-fold the remembered gateway cap so the window end still bounds it.
+        applyEndTime(newEndTimeIso, hardDeadlineRef.current);
         setIsPaused(false);
         return;
       }
@@ -146,7 +163,10 @@ export function AssessmentTimerProvider({
       // authoritative end_time, then unfreeze so the countdown continues from it.
       studentAssessmentService
         .getSession(assessmentId)
-        .then((session) => applyEndTime(session.end_time))
+        .then((session) => {
+          hardDeadlineRef.current = session.hard_deadline ?? null;
+          applyEndTime(session.end_time, hardDeadlineRef.current);
+        })
         .catch(() => {})
         .finally(() => setIsPaused(false));
     },

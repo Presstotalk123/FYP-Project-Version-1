@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Title,
@@ -24,12 +24,33 @@ import {
   IconLock,
   IconCircleCheck,
   IconClock,
+  IconCalendarClock,
+  IconCalendarX,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { StudentAssessmentDetail, AssessmentSessionResponse } from '@/types/assessment.types';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
+
+/** Format an ISO instant in Singapore local time for display to students. */
+function formatWindowTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-SG', {
+    timeZone: 'Asia/Singapore',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+/** Coarse HH?h MMm SSs countdown for the "opens in" label. */
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}h ${pad(m)}m ${pad(s)}s` : `${pad(m)}m ${pad(s)}s`;
+}
 
 export default function StudentAssessmentDetailPage() {
   const params = useParams();
@@ -43,10 +64,33 @@ export default function StudentAssessmentDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  // Live clock (1s) driving the "opens in" countdown for an upcoming gateway window.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const openRefetchedRef = useRef(false);
 
   useEffect(() => {
     fetchData();
   }, [assessmentId]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Auto-unlock: when an upcoming window's start time is reached, re-fetch once so the
+  // backend flips the assessment to "open" and the Join button appears without a manual reload.
+  useEffect(() => {
+    if (
+      assessment?.gateway_enabled &&
+      assessment.gateway_state === 'upcoming' &&
+      assessment.window_start &&
+      nowMs >= new Date(assessment.window_start).getTime() &&
+      !openRefetchedRef.current
+    ) {
+      openRefetchedRef.current = true;
+      fetchData();
+    }
+  }, [nowMs, assessment]);
 
   const fetchData = async () => {
     try {
@@ -187,7 +231,32 @@ export default function StudentAssessmentDetailPage() {
                   </Stack>
                 ) : (
                   <>
-                    {!assessment.is_running && (
+                    {!assessment.is_running && assessment.gateway_enabled && assessment.gateway_state === 'upcoming' && assessment.window_start && (
+                      <Alert icon={<IconCalendarClock size={16} />} color="blue" title="Scheduled assessment">
+                        Your class group&apos;s access window opens at{' '}
+                        <strong>{formatWindowTime(assessment.window_start)}</strong>
+                        {nowMs < new Date(assessment.window_start).getTime() && (
+                          <> — opens in <strong>{formatCountdown(new Date(assessment.window_start).getTime() - nowMs)}</strong></>
+                        )}
+                        . The Join button will unlock automatically.
+                      </Alert>
+                    )}
+
+                    {!assessment.is_running && assessment.gateway_enabled && assessment.gateway_state === 'closed' && (
+                      <Alert icon={<IconCalendarX size={16} />} color="red" title="Assessment time has ended">
+                        Your class group&apos;s access window{' '}
+                        {assessment.window_end ? <>closed at <strong>{formatWindowTime(assessment.window_end)}</strong></> : 'has closed'}.
+                        You can no longer join this assessment.
+                      </Alert>
+                    )}
+
+                    {!assessment.is_running && assessment.gateway_enabled && assessment.gateway_state === 'no_window' && (
+                      <Alert icon={<IconInfoCircle size={16} />} color="yellow" title="No access window">
+                        No access window has been configured for your class group. Please contact your instructor.
+                      </Alert>
+                    )}
+
+                    {!assessment.is_running && !assessment.gateway_enabled && (
                       <Alert icon={<IconInfoCircle size={16} />} color="yellow" title="Waiting for staff">
                         This assessment has not been started yet. Please wait for your instructor to begin the session.
                       </Alert>

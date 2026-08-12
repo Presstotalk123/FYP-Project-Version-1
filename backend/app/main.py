@@ -21,6 +21,7 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.models.assessment_item_visit import AssessmentItemVisit
+from app.models.assessment_class_window import AssessmentClassWindow
 from app.models.app_setting import AppSetting
 from app.models.course_info import CourseInfo
 from app.models.login_activity import LoginActivity
@@ -67,6 +68,22 @@ with engine.connect() as _conn:
 with engine.connect() as _conn:
     try:
         _conn.execute(text("ALTER TABLE assessment_sessions ADD COLUMN end_time TIMESTAMP"))
+        _conn.commit()
+    except Exception:
+        pass  # Column already exists
+
+# Timing Gateway columns (existing local SQLite databases). The
+# assessment_class_windows table itself is created by create_all above.
+with engine.connect() as _conn:
+    try:
+        _conn.execute(text("ALTER TABLE assessments ADD COLUMN gateway_enabled INTEGER DEFAULT 0 NOT NULL"))
+        _conn.commit()
+    except Exception:
+        pass  # Column already exists
+
+with engine.connect() as _conn:
+    try:
+        _conn.execute(text("ALTER TABLE assessment_sessions ADD COLUMN hard_deadline TIMESTAMP"))
         _conn.commit()
     except Exception:
         pass  # Column already exists

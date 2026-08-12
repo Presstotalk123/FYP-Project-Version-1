@@ -10,6 +10,7 @@ from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
+from app.models.assessment_class_window import AssessmentClassWindow
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
 from app.models.erd_prompt_version import ErdPromptVersion
@@ -19,4 +20,4 @@ from app.models.tutor_chat_message import TutorChatMessage
 from app.models.query_review import QueryReview
 from app.models.login_activity import LoginActivity
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity"]

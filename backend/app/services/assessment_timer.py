@@ -54,12 +54,23 @@ def finalize_session(db: Session, session: AssessmentSession) -> None:
 
 
 def enforce_not_expired(db: Session, session: AssessmentSession | None) -> None:
-    """Lazy expiration. If the session is timed and past its deadline, finalize it and
-    reject the request. No-op for untimed attempts (`end_time is None`) or no session.
+    """Lazy expiration. If the session is timed and past its *effective* deadline,
+    finalize it and reject the request. No-op for untimed attempts with no gateway cap
+    (both `end_time` and `hard_deadline` NULL) or no session.
+
+    The effective deadline is the earlier of the personal timer (`end_time`, which
+    query-time credit pushes forward) and the Timing-Gateway cap (`hard_deadline`, the
+    class-group window end, which never moves) — implementing the "student stops at the
+    earlier of the two" rule. Importing `effective_deadline` here means every existing
+    call site (SQL run, lab run/validate/submit, ER submit, final submit) inherits
+    gateway enforcement for free.
     """
-    if session is None or session.end_time is None:
+    from app.services.assessment_gateway import effective_deadline
+
+    deadline = effective_deadline(session) if session is not None else None
+    if deadline is None:
         return
-    if session.is_active and _now() >= session.end_time:
+    if session.is_active and _now() >= deadline:
         finalize_session(db, session)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -9,6 +9,8 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.models.assessment_item_visit import AssessmentItemVisit
+from app.models.assessment_class_window import AssessmentClassWindow
+from app.models.whitelist import WhitelistEntry
 from app.models.question import Question
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.lab import Lab
@@ -25,6 +27,9 @@ from app.schemas.assessment import (
     AssessmentStudentRow,
     StudentComponentScoresResponse,
     AssessmentItemComponentScore,
+    GatewayConfigUpdate,
+    GatewayConfigResponse,
+    ClassWindowOut,
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.services import assessment_clone, assessment_reset, assessment_scoring
@@ -157,6 +162,7 @@ def create_assessment(
         password=assessment.password,
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -192,6 +198,7 @@ def list_assessments(
                 item_count=counts.get(a.id, 0),
                 has_password=bool(a.password),
                 time_limit_minutes=a.time_limit_minutes,
+                gateway_enabled=bool(a.gateway_enabled),
                 created_at=a.created_at,
                 updated_at=a.updated_at,
             )
@@ -226,6 +233,7 @@ def get_assessment(
         password=assessment.password,
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -293,6 +301,7 @@ def update_assessment(
         password=assessment.password,
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -377,6 +386,7 @@ def publish_assessment(
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -427,6 +437,7 @@ def unpublish_assessment(
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -466,6 +477,7 @@ def start_assessment(
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -509,8 +521,184 @@ def stop_assessment(
         item_count=len(assessment.items),
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
+        gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Timing Gateway (per-class-group access windows)
+# ---------------------------------------------------------------------------
+
+def _window_status(window: AssessmentClassWindow) -> str:
+    """Lifecycle of a window relative to server time: upcoming | active | completed."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    start = window.start_at if window.start_at.tzinfo else window.start_at.replace(tzinfo=timezone.utc)
+    end = window.end_at if window.end_at.tzinfo else window.end_at.replace(tzinfo=timezone.utc)
+    if now < start:
+        return "upcoming"
+    if now >= end:
+        return "completed"
+    return "active"
+
+
+def _active_session_counts(db: Session, assessment_id: int) -> dict:
+    """Map class_group -> number of active (mid-attempt) sessions in this assessment."""
+    rows = (
+        db.query(User.class_group, func.count(AssessmentSession.id))
+        .join(AssessmentSession, AssessmentSession.user_id == User.id)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.is_active == 1,
+        )
+        .group_by(User.class_group)
+        .all()
+    )
+    return {cg: cnt for cg, cnt in rows}
+
+
+def _to_class_window_out(window: AssessmentClassWindow, active_counts: dict) -> ClassWindowOut:
+    return ClassWindowOut(
+        id=window.id,
+        class_group=window.class_group,
+        start_at=window.start_at,
+        end_at=window.end_at,
+        is_enabled=bool(window.is_enabled),
+        status=_window_status(window),
+        active_session_count=active_counts.get(window.class_group, 0),
+    )
+
+
+def _get_staff_assessment(assessment_id: int, db: Session) -> Assessment:
+    assessment = db.query(Assessment).filter(
+        Assessment.id == assessment_id,
+        Assessment.is_deleted == 0,
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+    return assessment
+
+
+@router.get("/{assessment_id}/class-groups", response_model=List[str])
+def list_assessment_class_groups(
+    assessment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Distinct class-group names available to configure windows for.
+
+    Sourced from both registered users and the pre-registration whitelist so staff can
+    schedule a group before its students have logged in."""
+    _get_staff_assessment(assessment_id, db)
+    user_groups = db.query(User.class_group).filter(User.class_group.isnot(None)).distinct().all()
+    wl_groups = (
+        db.query(WhitelistEntry.class_group)
+        .filter(WhitelistEntry.class_group.isnot(None))
+        .distinct()
+        .all()
+    )
+    groups = {g[0] for g in user_groups} | {g[0] for g in wl_groups}
+    return sorted(g for g in groups if g)
+
+
+@router.get("/{assessment_id}/windows", response_model=GatewayConfigResponse)
+def get_gateway_config(
+    assessment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    assessment = _get_staff_assessment(assessment_id, db)
+    windows = (
+        db.query(AssessmentClassWindow)
+        .filter(AssessmentClassWindow.assessment_id == assessment_id)
+        .order_by(AssessmentClassWindow.start_at)
+        .all()
+    )
+    active_counts = _active_session_counts(db, assessment_id)
+    return GatewayConfigResponse(
+        assessment_id=assessment_id,
+        gateway_enabled=bool(assessment.gateway_enabled),
+        windows=[_to_class_window_out(w, active_counts) for w in windows],
+    )
+
+
+@router.put("/{assessment_id}/windows", response_model=GatewayConfigResponse)
+def update_gateway_config(
+    assessment_id: int,
+    payload: GatewayConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Replace the assessment's Timing-Gateway configuration (toggle + all windows).
+
+    Windows are validated (end after start, one per group) by the schema. Editing a
+    window whose group has students mid-attempt reconciles those sessions' hard_deadline
+    to the new window end and surfaces a warning (requirement #8)."""
+    assessment = _get_staff_assessment(assessment_id, db)
+    warnings: List[str] = []
+
+    # Replace the full window set.
+    db.query(AssessmentClassWindow).filter(
+        AssessmentClassWindow.assessment_id == assessment_id
+    ).delete(synchronize_session=False)
+    for w in payload.windows:
+        db.add(AssessmentClassWindow(
+            assessment_id=assessment_id,
+            class_group=w.class_group,
+            start_at=w.start_at,
+            end_at=w.end_at,
+            is_enabled=1 if w.is_enabled else 0,
+        ))
+
+    assessment.gateway_enabled = 1 if payload.gateway_enabled else 0
+    assessment.updated_at = datetime.utcnow()
+    db.flush()
+
+    # Reconcile active sessions' hard_deadline to the (possibly new) window ends so an
+    # edit before/while the assessment runs takes effect immediately for those students.
+    enabled_window_end = {
+        w.class_group: w.end_at for w in payload.windows if w.is_enabled
+    }
+    active_rows = (
+        db.query(AssessmentSession, User.class_group)
+        .join(User, User.id == AssessmentSession.user_id)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.is_active == 1,
+        )
+        .all()
+    )
+    changed = 0
+    for sess, cg in active_rows:
+        new_hd = enabled_window_end.get(cg) if payload.gateway_enabled else None
+        if sess.hard_deadline != new_hd:
+            sess.hard_deadline = new_hd
+            changed += 1
+    if changed:
+        warnings.append(
+            f"{changed} student(s) with an in-progress attempt had their deadline updated "
+            f"to match the new window."
+        )
+
+    # gateway_enabled feeds the cached staff list.
+    bump_version(db, Ns.ASSESSMENTS)
+    db.commit()
+
+    windows = (
+        db.query(AssessmentClassWindow)
+        .filter(AssessmentClassWindow.assessment_id == assessment_id)
+        .order_by(AssessmentClassWindow.start_at)
+        .all()
+    )
+    active_counts = _active_session_counts(db, assessment_id)
+    return GatewayConfigResponse(
+        assessment_id=assessment_id,
+        gateway_enabled=bool(assessment.gateway_enabled),
+        windows=[_to_class_window_out(w, active_counts) for w in windows],
+        warnings=warnings,
     )
 
 

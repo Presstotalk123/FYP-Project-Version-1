@@ -21,3 +21,8 @@ class AssessmentSession(Base):
     # Deadline for this attempt = join time + assessment.time_limit_minutes, credited forward by
     # query execution time. NULL = untimed attempt. Backend source of truth for lazy expiration.
     end_time      = Column(DateTime(timezone=True), nullable=True)
+    # Immovable Timing-Gateway cap = the student's class-group window end_at, stamped at join.
+    # NULL when the gateway is off. The effective deadline is the earlier of end_time and
+    # hard_deadline, so query-time credit (which only pushes end_time) can never extend past
+    # the group's window end.
+    hard_deadline = Column(DateTime(timezone=True), nullable=True)

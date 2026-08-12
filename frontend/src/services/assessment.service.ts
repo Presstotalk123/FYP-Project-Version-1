@@ -7,6 +7,8 @@ import {
   AssessmentUpdate,
   AssessmentStudentsResponse,
   StudentComponentScoresResponse,
+  GatewayConfigResponse,
+  GatewayConfigUpdate,
 } from '@/types/assessment.types';
 
 export const assessmentService = {
@@ -66,5 +68,21 @@ export const assessmentService = {
 
   async resetStudentAttempt(assessmentId: number, studentId: number): Promise<void> {
     await api.post(API_ENDPOINTS.ASSESSMENTS.RESET_STUDENT(assessmentId, studentId));
+  },
+
+  // --- Timing Gateway ---
+  async getGatewayConfig(id: number): Promise<GatewayConfigResponse> {
+    const response = await api.get(API_ENDPOINTS.ASSESSMENTS.WINDOWS(id));
+    return response.data;
+  },
+
+  async updateGatewayConfig(id: number, data: GatewayConfigUpdate): Promise<GatewayConfigResponse> {
+    const response = await api.put(API_ENDPOINTS.ASSESSMENTS.WINDOWS(id), data);
+    return response.data;
+  },
+
+  async getClassGroups(id: number): Promise<string[]> {
+    const response = await api.get(API_ENDPOINTS.ASSESSMENTS.CLASS_GROUPS(id));
+    return response.data;
   },
 };

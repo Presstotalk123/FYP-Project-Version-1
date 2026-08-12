@@ -33,8 +33,39 @@ export interface Assessment {
   item_count: number;
   has_password: boolean;
   time_limit_minutes: number | null;
+  // Timing Gateway master toggle — when true, access is driven by per-class-group windows.
+  gateway_enabled?: boolean;
   created_at: string;
   updated_at: string | null;
+}
+
+// Timing Gateway (per-class-group access windows)
+export type GatewayState = 'disabled' | 'no_window' | 'upcoming' | 'open' | 'closed';
+export type ClassWindowStatus = 'upcoming' | 'active' | 'completed';
+
+export interface ClassWindowIn {
+  class_group: string;
+  start_at: string; // ISO UTC
+  end_at: string;   // ISO UTC
+  is_enabled: boolean;
+}
+
+export interface ClassWindowOut extends ClassWindowIn {
+  id: number;
+  status: ClassWindowStatus;
+  active_session_count: number;
+}
+
+export interface GatewayConfigUpdate {
+  gateway_enabled: boolean;
+  windows: ClassWindowIn[];
+}
+
+export interface GatewayConfigResponse {
+  assessment_id: number;
+  gateway_enabled: boolean;
+  windows: ClassWindowOut[];
+  warnings: string[];
 }
 
 export interface AssessmentDetail {
@@ -111,6 +142,11 @@ export interface StudentAssessmentDetail {
   // (results released); null while it is still running or when unweighted.
   weighted_score: number | null;
   items: StudentAssessmentItemView[];
+  // Timing Gateway: when enabled, the student's class-group window governs access.
+  gateway_enabled?: boolean;
+  gateway_state?: GatewayState | null;
+  window_start?: string | null; // ISO UTC — when the student's window opens
+  window_end?: string | null;   // ISO UTC — when the student's window closes
 }
 
 export interface AssessmentSessionResponse {
@@ -122,6 +158,9 @@ export interface AssessmentSessionResponse {
   submitted_at: string | null;
   // Deadline for this attempt (ISO); null = untimed. The countdown ticks toward this.
   end_time: string | null;
+  // Immovable Timing-Gateway cap (class-group window end, ISO); null when gateway off.
+  // The countdown targets the earlier of end_time and hard_deadline.
+  hard_deadline?: string | null;
 }
 
 export interface ItemVisitResponse {

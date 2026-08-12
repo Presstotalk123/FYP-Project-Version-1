@@ -65,7 +65,8 @@ def _er_question_accessible_via_assessment(question_id: int, user_id: int, db: S
         .filter(
             AssessmentSession.user_id == user_id,
             AssessmentSession.is_active == 1,
-            Assessment.is_running == 1,
+            # "Live" = is_running (classic) OR gateway_enabled (window-driven, is_running=0).
+            ((Assessment.is_running == 1) | (Assessment.gateway_enabled == 1)),
             AssessmentItem.item_id == question_id,
             AssessmentItem.item_type == "er_question",
         )
@@ -1574,6 +1575,24 @@ async def submit_er_diagram(
     )
     if not question:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    # Timing enforcement: if this ER question is being answered inside an assessment,
+    # reject (and force-submit) once the student's deadline — personal timer or the
+    # Timing-Gateway class-group window — has passed. Without this, ER items were the one
+    # submit path that bypassed the assessment timer (execute.py / labs.py already enforce).
+    from app.services.assessment_timer import enforce_not_expired
+    _assessment_session = (
+        db.query(AssessmentSession)
+        .join(AssessmentItem, AssessmentItem.assessment_id == AssessmentSession.assessment_id)
+        .filter(
+            AssessmentSession.user_id == current_user.id,
+            AssessmentSession.is_active == 1,
+            AssessmentItem.item_id == question_id,
+            AssessmentItem.item_type == "er_question",
+        )
+        .first()
+    )
+    enforce_not_expired(db, _assessment_session)  # 403 + finalize if past effective deadline
 
     # LangGraph engine: per-user standalone conversation so submits feed the
     # query tutor (canonical ERD + last report) and stage/hint carry across turns.

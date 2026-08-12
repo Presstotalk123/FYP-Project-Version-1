@@ -47,6 +47,7 @@ import {
 import { notifications } from '@mantine/notifications';
 
 import { SortableAssessmentItem, SortableItem } from './SortableAssessmentItem';
+import { TimingGatewaySection } from './TimingGatewaySection';
 import { AssessmentItemType, AssessmentDetail, AssessmentCreate, AssessmentUpdate } from '@/types/assessment.types';
 import { Question } from '@/types/question.types';
 import { ERDiagramQuestionListItem } from '@/types/er-diagram.types';
@@ -441,6 +442,16 @@ export function AssessmentForm({ mode, initial }: Props) {
           )}
         </Stack>
       </Paper>
+
+      {/* Timing Gateway — per-class-group access windows. Keyed by assessment id, so it is
+          only available once the assessment exists (edit mode). */}
+      {mode === 'edit' && initial?.id != null ? (
+        <TimingGatewaySection assessmentId={initial.id} />
+      ) : (
+        <Alert icon={<IconAlertCircle size={14} />} color="gray" variant="light">
+          Save the assessment first to configure the Timing Gateway (per-class-group access windows).
+        </Alert>
+      )}
 
       {/* Content selector */}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">

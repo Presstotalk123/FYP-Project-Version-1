@@ -22,6 +22,7 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.models.assessment_item_visit import AssessmentItemVisit
+from app.models.assessment_class_window import AssessmentClassWindow
 from app.models.er_lab import ErLab
 from app.models.er_lab_question import ErLabQuestion
 from app.models.er_lab_session import ErLabSession
@@ -79,6 +80,7 @@ def create_tables():
             'erd_tutor_messages', 'erd_tutor_conversations', 'erd_prompt_versions',
             'course_info',
             'assessment_item_visits', 'er_lab_submissions',
+            'assessment_class_windows',
             'assessment_sessions', 'assessment_items', 'assessments',
             'er_lab_sessions', 'er_lab_questions', 'er_labs',
             'whitelist_entries',

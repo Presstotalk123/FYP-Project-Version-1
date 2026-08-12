@@ -195,7 +195,11 @@ def list_labs(
 
 
 def _lab_accessible_via_assessment(lab_id: int, user_id: int, db: Session) -> bool:
-    """Return True if the student has an active session in a running assessment that contains this lab."""
+    """Return True if the student has an active session in a live assessment that contains this lab.
+
+    "Live" = is_running (classic) OR gateway_enabled (Timing-Gateway assessments keep
+    is_running=0; access is governed by the class-group window, which join_assessment already
+    enforced, and expiry is enforced on the mutating run/submit paths)."""
     result = (
         db.query(AssessmentSession)
         .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
@@ -203,7 +207,7 @@ def _lab_accessible_via_assessment(lab_id: int, user_id: int, db: Session) -> bo
         .filter(
             AssessmentSession.user_id == user_id,
             AssessmentSession.is_active == 1,
-            Assessment.is_running == 1,
+            ((Assessment.is_running == 1) | (Assessment.gateway_enabled == 1)),
             AssessmentItem.item_id == lab_id,
             AssessmentItem.item_type.in_(["sql_lab", "graph_lab"]),
         )

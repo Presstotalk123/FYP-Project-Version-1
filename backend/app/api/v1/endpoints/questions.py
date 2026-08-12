@@ -38,10 +38,15 @@ router = APIRouter(prefix="/questions", tags=["questions"])
 
 
 def _question_accessible_via_assessment(question_id: int, user_id: int, db: Session) -> bool:
-    """Return True if the student has an active session in a running assessment that contains
+    """Return True if the student has an active session in a live assessment that contains
     this question. Mirrors labs._lab_accessible_via_assessment — assessment content is cloned
     (owner_assessment_id set, is_published=0) and the AssessmentItem.item_id is repointed to the
-    clone, so a participant is authorized while a random ID-guesser is not."""
+    clone, so a participant is authorized while a random ID-guesser is not.
+
+    "Live" is is_running for classic assessments, or gateway_enabled for Timing-Gateway ones
+    (which keep is_running=0 — access is driven by the class-group window). The active session
+    only exists because join_assessment already enforced the window, and any expiry is enforced
+    on the mutating run/submit paths via enforce_not_expired."""
     result = (
         db.query(AssessmentSession)
         .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
@@ -49,7 +54,7 @@ def _question_accessible_via_assessment(question_id: int, user_id: int, db: Sess
         .filter(
             AssessmentSession.user_id == user_id,
             AssessmentSession.is_active == 1,
-            Assessment.is_running == 1,
+            ((Assessment.is_running == 1) | (Assessment.gateway_enabled == 1)),
             AssessmentItem.item_id == question_id,
             AssessmentItem.item_type == "sql_question",
         )

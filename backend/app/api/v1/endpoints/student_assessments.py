@@ -20,6 +20,8 @@ from app.dependencies import get_current_user
 from app.api.v1.endpoints.assessments import _resolve_item_title
 from app.services.assessment_timer import finalize_session
 from app.services import assessment_scoring
+from app.services import assessment_gateway
+from app.services.assessment_gateway import GatewayState, effective_deadline
 from app.core.cache import cache_read, assessment_body_ns
 
 router = APIRouter(prefix="/student-assessments", tags=["student-assessments"])
@@ -77,6 +79,36 @@ def _get_completed_session(assessment_id: int, user_id: int, db: Session) -> Ass
     )
 
 
+def _maybe_finalize_expired(db: Session, session: AssessmentSession | None) -> None:
+    """Opportunistic (non-raising) expiration sweep for a single session.
+
+    The request-driven half of the lazy design: whenever we already hold a session we
+    finalize it if it is active and past its effective deadline (personal timer or the
+    class-group window cap). Unlike ``enforce_not_expired`` this does not raise — it is
+    used on read paths (detail/list) so an idle/disconnected student's lingering session
+    gets force-submitted the next time anyone touches it, with no background job."""
+    from datetime import datetime, timezone
+
+    if session is None or not session.is_active:
+        return
+    deadline = effective_deadline(session)
+    if deadline is not None and datetime.now(timezone.utc) >= deadline:
+        finalize_session(db, session)
+
+
+def _session_response(session: AssessmentSession) -> AssessmentSessionResponse:
+    return AssessmentSessionResponse(
+        id=session.id,
+        assessment_id=session.assessment_id,
+        user_id=session.user_id,
+        is_active=bool(session.is_active),
+        joined_at=session.joined_at,
+        submitted_at=session.submitted_at,
+        end_time=session.end_time,
+        hard_deadline=session.hard_deadline,
+    )
+
+
 def _build_item_view(item: AssessmentItem, visited: bool, db: Session) -> StudentAssessmentItemView:
     return StudentAssessmentItemView(
         id=item.id,
@@ -107,14 +139,29 @@ def list_student_assessments(
 
     items: List[StudentAssessmentListItem] = []
     for a in assessments:
+        # Opportunistically finalize this student's lingering session if its window/timer
+        # has elapsed, so the dashboard reflects reality without a background job.
+        _maybe_finalize_expired(db, _get_active_session(a.id, current_user.id, db))
+
         # Per-user attempt state. The completed session (if any) carries the submission
-        # time; the weighted score is only surfaced once results are released (assessment
-        # stopped), mirroring get_student_assessment's not-running branch.
+        # time; the weighted score is only surfaced once results are released.
         completed = _get_completed_session(a.id, current_user.id, db)
         attempt_complete = completed is not None
+
+        # Effective "live for this student": when the gateway is on, the class-group
+        # window's OPEN state supersedes the manual is_running flag, and results release
+        # once the window has CLOSED (mirroring the non-gateway "stopped" release).
+        if a.gateway_enabled:
+            state = assessment_gateway.resolve_state(db, a, current_user).state
+            is_live = state == GatewayState.OPEN
+            results_released = state == GatewayState.CLOSED
+        else:
+            is_live = bool(a.is_running)
+            results_released = not a.is_running
+
         weighted_score = (
             assessment_scoring.compute_weighted_score(db, a, current_user.id)
-            if attempt_complete and not a.is_running
+            if attempt_complete and results_released
             else None
         )
         items.append(
@@ -122,7 +169,7 @@ def list_student_assessments(
                 id=a.id,
                 title=a.title,
                 description=a.description,
-                is_running=bool(a.is_running),
+                is_running=is_live,
                 has_password=bool(a.password),
                 attempt_complete=attempt_complete,
                 weighted_score=weighted_score,
@@ -140,11 +187,22 @@ def get_student_assessment(
 ):
     assessment = _get_published_assessment(assessment_id, db)
 
+    # Resolve the Timing-Gateway state for this student's class group. When the gateway
+    # is enabled, the window's OPEN state supersedes the manual is_running flag.
+    resolved = assessment_gateway.resolve_state(db, assessment, current_user)
+    gateway_fields = dict(
+        gateway_enabled=bool(assessment.gateway_enabled),
+        gateway_state=resolved.state.value if assessment.gateway_enabled else None,
+        window_start=resolved.start_at,
+        window_end=resolved.end_at,
+    )
+    is_open = resolved.is_open if assessment.gateway_enabled else bool(assessment.is_running)
+
     attempt_complete = _get_completed_session(assessment_id, current_user.id, db) is not None
 
-    # If not running, return only metadata with no items. Once staff have stopped the
-    # assessment, a student who submitted may see their overall score (results released).
-    if not assessment.is_running:
+    # If not open for this student, return only metadata with no items. Once the assessment
+    # is closed/stopped, a student who submitted may see their overall score (released).
+    if not is_open:
         weighted_score = (
             assessment_scoring.compute_weighted_score(db, assessment, current_user.id)
             if attempt_complete
@@ -160,10 +218,15 @@ def get_student_assessment(
             attempt_complete=attempt_complete,
             weighted_score=weighted_score,
             items=[],
+            **gateway_fields,
         )
 
-    # If running, build items with visited flags.
+    # If open, build items with visited flags.
     session = _get_active_session(assessment_id, current_user.id, db)
+    # Force-submit a lingering session whose deadline already passed (e.g. window shrank).
+    _maybe_finalize_expired(db, session)
+    if session is not None and not session.is_active:
+        session = None
 
     visited_ids: set[int] = set()
     if session:
@@ -202,6 +265,7 @@ def get_student_assessment(
         time_limit_minutes=assessment.time_limit_minutes,
         attempt_complete=attempt_complete,
         items=items,
+        **gateway_fields,
     )
 
 
@@ -214,7 +278,30 @@ def join_assessment(
 ):
     assessment = _get_published_assessment(assessment_id, db)
 
-    if not assessment.is_running:
+    # Timing Gateway: when enabled, the per-class-group window (not the manual
+    # is_running flag) decides whether this student may join, and its end_at becomes
+    # the session's immovable hard_deadline.
+    hard_deadline = None
+    if assessment.gateway_enabled:
+        resolved = assessment_gateway.resolve_state(db, assessment, current_user)
+        if resolved.state == GatewayState.NO_WINDOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No access window is configured for your class group.",
+            )
+        if resolved.state == GatewayState.UPCOMING:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This assessment opens at {resolved.start_at.isoformat()}.",
+            )
+        if resolved.state == GatewayState.CLOSED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This assessment window has closed.",
+            )
+        # OPEN
+        hard_deadline = resolved.end_at
+    elif not assessment.is_running:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Assessment has not been started by staff",
@@ -230,15 +317,7 @@ def join_assessment(
     # Return existing active session if already joined (skip password check)
     existing = _get_active_session(assessment_id, current_user.id, db)
     if existing:
-        return AssessmentSessionResponse(
-            id=existing.id,
-            assessment_id=existing.assessment_id,
-            user_id=existing.user_id,
-            is_active=bool(existing.is_active),
-            joined_at=existing.joined_at,
-            submitted_at=existing.submitted_at,
-            end_time=existing.end_time,
-        )
+        return _session_response(existing)
 
     if assessment.password:
         if not body.password or body.password != assessment.password:
@@ -256,20 +335,13 @@ def join_assessment(
         assessment_id=assessment_id,
         user_id=current_user.id,
         end_time=end_time,
+        hard_deadline=hard_deadline,
     )
     db.add(session)
     db.commit()
     db.refresh(session)
 
-    return AssessmentSessionResponse(
-        id=session.id,
-        assessment_id=session.assessment_id,
-        user_id=session.user_id,
-        is_active=bool(session.is_active),
-        joined_at=session.joined_at,
-        submitted_at=session.submitted_at,
-        end_time=session.end_time,
-    )
+    return _session_response(session)
 
 
 @router.get("/{assessment_id}/session", response_model=AssessmentSessionResponse)
@@ -284,15 +356,7 @@ def get_session(
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active session found")
 
-    return AssessmentSessionResponse(
-        id=session.id,
-        assessment_id=session.assessment_id,
-        user_id=session.user_id,
-        is_active=bool(session.is_active),
-        joined_at=session.joined_at,
-        submitted_at=session.submitted_at,
-        end_time=session.end_time,
-    )
+    return _session_response(session)
 
 
 @router.post("/{assessment_id}/session/visit-item/{assessment_item_id}", response_model=ItemVisitResponse)
@@ -366,12 +430,4 @@ def submit_assessment(
     finalize_session(db, session)
     db.refresh(session)
 
-    return AssessmentSessionResponse(
-        id=session.id,
-        assessment_id=session.assessment_id,
-        user_id=session.user_id,
-        is_active=bool(session.is_active),
-        joined_at=session.joined_at,
-        submitted_at=session.submitted_at,
-        end_time=session.end_time,
-    )
+    return _session_response(session)

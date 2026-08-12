@@ -84,6 +84,7 @@ export default function AdminAssessmentsPage() {
   const [passcodeValue, setPasscodeValue] = useState('');
   const [clearPasscode, setClearPasscode] = useState(false);
   const [savingPasscode, setSavingPasscode] = useState(false);
+  const [loadingPasscode, setLoadingPasscode] = useState(false);
 
   // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
   const assessmentsQuery = useQuery({ queryKey: queryKeys.assessments, queryFn: () => assessmentService.getAssessments() });
@@ -126,12 +127,31 @@ export default function AdminAssessmentsPage() {
     }
   };
 
-  const openPasscodeModal = (id: number, hasPassword: boolean) => {
+  // The list only knows whether a passcode exists (has_password), not its value, so
+  // fetch the full assessment detail (which does carry the plaintext passcode) to show
+  // staff the current value instead of opening the field blank.
+  const openPasscodeModal = async (id: number, hasPassword: boolean) => {
     setAssessmentForPasscode(id);
     setAssessmentForPasscodeHasPw(hasPassword);
     setPasscodeValue('');
     setClearPasscode(false);
     setPasscodeModalOpen(true);
+    if (hasPassword) {
+      setLoadingPasscode(true);
+      try {
+        const detail = await assessmentService.getAssessmentById(id);
+        setPasscodeValue(detail.password ?? '');
+      } catch (err) {
+        const e = err as { response?: { data?: { detail?: string } } };
+        notifications.show({
+          title: 'Error',
+          message: e.response?.data?.detail || 'Failed to load current passcode',
+          color: 'red',
+        });
+      } finally {
+        setLoadingPasscode(false);
+      }
+    }
   };
 
   // A published assessment's items are frozen; the passcode is not. Send a passcode-only
@@ -308,7 +328,12 @@ export default function AdminAssessmentsPage() {
                         <span className={`badge ${a.is_published ? 'badge-success' : 'neutral'}`}>
                           {a.is_published ? 'Published' : 'Unpublished'}
                         </span>
-                        {a.is_published && (
+                        {a.is_published && a.gateway_enabled && (
+                          <span className="badge badge-info" title="Access is driven by the per-class-group Timing Gateway schedule">
+                            Scheduled
+                          </span>
+                        )}
+                        {a.is_published && !a.gateway_enabled && (
                           <span className={`badge ${a.is_running ? 'badge-info' : 'badge-warn'}`}>
                             {a.is_running ? 'Running' : 'Stopped'}
                           </span>
@@ -329,8 +354,8 @@ export default function AdminAssessmentsPage() {
                             <IconPublish />
                           </button>
                         )}
-                        {/* Start/Stop */}
-                        {a.is_published && (
+                        {/* Start/Stop — hidden when the Timing Gateway drives access on a schedule. */}
+                        {a.is_published && !a.gateway_enabled && (
                           <button
                             className="icon-btn"
                             title={a.is_running ? 'Stop' : 'Start'}
@@ -418,10 +443,10 @@ export default function AdminAssessmentsPage() {
                 <input
                   type="text"
                   className="da-input"
-                  placeholder="New passcode"
+                  placeholder={loadingPasscode ? 'Loading current passcode…' : 'New passcode'}
                   value={passcodeValue}
                   onChange={(e) => setPasscodeValue(e.target.value)}
-                  disabled={clearPasscode || savingPasscode}
+                  disabled={clearPasscode || savingPasscode || loadingPasscode}
                   autoFocus
                 />
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
@@ -439,7 +464,7 @@ export default function AdminAssessmentsPage() {
                 <button
                   className="btn btn-brand"
                   onClick={handleConfirmPasscode}
-                  disabled={savingPasscode || (!clearPasscode && !passcodeValue.trim())}
+                  disabled={savingPasscode || loadingPasscode || (!clearPasscode && !passcodeValue.trim())}
                 >
                   {savingPasscode ? 'Saving…' : 'Save'}
                 </button>

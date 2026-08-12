@@ -56,6 +56,15 @@ class StudentAssessmentDetail(BaseModel):
     weighted_score: Optional[float] = None
     items: List[StudentAssessmentItemView]
 
+    # --- Timing Gateway (per-class-group access window) ---
+    # True when the assessment's access is governed by class-group windows.
+    gateway_enabled: bool = False
+    # The student's gateway access state: disabled | no_window | upcoming | open | closed.
+    gateway_state: Optional[str] = None
+    # The student's class-group window bounds (UTC ISO), when a window applies.
+    window_start: Optional[datetime] = None
+    window_end: Optional[datetime] = None
+
     class Config:
         from_attributes = True
 
@@ -69,6 +78,9 @@ class AssessmentSessionResponse(BaseModel):
     submitted_at: Optional[datetime]
     # Deadline for this attempt; None = untimed. The frontend countdown ticks toward this.
     end_time: Optional[datetime] = None
+    # Immovable Timing-Gateway cap (class-group window end); None when the gateway is off.
+    # The frontend counts down to the earlier of end_time and hard_deadline.
+    hard_deadline: Optional[datetime] = None
 
     class Config:
         from_attributes = True

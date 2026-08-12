@@ -8,11 +8,15 @@ import { UserRole } from '@/types/user.types';
 import {
   erAnalyticsService,
   fetchSubmissionImage,
+  overrideSubmissionScore,
+  revertSubmissionScore,
 } from '@/services/er-analytics.service';
+import { getApiErrorMessage } from '@/utils/api-error';
 import type {
   AnalyticsContext,
   QuestionAnalytics,
   StudentSubmissions,
+  SubmissionCheck,
   SubmissionDetail,
 } from '@/types/er-analytics.types';
 
@@ -45,6 +49,23 @@ export default function ErQuestionAnalyticsPage() {
   const [attempt, setAttempt] = useState<SubmissionDetail | null>(null);
   const [attemptImage, setAttemptImage] = useState<string | null>(null);
 
+  // Score-override editing. `editing` gates it so a stray click can never change a
+  // mark. `awards` is seeded from what the grader gave every scoring check, so it
+  // always holds the complete picture — no diffing against the original, and the
+  // save sends the lot.
+  const [editing, setEditing] = useState(false);
+  /** check id -> points, as typed. Strings, so clearing a box does not snap to 0
+   *  under the cursor mid-edit. */
+  const [awards, setAwards] = useState<Record<string, string>>({});
+  /** The submitted diagram, opened over the modal to check detail while marking. */
+  const [imageZoomed, setImageZoomed] = useState(false);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+  // Bumped after an override so the aggregates behind this page refetch: a
+  // corrected score changes the average, the histogram and the check rates.
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     erAnalyticsService.classGroups().then(setClassGroups).catch(() => setClassGroups([]));
   }, []);
@@ -68,7 +89,7 @@ export default function ErQuestionAnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, [questionId, context, classGroup]);
+  }, [questionId, context, classGroup, reloadKey]);
 
   const openJourney = (studentId: number) => {
     setOpenStudent(studentId);
@@ -92,6 +113,102 @@ export default function ErQuestionAnalyticsPage() {
     if (attemptImage) URL.revokeObjectURL(attemptImage);
     setAttempt(null);
     setAttemptImage(null);
+    setImageZoomed(false);
+    stopEditing();
+  };
+
+  /** Straight to the attempt that carries the student's mark, skipping the journey.
+   *  Marking is the common errand here; the journey is for studying a progression. */
+  const markLatest = async (studentId: number) => {
+    const journeyForStudent = await erAnalyticsService.studentSubmissions(questionId, studentId);
+    const latest = journeyForStudent.attempts[journeyForStudent.attempts.length - 1];
+    if (!latest) return;
+    setOpenStudent(studentId);
+    setJourney(journeyForStudent);
+    openAttempt(latest.id);
+  };
+
+  const stopEditing = () => {
+    setEditing(false);
+    setAwards({});
+    setReason('');
+    setOverrideError(null);
+  };
+
+  /** Whether a check counts toward the total at all. */
+  const isScoring = (c: SubmissionCheck) =>
+    (c.requirement_level === 'must' || c.requirement_level === 'should') &&
+    c.status !== 'not_applicable';
+
+  /** Seed every scoring check with what it currently carries, so the map is complete
+   *  from the outset and editing is just typing over a value. */
+  const startEditing = (checks: SubmissionCheck[]) => {
+    const seed: Record<string, string> = {};
+    for (const c of checks) {
+      if (isScoring(c)) seed[c.id] = String(c.earned_points ?? 0);
+    }
+    setAwards(seed);
+    setEditing(true);
+  };
+
+  /** Running total, so the consequence of an edit is visible before saving. The
+   *  server re-totals independently and its answer is what gets stored. */
+  const preview = (checks: SubmissionCheck[]) => {
+    let earned = 0;
+    let total = 0;
+    let valid = true;
+    for (const c of checks) {
+      if (!isScoring(c)) continue;
+      const points = c.points ?? 0;
+      const n = Number(awards[c.id]);
+      total += points;
+      if (!Number.isFinite(n) || n < 0 || n > points) valid = false;
+      else earned += n;
+    }
+    return { earned, total, percent: total > 0 ? Math.round((100 * earned) / total) : 0, valid };
+  };
+
+  /** Refresh the aggregates behind this page — an override changes them. */
+  const refreshAnalytics = () => {
+    setReloadKey((k) => k + 1);
+    if (openStudent !== null) openJourney(openStudent);
+  };
+
+  const saveOverride = async () => {
+    if (!attempt) return;
+    setSaving(true);
+    setOverrideError(null);
+    try {
+      const payload = Object.fromEntries(
+        Object.entries(awards).map(([id, v]) => [id, Number(v)]),
+      );
+      await overrideSubmissionScore(attempt.id, payload, reason);
+      const fresh = await erAnalyticsService.submissionDetail(attempt.id);
+      setAttempt(fresh);
+      stopEditing();
+      refreshAnalytics();
+    } catch (err) {
+      setOverrideError(getApiErrorMessage(err, 'Failed to save the override'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revertOverride = async () => {
+    if (!attempt) return;
+    setSaving(true);
+    setOverrideError(null);
+    try {
+      await revertSubmissionScore(attempt.id);
+      const fresh = await erAnalyticsService.submissionDetail(attempt.id);
+      setAttempt(fresh);
+      stopEditing();
+      refreshAnalytics();
+    } catch (err) {
+      setOverrideError(getApiErrorMessage(err, 'Failed to revert the override'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -175,7 +292,7 @@ export default function ErQuestionAnalyticsPage() {
             <div className="table-wrap">
               <table className="da-table">
                 <thead>
-                  <tr><th>Student</th><th>Class</th><th>Attempts</th><th>Best</th><th>Latest</th><th>Last attempt</th></tr>
+                  <tr><th>Student</th><th>Class</th><th>Attempts</th><th>Best</th><th>Latest</th><th>Last attempt</th><th></th></tr>
                 </thead>
                 <tbody>
                   {data.students.map((s) => (
@@ -186,6 +303,19 @@ export default function ErQuestionAnalyticsPage() {
                       <td>{pct(s.best_percent)}</td>
                       <td>{pct(s.latest_percent)}</td>
                       <td>{s.last_attempt_at ? new Date(s.last_attempt_at).toLocaleString() : '—'}</td>
+                      <td>
+                        <button
+                          className="btn btn-secondary"
+                          aria-label={`Mark ${s.email}`}
+                          onClick={(e) => {
+                            // The row opens the journey; this skips it.
+                            e.stopPropagation();
+                            markLatest(s.user_id);
+                          }}
+                        >
+                          Mark
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -235,39 +365,236 @@ export default function ErQuestionAnalyticsPage() {
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
             onClick={closeAttempt}
           >
-            <div className="card" style={{ maxWidth: 1000, width: '90%', maxHeight: '85vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
-              <div className="page-head">
+            {/* A column that does not scroll as a whole: the header stays, the panes
+                below scroll independently, and the running total sits at the bottom.
+                Scrolling the checks used to carry the diagram off screen, which is
+                the one thing you need in view while marking against it. */}
+            <div
+              className="card"
+              style={{
+                maxWidth: 1100, width: '92%', height: '85vh',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="page-head" style={{ flexShrink: 0 }}>
                 <h3>Attempt — {pct(attempt.score_percent)} ({attempt.score_label ?? 'ungraded'})</h3>
-                <button className="btn btn-secondary" onClick={closeAttempt}>Close</button>
+                <div className="button-row">
+                  {!editing && (
+                    <button className="btn btn-secondary" onClick={() => startEditing(attempt.checks)}>
+                      Adjust score
+                    </button>
+                  )}
+                  <button className="btn btn-secondary" onClick={closeAttempt}>Close</button>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 420px' }}>
+
+              {attempt.override && (
+                <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                  <span>
+                    Overridden from {pct(attempt.override.original_score.percent)} by{' '}
+                    {attempt.override.by_email ?? 'staff'} on{' '}
+                    {new Date(attempt.override.at).toLocaleString()} — “{attempt.override.reason}”
+                  </span>
+                </div>
+              )}
+
+              {editing && !attempt.is_latest_attempt && (
+                <div className="da-alert alert-warn" style={{ fontSize: 12 }}>
+                  <span>
+                    This is not the student’s most recent attempt. Adjusting it updates
+                    analytics but not their assessment mark.
+                  </span>
+                </div>
+              )}
+
+              {overrideError && (
+                <div className="da-alert alert-error" role="alert" style={{ fontSize: 12 }}>
+                  <span>{overrideError}</span>
+                </div>
+              )}
+              {/* min-height: 0 is what lets the children scroll instead of stretching
+                  this row to fit their content. */}
+              <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+                <div style={{ flex: '1 1 45%', minWidth: 0, overflow: 'auto' }}>
                   {attemptImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={attemptImage} alt="Submitted ER diagram" style={{ maxWidth: '100%', border: '1px solid var(--border, #ddd)' }} />
+                    <button
+                      type="button"
+                      onClick={() => setImageZoomed(true)}
+                      aria-label="Enlarge submitted diagram"
+                      title="Click to enlarge"
+                      style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', lineHeight: 0, width: '100%' }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={attemptImage} alt="Submitted ER diagram" style={{ maxWidth: '100%', border: '1px solid var(--border, #ddd)' }} />
+                    </button>
                   ) : attempt.submitted_xml ? (
-                    <pre style={{ maxHeight: 400, overflow: 'auto' }}>{attempt.submitted_xml}</pre>
+                    <pre style={{ margin: 0 }}>{attempt.submitted_xml}</pre>
                   ) : (
                     <p>No diagram stored for this attempt.</p>
                   )}
                   {attempt.submission_description && <p><em>{attempt.submission_description}</em></p>}
                 </div>
-                <div style={{ flex: '1 1 320px' }}>
+                <div style={{ flex: '1 1 55%', minWidth: 0, overflow: 'auto' }}>
                   <table className="da-table">
-                    <thead><tr><th>Check</th><th>Status</th><th>Reason</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>Check</th>
+                        <th>What it tests</th>
+                        <th>Status</th>
+                        <th style={{ textAlign: 'right' }}>{editing ? 'Points' : 'Awarded'}</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {attempt.checks.map((c) => (
-                        <tr key={c.id}>
-                          <td>{c.id}</td>
-                          <td><span className={`badge ${c.status === 'pass' ? 'badge-success' : c.status === 'partial' ? 'badge-warn' : 'badge-error'}`}>{c.status}</span></td>
-                          <td>{c.brief_reason ?? ''}</td>
-                        </tr>
-                      ))}
+                      {attempt.checks.map((c) => {
+                        const scoring = isScoring(c);
+                        const points = c.points ?? 0;
+                        const typed = Number(awards[c.id]);
+                        const bad = editing && scoring &&
+                          (!Number.isFinite(typed) || typed < 0 || typed > points);
+                        const changed = editing && scoring && !bad &&
+                          typed !== (c.earned_points ?? 0);
+                        const status = c.status;
+                        return (
+                          <tr key={c.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {c.id}
+                              {c.requirement_level && (
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                  {c.requirement_level}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ fontSize: 13 }}>
+                              {c.pass_criteria || <em style={{ color: 'var(--text-muted)' }}>criteria unavailable</em>}
+                              {/* The grader's own words: what staff are judging. */}
+                              {c.brief_reason && (
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                  Grader: {c.brief_reason}
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`badge ${status === 'pass' ? 'badge-success' : status === 'partial' ? 'badge-warn' : status === 'not_applicable' ? 'neutral' : 'badge-error'}`}>
+                                {status === 'not_applicable' ? 'not evaluated' : status}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {!scoring ? (
+                                <span style={{ color: 'var(--text-muted)' }}>—</span>
+                              ) : editing ? (
+                                <>
+                                  <input
+                                    className="da-input"
+                                    type="number"
+                                    min={0}
+                                    max={points}
+                                    step="any"
+                                    style={{ width: 76, textAlign: 'right' }}
+                                    aria-label={`Points for ${c.id}`}
+                                    value={awards[c.id] ?? ''}
+                                    onChange={(e) =>
+                                      setAwards((a) => ({ ...a, [c.id]: e.target.value }))
+                                    }
+                                  />
+                                  {' / '}{points}
+                                  {bad && (
+                                    <div style={{ fontSize: 11, color: 'var(--error)' }}>
+                                      0–{points}
+                                    </div>
+                                  )}
+                                  {changed && (
+                                    <div>
+                                      <span className="badge badge-info">changed</span>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <>{c.earned_points ?? 0} / {points}</>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
+
+              {/* Outside the scrolling panes: the running total and the save controls
+                  stay in view however far down the checks you are. */}
+              {editing && (() => {
+                const p = preview(attempt.checks);
+                return (
+                  <div
+                    style={{
+                      flexShrink: 0, display: 'grid', gap: 8, paddingTop: 12, marginTop: 12,
+                      borderTop: '1px solid var(--border, #ddd)',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      New score: {p.earned} / {p.total} = {p.percent}%{' '}
+                      <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+                        (was {pct(attempt.score_percent)})
+                      </span>
+                    </div>
+                    <div className="button-row" style={{ alignItems: 'center' }}>
+                      <input
+                        className="da-input"
+                        style={{ flex: 1, minWidth: 200 }}
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        placeholder="Reason (optional)"
+                        aria-label="Reason for the score change"
+                      />
+                      <button className="btn btn-secondary" onClick={stopEditing} disabled={saving}>
+                        Cancel
+                      </button>
+                      {attempt.override && (
+                        <button className="btn btn-secondary" onClick={revertOverride} disabled={saving}>
+                          Revert to AI score
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-brand"
+                        onClick={saveOverride}
+                        /* Only a value the server would reject blocks the save. */
+                        disabled={saving || !p.valid}
+                      >
+                        {saving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
+          </div>
+        )}
+
+        {/* Over the marking modal, not instead of it — closing returns to the checks
+            with every point already typed still in place. */}
+        {imageZoomed && attemptImage && (
+          <div
+            role="dialog"
+            aria-label="Submitted diagram, full size"
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, overflow: 'auto', padding: 16 }}
+            onClick={() => setImageZoomed(false)}
+          >
+            <div className="button-row" style={{ justifyContent: 'flex-end', marginBottom: 8 }}>
+              {/* Not just "Close": the marking modal underneath has one too, and two
+                  identically named buttons are ambiguous to anyone not seeing the
+                  overlay sitting on top. */}
+              <button className="btn btn-secondary" onClick={() => setImageZoomed(false)}>
+                Close full size
+              </button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={attemptImage}
+              alt="Submitted ER diagram, full size"
+              style={{ display: 'block', background: '#fff', margin: '0 auto' }}
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         )}
       </DashboardLayout>

@@ -43,6 +43,7 @@ export const API_ENDPOINTS = {
     STUDENT: (id: number, studentId: number) =>
       `/er-diagram/questions/${id}/students/${studentId}/submissions`,
     SUBMISSION: (submissionId: number) => `/er-diagram/submissions/${submissionId}`,
+    SUBMISSION_SCORE: (submissionId: number) => `/er-diagram/submissions/${submissionId}/score`,
     SUBMISSION_IMAGE: (submissionId: number) =>
       `/er-diagram/submissions/${submissionId}/image`,
     OVERVIEW: '/er-diagram/analytics/overview',

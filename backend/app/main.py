@@ -69,6 +69,20 @@ with engine.connect() as _conn:
     except Exception:
         pass  # Column already exists
 
+# Staff score-override columns on er_submissions (existing local SQLite databases).
+for _stmt in (
+    "ALTER TABLE er_submissions ADD COLUMN original_grade_json TEXT",
+    "ALTER TABLE er_submissions ADD COLUMN override_reason TEXT",
+    "ALTER TABLE er_submissions ADD COLUMN overridden_by INTEGER",
+    "ALTER TABLE er_submissions ADD COLUMN overridden_at TIMESTAMP",
+):
+    with engine.connect() as _conn:
+        try:
+            _conn.execute(text(_stmt))
+            _conn.commit()
+        except Exception:
+            pass  # Column already exists
+
 print(f"Connected to database: {settings.DATABASE_URL[:30]}...")
 
 # Provision the backend read-cache: create/seed the cache_versions table (idempotent,

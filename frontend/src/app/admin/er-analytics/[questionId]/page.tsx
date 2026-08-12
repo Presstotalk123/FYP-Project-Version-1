@@ -302,6 +302,43 @@ export default function ErQuestionAnalyticsPage() {
               </table>
             </div>
 
+            {/* What students got stuck on here specifically — the class overview
+                answers the same question for the whole cohort, which does not tell
+                you whether THIS problem statement is the confusing one. */}
+            <h3 style={{ marginTop: 24 }}>What students asked Baloo</h3>
+            {/* Defaulted, not assumed: analytics payloads are cached whole, so an
+                entry computed before this field existed is still servable — and
+                reading .length off it would take the page down. */}
+            {(data.query_topics ?? []).length === 0 ? (
+              <p style={{ color: 'var(--text-muted)' }}>
+                No tutor questions asked on this question yet.
+              </p>
+            ) : (
+              <div className="table-wrap">
+                <table className="da-table">
+                  <thead><tr><th>Topic</th><th>Questions</th><th>Recent examples</th></tr></thead>
+                  <tbody>
+                    {(data.query_topics ?? []).map((t) => (
+                      <tr key={t.topic}>
+                        <td>{t.topic}</td>
+                        <td>{t.count}</td>
+                        <td>
+                          <details>
+                            <summary style={{ cursor: 'pointer' }}>{t.examples[0] ?? ''}</summary>
+                            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                              {t.examples.slice(1).map((q) => (
+                                <li key={q} style={{ fontSize: 13 }}>{q}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <h3 style={{ marginTop: 24 }}>Students</h3>
             <div className="table-wrap">
               <table className="da-table">

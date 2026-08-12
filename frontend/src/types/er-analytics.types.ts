@@ -21,6 +21,13 @@ export interface StudentRollup {
   last_attempt_at: string | null;
 }
 
+/** A bucket of what students asked Baloo about, with recent examples. */
+export interface QueryTopic {
+  topic: string;
+  count: number;
+  examples: string[];
+}
+
 export interface QuestionAnalytics {
   question_id: number;
   title: string;
@@ -30,6 +37,8 @@ export interface QuestionAnalytics {
   histogram: { bucket: number; count: number }[];
   checks: CheckRate[];
   students: StudentRollup[];
+  /** Asked while working on this question, rather than across the whole cohort. */
+  query_topics: QueryTopic[];
 }
 
 export interface AttemptSummary {
@@ -125,7 +134,7 @@ export interface ClassOverview {
     fail_rate: number;
     attempts: number;
   }[];
-  query_topics: { topic: string; count: number; examples: string[] }[];
+  query_topics: QueryTopic[];
   questions: {
     question_id: number;
     title: string;

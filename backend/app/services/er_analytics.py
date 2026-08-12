@@ -157,6 +157,7 @@ def _student_queries(
     class_group: Optional[str] = None,
     question_id: Optional[int] = None,
     student_id: Optional[int] = None,
+    question_ids: Optional[list[int]] = None,
 ):
     """Student chat questions to Baloo (newest first), honoring the filters."""
     q = (
@@ -170,7 +171,9 @@ def _student_queries(
                 ERDiagramQuestion.is_deleted == 0)
     )
     q = _context_filter(q, context)
-    if question_id is not None:
+    if question_ids is not None:
+        q = q.filter(ErdTutorConversation.er_diagram_question_id.in_(question_ids))
+    elif question_id is not None:
         q = q.filter(ErdTutorConversation.er_diagram_question_id == question_id)
     if student_id is not None:
         q = q.filter(ErdTutorConversation.user_id == student_id)
@@ -190,11 +193,17 @@ def query_topics(
     context: str,
     class_group: Optional[str] = None,
     examples_per_topic: int = 5,
+    question_ids: Optional[list[int]] = None,
 ) -> list:
     """Tally of what students ask Baloo about, bucketed by keyword topic, with
-    the most recent real questions kept as examples."""
+    the most recent real questions kept as examples.
+
+    Cohort-wide by default; pass `question_ids` for one question's own tally —
+    what students got stuck on *here*, which is what makes it actionable when
+    the answer is to reword the problem statement.
+    """
     tally: dict[str, dict] = {}
-    for msg in _student_queries(db, context, class_group):
+    for msg in _student_queries(db, context, class_group, question_ids=question_ids):
         text = (msg.content or "").strip()
         if not text:
             continue
@@ -256,8 +265,8 @@ def question_analytics(
     # The whole family, so a bank question shows the assessment attempts taken
     # against its clones. `context` then does the splitting it always did: the
     # master carries the practice rows, its clones the assessment ones.
-    rows = _submissions(db, context, class_group=class_group,
-                        question_ids=question_family(db, question_id))
+    family = question_family(db, question_id)
+    rows = _submissions(db, context, class_group=class_group, question_ids=family)
     percents = [r.score_percent for r in rows if r.score_percent is not None]
 
     histogram = [{"bucket": b, "count": 0} for b in range(0, 100, 10)]
@@ -318,6 +327,10 @@ def question_analytics(
         "histogram": histogram,
         "checks": checks,
         "students": students,
+        # What students asked Baloo while working on THIS question — the same
+        # tally the class overview shows, narrowed to the family so an assessment
+        # clone's chat counts toward the question it was cloned from.
+        "query_topics": query_topics(db, context, class_group, question_ids=family),
     }
 
 

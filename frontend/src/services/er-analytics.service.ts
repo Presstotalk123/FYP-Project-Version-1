@@ -4,6 +4,7 @@ import type {
   AnalyticsContext,
   ClassOverview,
   QuestionAnalytics,
+  ScoreOverrideResult,
   StudentSubmissions,
   SubmissionDetail,
 } from "@/types/er-analytics.types";
@@ -42,6 +43,30 @@ export const erAnalyticsService = {
     return r.data;
   },
 };
+
+/** Correct a graded attempt. `checks` maps check id -> points awarded, and carries
+ *  only the ids being changed; the rest keep what the grader awarded. The server
+ *  re-scores — the number the modal shows while editing is a preview, never what
+ *  gets stored. */
+export async function overrideSubmissionScore(
+  submissionId: number,
+  checks: Record<string, number>,
+  reason: string,
+): Promise<ScoreOverrideResult> {
+  const r = await api.put<ScoreOverrideResult>(
+    API_ENDPOINTS.ER_ANALYTICS.SUBMISSION_SCORE(submissionId),
+    { checks, reason },
+  );
+  return r.data;
+}
+
+/** Restore the grader's original result and drop the correction. */
+export async function revertSubmissionScore(submissionId: number): Promise<ScoreOverrideResult> {
+  const r = await api.delete<ScoreOverrideResult>(
+    API_ENDPOINTS.ER_ANALYTICS.SUBMISSION_SCORE(submissionId),
+  );
+  return r.data;
+}
 
 /** Direct URL for an <img> tag. The browser sends no Authorization header on
  * image loads, so pages fetch the image as a blob via `fetchSubmissionImage`

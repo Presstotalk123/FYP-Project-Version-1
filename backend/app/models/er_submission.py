@@ -36,3 +36,15 @@ class ErSubmission(Base):
     hint_level_at_submit = Column(Integer, nullable=True)
     ibl_stage_at_submit = Column(String(30), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Staff score override. The columns above always hold the current truth, so
+    # every reader — analytics aggregates, the student's mark — sees the corrected
+    # score without knowing an override happened.
+    #
+    # The grader's own result is frozen here on the FIRST override and never
+    # rewritten, so "what did the AI say" keeps one answer however many times a
+    # score is later adjusted, and reverting can restore it exactly.
+    original_grade_json = Column(Text, nullable=True)
+    override_reason = Column(Text, nullable=True)
+    overridden_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    overridden_at = Column(DateTime(timezone=True), nullable=True)

@@ -48,6 +48,48 @@ export interface StudentSubmissions {
   chat: { queries_asked: number; topics: string[] };
 }
 
+export interface SubmissionCheck {
+  id: string;
+  dimension?: string;
+  requirement_level?: string;
+  status: string;
+  points?: number;
+  /** Points awarded. Present on scoring checks; absent on ones excluded from the total. */
+  earned_points?: number;
+  brief_reason?: string;
+  /** What the check tests, joined from the question's rubric — "A1" alone says nothing. */
+  pass_criteria?: string;
+}
+
+/** Present only when staff have corrected the grade; null on an AI-graded attempt. */
+export interface ScoreOverride {
+  reason: string | null;
+  by_user_id: number | null;
+  by_email: string | null;
+  at: string;
+  original_score: {
+    earned_points?: number;
+    total_points?: number;
+    percent?: number;
+    label?: string;
+  };
+  original_checks: SubmissionCheck[];
+}
+
+/** What the server returns after a correction or a revert. */
+export interface ScoreOverrideResult {
+  score: {
+    earned_points?: number;
+    total_points?: number;
+    percent?: number;
+    label?: string;
+  };
+  checks: SubmissionCheck[];
+  /** False when the attempt was not the student's latest, so only analytics moved. */
+  assessment_mark_updated: boolean;
+  override: ScoreOverride | null;
+}
+
 export interface SubmissionDetail {
   id: number;
   user_id: number;
@@ -57,14 +99,10 @@ export interface SubmissionDetail {
   score_total: number | null;
   score_percent: number | null;
   score_label: string | null;
-  checks: {
-    id: string;
-    dimension?: string;
-    requirement_level?: string;
-    status: string;
-    points?: number;
-    brief_reason?: string;
-  }[];
+  checks: SubmissionCheck[];
+  override: ScoreOverride | null;
+  /** Only the latest attempt carries the student's mark, so only it can move one. */
+  is_latest_attempt: boolean;
   submission_description: string | null;
   submitted_xml: string | null;
   has_image: boolean;

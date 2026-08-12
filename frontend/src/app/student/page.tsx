@@ -9,6 +9,7 @@ import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { LoginCalendar } from '@/components/common/LoginCalendar';
+import { PlatformUsageTable } from '@/components/common/PlatformUsageTable';
 import { UserRole } from '@/types/user.types';
 import { ERDiagramQuestionListItem } from '@/types/er-diagram.types';
 import { questionService } from '@/services/question.service';
@@ -152,6 +153,14 @@ export default function StudentDashboard() {
     () => new Set(loginActivityQuery.data?.active_dates ?? []),
     [loginActivityQuery.data],
   );
+
+  // Per-day platform time for the same month the calendar shows. Reuses the
+  // calendar's year/month paging so the two stay in sync in the Activity popover.
+  const usageQuery = useQuery({
+    queryKey: queryKeys.studentUsage(calYear, calMonth),
+    queryFn: () => loginActivityService.getUsage(calYear, calMonth),
+    placeholderData: (prev) => prev,
+  });
 
   const pool = useMemo<PooledQuestion[]>(() => {
     const sqlQuestions = questionsQuery.data ?? [];
@@ -358,16 +367,25 @@ export default function StudentDashboard() {
                     </button>
                   </Popover.Target>
                   <Popover.Dropdown>
-                    <LoginCalendar
-                      activeDates={activeDates}
-                      year={calYear}
-                      month={calMonth}
-                      loading={loginActivityQuery.isFetching}
-                      onNavigate={(y, m) => {
-                        setCalYear(y);
-                        setCalMonth(m);
-                      }}
-                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 340 }}>
+                      <LoginCalendar
+                        activeDates={activeDates}
+                        year={calYear}
+                        month={calMonth}
+                        loading={loginActivityQuery.isFetching}
+                        onNavigate={(y, m) => {
+                          setCalYear(y);
+                          setCalMonth(m);
+                        }}
+                      />
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                        <PlatformUsageTable
+                          days={usageQuery.data?.days ?? []}
+                          totalSeconds={usageQuery.data?.total_seconds ?? 0}
+                          loading={usageQuery.isFetching}
+                        />
+                      </div>
+                    </div>
                   </Popover.Dropdown>
                 </Popover>
                 <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">

@@ -12,6 +12,10 @@ export const API_ENDPOINTS = {
   },
   LOGIN_ACTIVITY: {
     SUMMARY: '/login-activity',
+    HEARTBEAT: '/login-activity/heartbeat',
+    USAGE: '/login-activity/usage',
+    STUDENT_USAGE: (studentId: number) => `/login-activity/students/${studentId}/usage`,
+    USAGE_OVERVIEW: '/login-activity/usage-overview',
   },
   QUESTIONS: {
     BASE: '/questions',

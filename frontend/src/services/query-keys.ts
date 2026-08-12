@@ -38,6 +38,15 @@ export const queryKeys = {
   // Keyed by year/month so navigating the calendar caches each month separately.
   studentLoginActivity: (year: number, month: number) =>
     ['studentLoginActivity', year, month] as const,
+  // Platform-time usage. The student's own per-day usage for a month; the staff
+  // roster of per-student totals; one student's per-day usage (staff drill-down).
+  // All keyed by year/month so each month caches separately.
+  studentUsage: (year: number, month: number) =>
+    ['studentUsage', year, month] as const,
+  usageOverview: (year: number, month: number) =>
+    ['usageOverview', year, month] as const,
+  studentUsageByStaff: (studentId: number, year: number, month: number) =>
+    ['studentUsageByStaff', studentId, year, month] as const,
 
   // Static per-resource content, cached so switching between assessment items
   // (a full route remount) does not re-download the prompt/schema/task list.

@@ -1,5 +1,6 @@
 import api from './api.service';
 import { API_ENDPOINTS, API_BASE_URL } from '@/config/api.config';
+import { loginActivityService } from './loginActivity.service';
 
 export interface ChatMessage {
   id: string;
@@ -90,6 +91,9 @@ export const chatbotService = {
     question_id: number,
     user_message: string
   ): Promise<Response> {
+    // Streaming chat bypasses the axios interceptor, so ping activity explicitly —
+    // sending a message to the AI assistant is a meaningful action.
+    loginActivityService.recordActivity();
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     return fetch(`${API_BASE_URL}${API_ENDPOINTS.CHATBOT.SEND}`, {
       method: 'POST',
@@ -168,6 +172,7 @@ export const chatbotService = {
     session_id: number,
     user_message: string
   ): Promise<Response> {
+    loginActivityService.recordActivity();
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     return fetch(`${API_BASE_URL}${API_ENDPOINTS.CHATBOT.LAB_CHAT}`, {
       method: 'POST',
@@ -207,6 +212,7 @@ export const chatbotService = {
     course_context: string,
     user_message: string
   ): Promise<Response> {
+    loginActivityService.recordActivity();
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     return fetch(`${API_BASE_URL}${API_ENDPOINTS.CHATBOT.COURSE_CHAT}`, {
       method: 'POST',

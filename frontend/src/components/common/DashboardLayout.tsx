@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { loginActivityService } from '@/services/loginActivity.service';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -55,9 +57,19 @@ const IconUsers = () => (
 );
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { isStaff, isAdmin } = useAuth();
+  const { isStaff, isAdmin, isAuthenticated } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Navigating to another page is a meaningful action. Ping on each path change
+  // (throttled + best-effort in the service). Staff/admin pings are server-side
+  // no-ops, so we only bother sending for students. Covers pure client-side
+  // navigation that makes no API call of its own.
+  useEffect(() => {
+    if (isAuthenticated && !isStaff && !isAdmin) {
+      loginActivityService.recordActivity();
+    }
+  }, [pathname, isAuthenticated, isStaff, isAdmin]);
 
   const isActive = (href: string, exact = false) =>
     exact ? pathname === href : pathname === href || pathname.startsWith(href + '/');

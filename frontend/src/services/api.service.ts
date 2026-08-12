@@ -10,6 +10,14 @@ const api = axios.create({
 // rejected promise for the caller to display, not trigger the logout redirect below.
 const SSO_LOGIN_PATHS = [API_ENDPOINTS.AUTH.GOOGLE, API_ENDPOINTS.AUTH.MICROSOFT];
 
+// A successful call to any of these must NOT itself count as platform activity —
+// the heartbeat would recurse, and the SSO/streak calls aren't meaningful actions.
+const NON_ACTIVITY_PATHS = [
+  API_ENDPOINTS.LOGIN_ACTIVITY.HEARTBEAT,
+  API_ENDPOINTS.AUTH.GOOGLE,
+  API_ENDPOINTS.AUTH.MICROSOFT,
+];
+
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
@@ -24,7 +32,17 @@ api.interceptors.request.use(
 );
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Any successful authenticated call is a meaningful action — advance the
+    // student's session (throttled, best-effort). Skip heartbeat/SSO calls so
+    // the ping doesn't recurse or fire on login itself. Imported lazily to avoid
+    // a static import cycle with loginActivity.service (which imports this file).
+    const url = response.config?.url ?? '';
+    if (!NON_ACTIVITY_PATHS.some((path) => url.includes(path))) {
+      void import('./loginActivity.service').then((m) => m.loginActivityService.recordActivity());
+    }
+    return response;
+  },
   (error: AxiosError) => {
     const isSsoLoginCall = SSO_LOGIN_PATHS.some((path) => error.config?.url?.includes(path));
     if (error.response?.status === 401 && !isSsoLoginCall) {

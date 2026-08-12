@@ -33,6 +33,8 @@ from app.models.tutor_chat_message import TutorChatMessage
 from app.models.query_review import QueryReview
 from app.models.erd_prompt_version import ErdPromptVersion
 from app.models.course_info import CourseInfo
+from app.models.login_activity import LoginActivity
+from app.models.platform_session import PlatformSession
 from app.core.cache import CacheVersion  # register cache_versions on Base
 
 def create_tables():

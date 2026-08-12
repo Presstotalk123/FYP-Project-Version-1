@@ -58,6 +58,21 @@ def get_current_user(
     return user
 
 
+def get_current_sid(token: str = Depends(oauth2_scheme)) -> int | None:
+    """The platform-session id (``sid``) embedded in the JWT at login, or ``None``.
+
+    Used by the activity heartbeat to know which ``platform_sessions`` row to
+    advance. Legacy tokens issued before this feature have no ``sid`` (the service
+    falls back to the student's latest session); staff/admin tokens never carry one.
+    Kept separate from ``get_current_user`` so that dependency stays read-only.
+    """
+    payload = decode_token(token)
+    if payload is None:
+        return None
+    sid = payload.get("sid")
+    return sid if isinstance(sid, int) else None
+
+
 def require_staff_role(current_user: User = Depends(get_current_user)) -> User:
     """
     Require that the current user has staff or admin role.

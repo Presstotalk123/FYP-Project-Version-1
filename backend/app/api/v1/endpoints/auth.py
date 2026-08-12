@@ -10,6 +10,7 @@ from app.core.security import verify_google_token, verify_microsoft_token, creat
 from app.core.cache import cache_read, Ns
 from app.dependencies import get_current_user
 from app.services.login_activity import record_login_day
+from app.services import platform_usage
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -68,7 +69,15 @@ def _issue_token_for_whitelisted_email(email: str, db: Session) -> dict:
     # swallows its own errors.
     record_login_day(db, user)
 
-    access_token = create_access_token(data={"sub": user.email, "role": user.role.value})
+    # Open a platform-time session (students only) and embed its id as the ``sid``
+    # claim so each authenticated action can advance its own session's
+    # last_action_at. Returns None for staff/admin or on failure — login proceeds.
+    sid = platform_usage.start_session(db, user)
+
+    token_data = {"sub": user.email, "role": user.role.value}
+    if sid is not None:
+        token_data["sid"] = sid
+    access_token = create_access_token(data=token_data)
     return {"access_token": access_token, "token_type": "bearer"}
 
 

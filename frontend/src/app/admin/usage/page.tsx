@@ -66,8 +66,8 @@ export default function StudentUsagePage() {
             <div>
               <Title order={2}>Student Usage</Title>
               <Text c="dimmed" size="sm">
-                Time each student spent on the platform, per calendar day. A day&apos;s time is the
-                sum of that day&apos;s login sessions.
+                Total time each student has spent on the platform (all-time), plus the selected
+                month. A day&apos;s time is the sum of that day&apos;s login sessions.
               </Text>
             </div>
             <Group gap="xs">
@@ -97,8 +97,9 @@ export default function StudentUsagePage() {
                   <Table.Tr>
                     <Table.Th>Student</Table.Th>
                     <Table.Th>Class group</Table.Th>
-                    <Table.Th ta="center">Active days</Table.Th>
-                    <Table.Th ta="right">Total time</Table.Th>
+                    <Table.Th ta="right">{MONTH_NAMES[month - 1]} time</Table.Th>
+                    <Table.Th ta="center">Days active (all-time)</Table.Th>
+                    <Table.Th ta="right">Total time (all-time)</Table.Th>
                     <Table.Th />
                   </Table.Tr>
                 </Table.Thead>
@@ -110,11 +111,16 @@ export default function StudentUsagePage() {
                         {r.name && <Text size="xs" c="dimmed">{r.email}</Text>}
                       </Table.Td>
                       <Table.Td>{r.class_group || <Text c="dimmed" size="sm">—</Text>}</Table.Td>
+                      <Table.Td ta="right">
+                        <Text size="sm" c={r.total_seconds > 0 ? undefined : 'dimmed'}>
+                          {formatDuration(r.total_seconds)}
+                        </Text>
+                      </Table.Td>
                       <Table.Td ta="center">
-                        <Badge variant="light">{r.active_days}</Badge>
+                        <Badge variant="light">{r.all_time_active_days}</Badge>
                       </Table.Td>
                       <Table.Td ta="right">
-                        <Text fw={700} size="sm">{formatDuration(r.total_seconds)}</Text>
+                        <Text fw={700} size="sm">{formatDuration(r.all_time_seconds)}</Text>
                       </Table.Td>
                       <Table.Td ta="right">
                         <Button
@@ -141,7 +147,19 @@ export default function StudentUsagePage() {
 
           {selected && (
             <Card withBorder padding="md">
-              <Text fw={700} mb="sm">{selected.name} — daily breakdown</Text>
+              <Group justify="space-between" mb="sm" align="baseline">
+                <Text fw={700}>{selected.name} — daily breakdown</Text>
+                {detailQuery.data && (
+                  <Text size="sm" c="dimmed">
+                    All-time:{' '}
+                    <Text span fw={700} c="var(--mantine-color-text)">
+                      {formatDuration(detailQuery.data.all_time_seconds)}
+                    </Text>{' '}
+                    over {detailQuery.data.all_time_active_days} day
+                    {detailQuery.data.all_time_active_days === 1 ? '' : 's'}
+                  </Text>
+                )}
+              </Group>
               {detailQuery.isLoading ? (
                 <Group justify="center" py="md"><Loader size="sm" /></Group>
               ) : (

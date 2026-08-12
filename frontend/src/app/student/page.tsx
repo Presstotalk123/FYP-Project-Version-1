@@ -382,6 +382,8 @@ export default function StudentDashboard() {
                         <PlatformUsageTable
                           days={usageQuery.data?.days ?? []}
                           totalSeconds={usageQuery.data?.total_seconds ?? 0}
+                          allTimeSeconds={usageQuery.data?.all_time_seconds}
+                          allTimeDays={usageQuery.data?.all_time_active_days}
                           loading={usageQuery.isFetching}
                         />
                       </div>

@@ -33,11 +33,20 @@ const formatTime = (isoDateTime: string): string =>
 interface PlatformUsageTableProps {
   days: DailyUsage[];
   totalSeconds: number;
+  /** When provided, an all-time total footer (across every day) is shown. */
+  allTimeSeconds?: number;
+  allTimeDays?: number;
   /** Dim the table while a new month is being fetched. */
   loading?: boolean;
 }
 
-export function PlatformUsageTable({ days, totalSeconds, loading }: PlatformUsageTableProps) {
+export function PlatformUsageTable({
+  days,
+  totalSeconds,
+  allTimeSeconds,
+  allTimeDays,
+  loading,
+}: PlatformUsageTableProps) {
   const cell: React.CSSProperties = { padding: '6px 8px', fontSize: 12, whiteSpace: 'nowrap' };
   const head: React.CSSProperties = {
     ...cell,
@@ -87,6 +96,27 @@ export function PlatformUsageTable({ days, totalSeconds, loading }: PlatformUsag
             ))}
           </tbody>
         </table>
+      )}
+
+      {allTimeSeconds !== undefined && (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 10,
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>
+            All-time total{allTimeDays !== undefined ? ` (${allTimeDays} day${allTimeDays === 1 ? '' : 's'})` : ''}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--brand-charcoal)' }}>
+            {formatDuration(allTimeSeconds)}
+          </span>
+        </div>
       )}
     </div>
   );

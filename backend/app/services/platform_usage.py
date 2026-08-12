@@ -169,37 +169,41 @@ def daily_usage(db: Session, user_id: int, year: int, month: int) -> list[dict]:
 
 
 def usage_summary(db: Session, user_id: int, year: int, month: int) -> dict:
-    """A student's ``daily_usage`` plus the month total, shaped for ``UsageSummary``."""
+    """A student's ``daily_usage`` plus the month total and the all-time total,
+    shaped for ``UsageSummary``."""
     days = daily_usage(db, user_id, year, month)
+    all_time_seconds, all_time_active_days = lifetime_total(db, user_id)
     return {
         "year": year,
         "month": month,
         "total_seconds": sum(d["total_seconds"] for d in days),
+        "all_time_seconds": all_time_seconds,
+        "all_time_active_days": all_time_active_days,
         "days": days,
     }
 
 
 def usage_overview(db: Session, year: int, month: int) -> list[dict]:
-    """Per-student totals for the given SGT month, for the staff roster.
+    """Per-student totals for the staff roster: this month AND all-time.
 
-    One row per student who has any session that month: ``student_id``, ``name``,
-    ``email``, ``class_group``, ``total_seconds`` (Σ over the month), ``active_days``
-    (distinct login dates). Sorted by total time descending.
+    One row per student who has *ever* had a session (so the all-time total is
+    always visible, even in a month with no activity). Each row carries the
+    selected month's figures (``total_seconds``, ``active_days``) and the
+    cumulative figures across every day (``all_time_seconds``,
+    ``all_time_active_days``). Sorted by all-time total descending. One pass over
+    all student sessions; aggregation done in Python for SQLite/Postgres parity.
     """
     first, last = _month_bounds(year, month)
     rows = (
         db.query(PlatformSession, User)
         .join(User, User.id == PlatformSession.user_id)
-        .filter(
-            User.role == UserRole.STUDENT,
-            PlatformSession.login_date >= first,
-            PlatformSession.login_date <= last,
-        )
+        .filter(User.role == UserRole.STUDENT)
         .all()
     )
 
     totals: dict[int, dict] = {}
-    active_days: dict[int, set[date]] = defaultdict(set)
+    month_days: dict[int, set[date]] = defaultdict(set)
+    all_days: dict[int, set[date]] = defaultdict(set)
     for session, user in rows:
         acc = totals.get(user.id)
         if acc is None:
@@ -209,13 +213,32 @@ def usage_overview(db: Session, year: int, month: int) -> list[dict]:
                 "email": user.email,
                 "class_group": user.class_group,
                 "total_seconds": 0,
+                "all_time_seconds": 0,
             }
-        acc["total_seconds"] += _duration_seconds(session)
-        active_days[user.id].add(session.login_date)
+        duration = _duration_seconds(session)
+        acc["all_time_seconds"] += duration
+        all_days[user.id].add(session.login_date)
+        if first <= session.login_date <= last:
+            acc["total_seconds"] += duration
+            month_days[user.id].add(session.login_date)
 
     result = []
     for uid, acc in totals.items():
-        acc["active_days"] = len(active_days[uid])
+        acc["active_days"] = len(month_days[uid])
+        acc["all_time_active_days"] = len(all_days[uid])
         result.append(acc)
-    result.sort(key=lambda r: r["total_seconds"], reverse=True)
+    result.sort(key=lambda r: r["all_time_seconds"], reverse=True)
     return result
+
+
+def lifetime_total(db: Session, user_id: int) -> tuple[int, int]:
+    """A student's all-time platform time: ``(total_seconds, active_days)`` across
+    every session ever, regardless of month."""
+    sessions = (
+        db.query(PlatformSession)
+        .filter(PlatformSession.user_id == user_id)
+        .all()
+    )
+    total = sum(_duration_seconds(s) for s in sessions)
+    days = len({s.login_date for s in sessions})
+    return total, days

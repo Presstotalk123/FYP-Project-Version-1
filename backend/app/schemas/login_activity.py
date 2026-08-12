@@ -20,21 +20,26 @@ class DailyUsage(BaseModel):
 
 
 class UsageSummary(BaseModel):
-    """A student's per-day usage for one calendar month, plus the month total."""
+    """A student's per-day usage for one calendar month, plus the month total and
+    the all-time total across every day."""
     year: int = Field(..., description="Year of the returned days")
     month: int = Field(..., description="Month (1-12) of the returned days")
     total_seconds: int = Field(..., description="Sum of total_seconds across the month's days")
+    all_time_seconds: int = Field(..., description="Sum of the student's session durations across all days")
+    all_time_active_days: int = Field(..., description="Distinct calendar days with any session, all-time")
     days: List[DailyUsage] = Field(..., description="Per-day usage, ascending by date")
 
 
 class StudentUsageRow(BaseModel):
-    """One student's month total, for the staff usage roster."""
+    """One student's totals for the staff usage roster: selected month + all-time."""
     student_id: int
     name: Optional[str] = None
     email: str
     class_group: Optional[str] = None
-    total_seconds: int = Field(..., description="Sum of the student's session durations this month")
-    active_days: int = Field(..., description="Distinct calendar days with at least one session")
+    total_seconds: int = Field(..., description="Sum of the student's session durations in the selected month")
+    active_days: int = Field(..., description="Distinct calendar days with a session in the selected month")
+    all_time_seconds: int = Field(..., description="Sum of the student's session durations across all days")
+    all_time_active_days: int = Field(..., description="Distinct calendar days with any session, all-time")
 
 
 class LoginActivitySummary(BaseModel):

@@ -23,22 +23,31 @@ export interface DailyUsage {
   session_count: number;
 }
 
-/** A student's per-day usage for one month, plus the month total. */
+/** A student's per-day usage for one month, plus the month and all-time totals. */
 export interface UsageSummary {
   year: number;
   month: number;
   /** Sum of `total_seconds` across the month's days. */
   total_seconds: number;
+  /** Sum of the student's session durations across all days. */
+  all_time_seconds: number;
+  /** Distinct calendar days with any session, all-time. */
+  all_time_active_days: number;
   days: DailyUsage[];
 }
 
-/** One student's month total, for the staff usage roster. */
+/** One student's totals for the staff usage roster: selected month + all-time. */
 export interface StudentUsageRow {
   student_id: number;
   name: string | null;
   email: string;
   class_group: string | null;
+  /** Sum of the student's session durations in the selected month. */
   total_seconds: number;
-  /** Distinct calendar days with at least one session. */
+  /** Distinct calendar days with a session in the selected month. */
   active_days: number;
+  /** Sum of the student's session durations across all days. */
+  all_time_seconds: number;
+  /** Distinct calendar days with any session, all-time. */
+  all_time_active_days: number;
 }

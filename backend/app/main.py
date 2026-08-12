@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, er_analytics, sql_analytics, lab_analytics, labs, users, whitelist, assessments, student_assessments, erd_prompts, app_settings, course_info
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, er_analytics, sql_analytics, lab_analytics, labs, users, whitelist, assessments, student_assessments, erd_prompts, app_settings, course_info, login_activity
 # Import models to register them with SQLAlchemy
 from app.models.user import User
 from app.models.whitelist import WhitelistEntry
@@ -23,6 +23,7 @@ from app.models.assessment_session import AssessmentSession
 from app.models.assessment_item_visit import AssessmentItemVisit
 from app.models.app_setting import AppSetting
 from app.models.course_info import CourseInfo
+from app.models.login_activity import LoginActivity
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it
 # correctly as a partial index (WHERE is_active = 1). This fixes SQLite ignoring
@@ -155,6 +156,7 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(whitelist.router, prefix="/api/v1")
 app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(student_assessments.router, prefix="/api/v1")
+app.include_router(login_activity.router, prefix="/api/v1")
 
 
 @app.get("/")

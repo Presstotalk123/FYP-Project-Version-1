@@ -17,5 +17,6 @@ from app.models.er_submission import ErSubmission  # noqa: F401
 from app.models.tutor_chat_conversation import TutorChatConversation
 from app.models.tutor_chat_message import TutorChatMessage
 from app.models.query_review import QueryReview
+from app.models.login_activity import LoginActivity
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity"]

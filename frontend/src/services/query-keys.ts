@@ -34,6 +34,10 @@ export const queryKeys = {
   // Dashboard tiles: lightweight {total, attempted} counts (backend-cached totals).
   studentQuestionCount: ['studentQuestionCount'] as const,
   studentErdCount: ['studentErdCount'] as const,
+  // Login streak + a month's active login days for the dashboard calendar.
+  // Keyed by year/month so navigating the calendar caches each month separately.
+  studentLoginActivity: (year: number, month: number) =>
+    ['studentLoginActivity', year, month] as const,
 
   // Static per-resource content, cached so switching between assessment items
   // (a full route remount) does not re-download the prompt/schema/task list.

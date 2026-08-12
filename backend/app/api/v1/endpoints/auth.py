@@ -9,6 +9,7 @@ from app.schemas.user import UserResponse
 from app.core.security import verify_google_token, verify_microsoft_token, create_access_token
 from app.core.cache import cache_read, Ns
 from app.dependencies import get_current_user
+from app.services.login_activity import record_login_day
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -61,6 +62,11 @@ def _issue_token_for_whitelisted_email(email: str, db: Session) -> dict:
 
     db.commit()
     db.refresh(user)
+
+    # Record today's (SGT) login day for the streak/calendar feature. Students
+    # only; at most one row per calendar day. Never blocks the login — the helper
+    # swallows its own errors.
+    record_login_day(db, user)
 
     access_token = create_access_token(data={"sub": user.email, "role": user.role.value})
     return {"access_token": access_token, "token_type": "bearer"}

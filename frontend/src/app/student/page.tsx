@@ -3,16 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebouncedValue } from '@mantine/hooks';
+import { Popover } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
+import { LoginCalendar } from '@/components/common/LoginCalendar';
 import { UserRole } from '@/types/user.types';
 import { ERDiagramQuestionListItem } from '@/types/er-diagram.types';
 import { questionService } from '@/services/question.service';
 import { attemptService } from '@/services/attempt.service';
 import { erDiagramService } from '@/services/er-diagram.service';
 import { settingsService } from '@/services/settings.service';
+import { loginActivityService } from '@/services/loginActivity.service';
 import { queryKeys } from '@/services/query-keys';
 import { useERAbility } from '@/hooks/use-er-ability';
 import { toERQuestionSubject } from '@/permissions/er-ability';
@@ -76,6 +79,17 @@ const IconTrash = () => (
     <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
   </svg>
 );
+const IconFlame = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+    <path d="M12 2s4 3.5 4 8a4 4 0 0 1-8 0c0-1 .3-1.8.6-2.4C7 8.5 6 10.6 6 13a6 6 0 0 0 12 0c0-5-6-11-6-11z"/>
+  </svg>
+);
+const IconCalendar = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+    <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+  </svg>
+);
 
 export default function StudentDashboard() {
   const router = useRouter();
@@ -117,6 +131,27 @@ export default function StudentDashboard() {
     queryFn: () => settingsService.getErdSettings(),
   });
   const showAuthorBadge = erdSettingsQuery.data?.student_authoring_enabled ?? false;
+
+  // Login-activity streak + calendar. `calMonth` is the month the calendar is
+  // showing (1-12); paging the calendar refetches only that month's active days,
+  // while the streak stays global. Defaults to the current (browser) month.
+  const now = new Date();
+  const [calYear, setCalYear] = useState(now.getFullYear());
+  const [calMonth, setCalMonth] = useState(now.getMonth() + 1);
+  const loginActivityQuery = useQuery({
+    queryKey: queryKeys.studentLoginActivity(calYear, calMonth),
+    queryFn: () => loginActivityService.getSummary(calYear, calMonth),
+    // Keep the prior month's data on screen while a newly-navigated month loads,
+    // so the streak badge never blanks and the calendar doesn't flash empty.
+    // (Stale dates carry their own year-month, so they can't mis-highlight the
+    // new grid; `isFetching` dims it until the real data arrives.)
+    placeholderData: (prev) => prev,
+  });
+  const streak = loginActivityQuery.data?.current_streak ?? 0;
+  const activeDates = useMemo(
+    () => new Set(loginActivityQuery.data?.active_dates ?? []),
+    [loginActivityQuery.data],
+  );
 
   const pool = useMemo<PooledQuestion[]>(() => {
     const sqlQuestions = questionsQuery.data ?? [];
@@ -303,6 +338,38 @@ export default function StudentDashboard() {
                 <p>All SQL and ER diagram practice questions in one place.</p>
               </div>
               <div className="button-row">
+                {/* Login streak — consecutive days (SGT) ending today. Hidden while
+                    the first fetch is in flight so it doesn't flash "No streak". */}
+                {!loginActivityQuery.isLoading && (
+                  <span
+                    className={`badge ${streak > 0 ? 'badge-warn' : 'neutral'}`}
+                    title="Consecutive days you've logged in"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  >
+                    <IconFlame />
+                    {streak > 0 ? `${streak} day${streak === 1 ? '' : 's'} streak` : 'No streak yet'}
+                  </span>
+                )}
+                <Popover width="auto" position="bottom-end" shadow="md" withinPortal>
+                  <Popover.Target>
+                    <button className="btn btn-secondary" title="View your login activity">
+                      <IconCalendar />
+                      Activity
+                    </button>
+                  </Popover.Target>
+                  <Popover.Dropdown>
+                    <LoginCalendar
+                      activeDates={activeDates}
+                      year={calYear}
+                      month={calMonth}
+                      loading={loginActivityQuery.isFetching}
+                      onNavigate={(y, m) => {
+                        setCalYear(y);
+                        setCalMonth(m);
+                      }}
+                    />
+                  </Popover.Dropdown>
+                </Popover>
                 <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
                   <IconRefresh />
                   {refreshing ? 'Refreshing…' : 'Refresh'}

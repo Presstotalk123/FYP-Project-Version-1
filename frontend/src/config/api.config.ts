@@ -10,6 +10,9 @@ export const API_ENDPOINTS = {
     MICROSOFT: '/auth/microsoft',
     ME: '/auth/me',
   },
+  LOGIN_ACTIVITY: {
+    SUMMARY: '/login-activity',
+  },
   QUESTIONS: {
     BASE: '/questions',
     COUNT: '/questions/count',

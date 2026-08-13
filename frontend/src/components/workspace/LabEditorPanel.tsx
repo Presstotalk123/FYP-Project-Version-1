@@ -94,6 +94,7 @@ export function LabEditorPanel({
             lineNumbers: 'on',
             scrollBeyondLastLine: false,
             automaticLayout: true,
+            fixedOverflowWidgets: true,
           }}
         />
       </Box>

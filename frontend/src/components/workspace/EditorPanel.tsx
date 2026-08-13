@@ -115,6 +115,7 @@ export function EditorPanel({
             lineNumbers: 'on',
             scrollBeyondLastLine: false,
             automaticLayout: true,
+            fixedOverflowWidgets: true,
           }}
         />
       </Box>

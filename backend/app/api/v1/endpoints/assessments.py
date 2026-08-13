@@ -573,11 +573,16 @@ def _active_session_counts(db: Session, assessment_id: int) -> dict:
 
 
 def _to_class_window_out(window: AssessmentClassWindow, active_counts: dict) -> ClassWindowOut:
+    # Normalize to timezone-aware UTC before serializing — see student_assessments.py's
+    # _session_response for why a naive datetime here is dangerous (the frontend parses a
+    # timezone-less ISO string as local time, silently shifting the displayed window).
+    from app.services.assessment_gateway import as_utc
+
     return ClassWindowOut(
         id=window.id,
         class_group=window.class_group,
-        start_at=window.start_at,
-        end_at=window.end_at,
+        start_at=as_utc(window.start_at),
+        end_at=as_utc(window.end_at),
         is_enabled=bool(window.is_enabled),
         status=_window_status(window),
         active_session_count=active_counts.get(window.class_group, 0),

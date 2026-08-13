@@ -60,6 +60,14 @@ def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
+# Public alias — other modules (API response builders) use this to normalize outgoing
+# timestamps before serialization, so a naive datetime (e.g. from a mistyped DB column)
+# can never leave the API without an explicit UTC offset. See student_assessments.py's
+# _session_response for why this matters: the frontend parses a timezone-less ISO string
+# as *local* time, which silently shifts the deadline by the viewer's UTC offset.
+as_utc = _as_utc
+
+
 def get_window(
     db: Session, assessment_id: int, class_group: Optional[str]
 ) -> Optional[AssessmentClassWindow]:

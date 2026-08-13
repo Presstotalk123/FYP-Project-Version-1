@@ -21,7 +21,7 @@ from app.api.v1.endpoints.assessments import _resolve_item_title
 from app.services.assessment_timer import finalize_session
 from app.services import assessment_scoring
 from app.services import assessment_gateway
-from app.services.assessment_gateway import GatewayState, effective_deadline
+from app.services.assessment_gateway import GatewayState, effective_deadline, as_utc
 from app.core.cache import cache_read, assessment_body_ns
 
 router = APIRouter(prefix="/student-assessments", tags=["student-assessments"])
@@ -97,6 +97,14 @@ def _maybe_finalize_expired(db: Session, session: AssessmentSession | None) -> N
 
 
 def _session_response(session: AssessmentSession) -> AssessmentSessionResponse:
+    # Defense in depth: normalize every deadline-bearing timestamp to timezone-aware UTC
+    # before it leaves the API, regardless of what the DB column happens to return. A
+    # naive datetime serializes with no UTC offset; the frontend's `new Date(iso)` then
+    # parses it as *local browser time*, silently shifting the deadline by the viewer's
+    # UTC offset (e.g. 8h early in Singapore) and triggering an immediate spurious
+    # auto-submit. This bit us once already (a migration created hard_deadline as
+    # TIMESTAMP instead of TIMESTAMPTZ) — normalizing here means a future column-type
+    # mistake fails safe instead of silently corrupting every student's deadline.
     return AssessmentSessionResponse(
         id=session.id,
         assessment_id=session.assessment_id,
@@ -104,8 +112,8 @@ def _session_response(session: AssessmentSession) -> AssessmentSessionResponse:
         is_active=bool(session.is_active),
         joined_at=session.joined_at,
         submitted_at=session.submitted_at,
-        end_time=session.end_time,
-        hard_deadline=session.hard_deadline,
+        end_time=as_utc(session.end_time),
+        hard_deadline=as_utc(session.hard_deadline),
     )
 
 

@@ -187,6 +187,14 @@ export interface AssessmentStudentsResponse {
   students: AssessmentStudentRow[];
 }
 
+// Whether one specific lab task was solved by one specific student.
+export interface StudentLabTaskResult {
+  task_id: number;
+  task_title: string;
+  order_index: number;
+  correct: boolean;
+}
+
 export interface AssessmentItemComponentScore {
   assessment_item_id: number;
   item_type: AssessmentItemType;
@@ -201,6 +209,8 @@ export interface AssessmentItemComponentScore {
   weight?: number;
   score_fraction?: number | null;
   weighted_points?: number | null;
+  // Lab items only: per-task ✓/✗ for this student. Only populated by the staff report.
+  tasks?: StudentLabTaskResult[] | null;
 }
 
 export interface StudentComponentScoresResponse {

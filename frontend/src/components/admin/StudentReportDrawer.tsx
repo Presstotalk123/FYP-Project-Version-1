@@ -13,7 +13,7 @@ import {
   Loader,
   Alert,
 } from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
+import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react';
 import { reportService } from '@/services/report.service';
 import { queryKeys } from '@/services/query-keys';
 import { AssessmentItemComponentScore } from '@/types/assessment.types';
@@ -156,7 +156,9 @@ export function StudentReportDrawer({ student, onClose }: StudentReportDrawerPro
                             </Text>
                           )}
                         </Stack>
-                        {a.above_average != null && (
+                        {/* A 1-person cohort average is just this student's own score,
+                            so the comparison is only meaningful with 2+ takers. */}
+                        {a.above_average != null && a.student_count > 1 && (
                           <Badge color={a.above_average ? 'green' : 'red'} variant="filled">
                             {a.above_average ? 'Above average' : 'Below average'}
                           </Badge>
@@ -170,34 +172,58 @@ export function StudentReportDrawer({ student, onClose }: StudentReportDrawerPro
                         </Stack>
                         <Stack gap={2}>
                           <Text size="xs" c="dimmed" fw={600} tt="uppercase">
-                            Cohort avg ({a.student_count})
+                            Cohort avg · {a.student_count} student{a.student_count !== 1 ? 's' : ''}
                           </Text>
                           {renderScore(a.cohort_average, 'lg')}
                         </Stack>
                       </Group>
 
-                      {/* Per-item breakdown, incl. lab task counts */}
-                      <Stack gap={6}>
+                      {/* Per-item breakdown, incl. per-task ✓/✗ for labs */}
+                      <Stack gap={10}>
                         {a.items.map((item, idx) => (
-                          <Group key={item.assessment_item_id} justify="space-between" wrap="nowrap">
-                            <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-                              <Text size="xs" c="dimmed" fw={500}>#{idx + 1}</Text>
-                              <Badge
-                                size="xs"
-                                color={itemTypeBadgeColor[item.item_type] ?? 'gray'}
-                                variant="filled"
-                              >
-                                {itemTypeLabel[item.item_type] ?? item.item_type}
-                              </Badge>
-                              <Text size="sm" lineClamp={1}>{item.item_title}</Text>
+                          <Stack key={item.assessment_item_id} gap={4}>
+                            <Group justify="space-between" wrap="nowrap">
+                              <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                                <Text size="xs" c="dimmed" fw={500}>#{idx + 1}</Text>
+                                <Badge
+                                  size="xs"
+                                  color={itemTypeBadgeColor[item.item_type] ?? 'gray'}
+                                  variant="filled"
+                                >
+                                  {itemTypeLabel[item.item_type] ?? item.item_type}
+                                </Badge>
+                                <Text size="sm" lineClamp={1}>{item.item_title}</Text>
+                              </Group>
+                              <Group gap="sm" wrap="nowrap">
+                                {renderItemScore(item)}
+                                {!!item.weight && (
+                                  <Text size="xs" c="dimmed">{item.weight}%</Text>
+                                )}
+                              </Group>
                             </Group>
-                            <Group gap="sm" wrap="nowrap">
-                              {renderItemScore(item)}
-                              {!!item.weight && (
-                                <Text size="xs" c="dimmed">{item.weight}%</Text>
-                              )}
-                            </Group>
-                          </Group>
+
+                            {/* Which specific tasks this student got right/wrong. */}
+                            {!!item.tasks?.length && (
+                              <Stack gap={2} pl="lg">
+                                {item.tasks.map((task) => (
+                                  <Group key={task.task_id} gap={6} wrap="nowrap">
+                                    {task.correct ? (
+                                      <IconCheck size={13} color="var(--mantine-color-green-6)" />
+                                    ) : (
+                                      <IconX size={13} color="var(--mantine-color-red-6)" />
+                                    )}
+                                    <Text
+                                      size="xs"
+                                      c={task.correct ? undefined : 'dimmed'}
+                                      lineClamp={1}
+                                    >
+                                      {task.task_title}
+                                    </Text>
+                                  </Group>
+                                ))}
+                              </Stack>
+                            )}
+                          </Stack>
                         ))}
                       </Stack>
                     </Stack>

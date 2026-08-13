@@ -17,7 +17,8 @@ from app.models.user import User
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
-from app.schemas.assessment import AssessmentItemComponentScore
+from app.models.lab_task import LabTask
+from app.schemas.assessment import AssessmentItemComponentScore, StudentLabTaskResult
 from app.schemas.student_report import (
     StudentReportSummary,
     StudentReportAssessmentBlock,
@@ -68,6 +69,28 @@ def _assessment_block(
         detail = assessment_scoring.item_score_detail(
             db, item, student_id, session_id=session.id
         )
+
+        # Lab items: expand the count into a per-task ✓/✗ list for this student,
+        # using the solved-task set the scorer already computed.
+        task_results = None
+        if item.item_type in ("sql_lab", "graph_lab"):
+            correct_ids = detail.correct_task_ids or set()
+            tasks = (
+                db.query(LabTask)
+                .filter(LabTask.lab_id == item.item_id, LabTask.is_deleted == 0)
+                .order_by(LabTask.order_index)
+                .all()
+            )
+            task_results = [
+                StudentLabTaskResult(
+                    task_id=task.id,
+                    task_title=task.title,
+                    order_index=task.order_index,
+                    correct=task.id in correct_ids,
+                )
+                for task in tasks
+            ]
+
         component_scores.append(
             AssessmentItemComponentScore(
                 assessment_item_id=item.id,
@@ -83,6 +106,7 @@ def _assessment_block(
                 visited=detail.visited,
                 score_fraction=round(detail.fraction, 4),
                 weighted_points=round(item.weight * detail.fraction, 2),
+                tasks=task_results,
             )
         )
 

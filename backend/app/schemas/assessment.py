@@ -196,6 +196,15 @@ class AssessmentStudentsResponse(BaseModel):
     students: List[AssessmentStudentRow]
 
 
+class StudentLabTaskResult(BaseModel):
+    """Whether one specific lab task was solved by one specific student. The
+    per-student counterpart to LabTaskAggregateScore (which is a cohort rate)."""
+    task_id: int
+    task_title: str
+    order_index: int
+    correct: bool
+
+
 class AssessmentItemComponentScore(BaseModel):
     assessment_item_id: int
     item_type: str
@@ -213,6 +222,10 @@ class AssessmentItemComponentScore(BaseModel):
     score_fraction: Optional[float] = None
     # weight * score_fraction — this item's contribution to the weighted total.
     weighted_points: Optional[float] = None
+    # Lab items only: per-task ✓/✗ for this student. None for non-lab items and for
+    # endpoints that don't populate it (kept optional so the existing staff
+    # component-scores response is unchanged).
+    tasks: Optional[List[StudentLabTaskResult]] = None
 
 
 class StudentComponentScoresResponse(BaseModel):

@@ -14,6 +14,8 @@ import {
   Card,
   ActionIcon,
   Button,
+  Drawer,
+  ScrollArea,
 } from '@mantine/core';
 import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock, IconReportAnalytics } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
@@ -159,33 +161,39 @@ export default function StudentUsagePage() {
             </Card>
           )}
 
-          {selected && (
-            <Card withBorder padding="md">
-              <Group justify="space-between" mb="sm" align="baseline">
-                <Text fw={700}>{selected.name} — daily breakdown</Text>
-                {detailQuery.data && (
-                  <Text size="sm" c="dimmed">
-                    All-time:{' '}
-                    <Text span fw={700} c="var(--mantine-color-text)">
-                      {formatDuration(detailQuery.data.all_time_seconds)}
-                    </Text>{' '}
-                    over {detailQuery.data.all_time_active_days} day
-                    {detailQuery.data.all_time_active_days === 1 ? '' : 's'}
-                  </Text>
-                )}
-              </Group>
-              {detailQuery.isLoading ? (
-                <Group justify="center" py="md"><Loader size="sm" /></Group>
-              ) : (
-                <PlatformUsageTable
-                  days={detailQuery.data?.days ?? []}
-                  totalSeconds={detailQuery.data?.total_seconds ?? 0}
-                  loading={detailQuery.isFetching}
-                />
-              )}
-            </Card>
-          )}
         </Stack>
+
+        {/* Daily platform-time breakdown, in a right-side panel. */}
+        <Drawer
+          opened={selected !== null}
+          onClose={() => setSelected(null)}
+          title={<Text fw={600}>{selected?.name} — daily breakdown</Text>}
+          position="right"
+          size="lg"
+          scrollAreaComponent={ScrollArea.Autosize}
+        >
+          <Stack gap="sm">
+            {detailQuery.data && (
+              <Text size="sm" c="dimmed">
+                All-time:{' '}
+                <Text span fw={700} c="var(--mantine-color-text)">
+                  {formatDuration(detailQuery.data.all_time_seconds)}
+                </Text>{' '}
+                over {detailQuery.data.all_time_active_days} day
+                {detailQuery.data.all_time_active_days === 1 ? '' : 's'}
+              </Text>
+            )}
+            {detailQuery.isLoading ? (
+              <Group justify="center" py="md"><Loader size="sm" /></Group>
+            ) : (
+              <PlatformUsageTable
+                days={detailQuery.data?.days ?? []}
+                totalSeconds={detailQuery.data?.total_seconds ?? 0}
+                loading={detailQuery.isFetching}
+              />
+            )}
+          </Stack>
+        </Drawer>
 
         <StudentReportDrawer student={reportStudent} onClose={() => setReportStudent(null)} />
       </DashboardLayout>

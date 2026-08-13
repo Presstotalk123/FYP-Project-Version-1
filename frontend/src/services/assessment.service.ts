@@ -85,4 +85,9 @@ export const assessmentService = {
     const response = await api.get(API_ENDPOINTS.ASSESSMENTS.CLASS_GROUPS(id));
     return response.data;
   },
+
+  async getAllClassGroups(): Promise<string[]> {
+    const response = await api.get(API_ENDPOINTS.ASSESSMENTS.CLASS_GROUPS_ALL);
+    return response.data;
+  },
 };

@@ -208,6 +208,18 @@ def list_assessments(
     return cache_read(db, Ns.ASSESSMENTS, key=("staff",), producer=producer)
 
 
+@router.get("/class-groups", response_model=List[str])
+def list_all_class_groups(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Class groups available for Timing-Gateway windows, not scoped to an assessment.
+
+    Lets the editor list groups before the assessment has been created and given an id.
+    Declared ahead of ``/{assessment_id}`` so it isn't captured by that dynamic route."""
+    return _distinct_class_groups(db)
+
+
 @router.get("/{assessment_id}", response_model=AssessmentResponse)
 def get_assessment(
     assessment_id: int,
@@ -582,17 +594,11 @@ def _get_staff_assessment(assessment_id: int, db: Session) -> Assessment:
     return assessment
 
 
-@router.get("/{assessment_id}/class-groups", response_model=List[str])
-def list_assessment_class_groups(
-    assessment_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff_role),
-):
+def _distinct_class_groups(db: Session) -> List[str]:
     """Distinct class-group names available to configure windows for.
 
     Sourced from both registered users and the pre-registration whitelist so staff can
     schedule a group before its students have logged in."""
-    _get_staff_assessment(assessment_id, db)
     user_groups = db.query(User.class_group).filter(User.class_group.isnot(None)).distinct().all()
     wl_groups = (
         db.query(WhitelistEntry.class_group)
@@ -602,6 +608,16 @@ def list_assessment_class_groups(
     )
     groups = {g[0] for g in user_groups} | {g[0] for g in wl_groups}
     return sorted(g for g in groups if g)
+
+
+@router.get("/{assessment_id}/class-groups", response_model=List[str])
+def list_assessment_class_groups(
+    assessment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    _get_staff_assessment(assessment_id, db)
+    return _distinct_class_groups(db)
 
 
 @router.get("/{assessment_id}/windows", response_model=GatewayConfigResponse)

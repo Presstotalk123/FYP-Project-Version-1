@@ -133,6 +133,7 @@ export const API_ENDPOINTS = {
     RESET_STUDENT: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/reset`,
     WINDOWS: (id: number) => `/assessments/${id}/windows`,
     CLASS_GROUPS: (id: number) => `/assessments/${id}/class-groups`,
+    CLASS_GROUPS_ALL: '/assessments/class-groups',
   },
   STUDENT_ASSESSMENTS: {
     BASE: '/student-assessments',

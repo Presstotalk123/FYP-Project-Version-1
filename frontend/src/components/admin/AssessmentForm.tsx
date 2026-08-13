@@ -47,7 +47,14 @@ import {
 import { notifications } from '@mantine/notifications';
 
 import { SortableAssessmentItem, SortableItem } from './SortableAssessmentItem';
-import { TimingGatewaySection } from './TimingGatewaySection';
+import {
+  TimingGatewaySection,
+  WindowRow,
+  isoToSgtInput,
+  buildGatewayWindows,
+  gatewayHasErrors,
+  nextRowKey,
+} from './TimingGatewaySection';
 import { AssessmentItemType, AssessmentDetail, AssessmentCreate, AssessmentUpdate } from '@/types/assessment.types';
 import { Question } from '@/types/question.types';
 import { ERDiagramQuestionListItem } from '@/types/er-diagram.types';
@@ -176,6 +183,13 @@ export function AssessmentForm({ mode, initial }: Props) {
   });
   const [saving, setSaving] = useState(false);
 
+  // Timing Gateway — buffered locally (like the content pool) and flushed on Save, so it
+  // can be configured before the assessment exists (create mode has no id yet).
+  const [gatewayEnabled, setGatewayEnabled] = useState(false);
+  const [gatewayRows, setGatewayRows] = useState<WindowRow[]>([]);
+  const [classGroups, setClassGroups] = useState<string[]>([]);
+  const [gatewayLoading, setGatewayLoading] = useState(true);
+
   // Pool data
   const [sqlQuestions, setSqlQuestions] = useState<Question[]>([]);
   const [erQuestions, setErQuestions] = useState<ERDiagramQuestionListItem[]>([]);
@@ -222,6 +236,50 @@ export function AssessmentForm({ mode, initial }: Props) {
     load();
     return () => { cancelled = true; };
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Load timing-gateway config + selectable class groups
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setGatewayLoading(true);
+        if (mode === 'edit' && initial?.id != null) {
+          const [config, groups] = await Promise.all([
+            assessmentService.getGatewayConfig(initial.id),
+            assessmentService.getClassGroups(initial.id),
+          ]);
+          if (cancelled) return;
+          setGatewayEnabled(config.gateway_enabled);
+          setClassGroups(groups);
+          setGatewayRows(
+            config.windows.map((w) => ({
+              key: nextRowKey(),
+              class_group: w.class_group,
+              startInput: isoToSgtInput(w.start_at),
+              endInput: isoToSgtInput(w.end_at),
+              is_enabled: w.is_enabled,
+              status: w.status,
+              active_session_count: w.active_session_count,
+            }))
+          );
+        } else {
+          // Create mode: no assessment id yet — start empty, list groups id-lessly.
+          const groups = await assessmentService.getAllClassGroups();
+          if (cancelled) return;
+          setClassGroups(groups);
+        }
+      } catch {
+        // Non-fatal: the section still works, staff can type group names manually.
+      } finally {
+        if (!cancelled) setGatewayLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [mode, initial?.id]);
 
   // ---------------------------------------------------------------------------
   // Add / Remove
@@ -307,6 +365,18 @@ export function AssessmentForm({ mode, initial }: Props) {
       return;
     }
 
+    if (gatewayHasErrors(gatewayEnabled, gatewayRows)) {
+      notifications.show({
+        title: 'Validation',
+        message:
+          gatewayRows.length === 0
+            ? 'Add at least one class-group window to the Timing Gateway, or turn it off.'
+            : 'Fix the highlighted Timing Gateway windows, or turn the gateway off.',
+        color: 'orange',
+      });
+      return;
+    }
+
     const items = selectedItems.map((item, idx) => ({
       item_type: item.item_type,
       item_id: item.item_id,
@@ -318,6 +388,9 @@ export function AssessmentForm({ mode, initial }: Props) {
 
     setSaving(true);
     try {
+      // Persist the assessment first to obtain its id, then flush the buffered gateway
+      // config against that id (in edit mode the id already exists).
+      let assessmentId: number;
       if (mode === 'create') {
         const payload: AssessmentCreate = {
           title: title.trim(),
@@ -326,7 +399,8 @@ export function AssessmentForm({ mode, initial }: Props) {
           password: password.trim() || undefined,
           time_limit_minutes: timeLimit === '' ? null : timeLimit,
         };
-        await assessmentService.createAssessment(payload);
+        const created = await assessmentService.createAssessment(payload);
+        assessmentId = created.id;
         notifications.show({ title: 'Success', message: 'Assessment created', color: 'green' });
       } else {
         const payload: AssessmentUpdate = {
@@ -339,8 +413,26 @@ export function AssessmentForm({ mode, initial }: Props) {
           clear_time_limit: timeLimit === '',
         };
         await assessmentService.updateAssessment(initial!.id, payload);
+        assessmentId = initial!.id;
         notifications.show({ title: 'Success', message: 'Assessment saved', color: 'green' });
       }
+
+      // Flush the Timing Gateway. Skip the extra request only when there is nothing to
+      // persist on create (disabled + no windows); always sync on edit so toggling off sticks.
+      if (mode === 'edit' || gatewayEnabled || gatewayRows.length > 0) {
+        const res = await assessmentService.updateGatewayConfig(assessmentId, {
+          gateway_enabled: gatewayEnabled,
+          windows: buildGatewayWindows(gatewayRows),
+        });
+        if (res.warnings.length) {
+          notifications.show({
+            title: 'Timing gateway',
+            message: res.warnings.join(' '),
+            color: 'yellow',
+          });
+        }
+      }
+
       router.push('/admin/assessments');
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
@@ -443,15 +535,16 @@ export function AssessmentForm({ mode, initial }: Props) {
         </Stack>
       </Paper>
 
-      {/* Timing Gateway — per-class-group access windows. Keyed by assessment id, so it is
-          only available once the assessment exists (edit mode). */}
-      {mode === 'edit' && initial?.id != null ? (
-        <TimingGatewaySection assessmentId={initial.id} />
-      ) : (
-        <Alert icon={<IconAlertCircle size={14} />} color="gray" variant="light">
-          Save the assessment first to configure the Timing Gateway (per-class-group access windows).
-        </Alert>
-      )}
+      {/* Timing Gateway — per-class-group access windows. Buffered in local state and
+          persisted with the main Save, so it can be configured before the assessment exists. */}
+      <TimingGatewaySection
+        enabled={gatewayEnabled}
+        onEnabledChange={setGatewayEnabled}
+        rows={gatewayRows}
+        onRowsChange={setGatewayRows}
+        classGroups={classGroups}
+        loading={gatewayLoading}
+      />
 
       {/* Content selector */}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">

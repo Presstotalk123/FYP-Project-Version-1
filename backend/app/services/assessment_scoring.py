@@ -20,9 +20,13 @@ from sqlalchemy.orm import Session
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_item_visit import AssessmentItemVisit
+from app.models.assessment_session import AssessmentSession
 from app.models.attempt import Attempt
+from app.models.er_diagram_question import ERDiagramQuestion
+from app.models.lab import Lab
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
+from app.models.question import Question
 from app.services.erd_tutor import persistence as erd_persistence
 
 
@@ -154,3 +158,49 @@ def compute_weighted_score(db: Session, assessment: Assessment, student_id: int)
         return None
     earned = sum(i.weight * item_score_fraction(db, i, student_id) for i in items)
     return round(earned / total_weight * 100, 1)
+
+
+def roster_user_ids(db: Session, assessment_id: int) -> list[int]:
+    """Distinct user ids of everyone who has a session on this assessment.
+
+    The whole cohort for cohort-average purposes — mirrors the endpoint's
+    `_student_roster` but returns ids only (one row per user is implicit in the
+    distinct set, so the "latest session per user" collapse isn't needed here).
+    """
+    rows = (
+        db.query(AssessmentSession.user_id)
+        .filter(AssessmentSession.assessment_id == assessment_id)
+        .distinct()
+        .all()
+    )
+    return [uid for (uid,) in rows]
+
+
+def cohort_average(db: Session, assessment: Assessment) -> Optional[float]:
+    """Mean weighted score (0-100) across everyone who took the assessment.
+
+    Algebraically identical to item-analytics' `avg_weighted_score`. Returns None
+    when the assessment is unweighted or no student has a scorable weighted total.
+    """
+    scores = [
+        s
+        for uid in roster_user_ids(db, assessment.id)
+        if (s := compute_weighted_score(db, assessment, uid)) is not None
+    ]
+    if not scores:
+        return None
+    return round(sum(scores) / len(scores), 1)
+
+
+def resolve_item_title(db: Session, item: AssessmentItem) -> str:
+    """Display title for a polymorphic assessment item (SQL/ER question or lab)."""
+    if item.item_type == "sql_question":
+        row = db.query(Question.title).filter(Question.id == item.item_id).first()
+        return row[0] if row else f"Question #{item.item_id}"
+    if item.item_type == "er_question":
+        row = db.query(ERDiagramQuestion.title).filter(ERDiagramQuestion.id == item.item_id).first()
+        return row[0] if row else f"ER Question #{item.item_id}"
+    if item.item_type in ("sql_lab", "graph_lab"):
+        row = db.query(Lab.title).filter(Lab.id == item.item_id, Lab.is_deleted == 0).first()
+        return row[0] if row else f"Lab #{item.item_id}"
+    return f"Item #{item.item_id}"

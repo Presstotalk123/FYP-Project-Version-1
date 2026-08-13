@@ -31,6 +31,10 @@ export const queryKeys = {
   courseInfo: ['courseInfo'] as const,
   studentLabs: ['studentLabs'] as const,
   studentAssessments: ['studentAssessments'] as const,
+  // Practice-completion counts for the student Report page.
+  studentReportSummary: ['studentReportSummary'] as const,
+  // Staff per-student full report (practice + per-assessment scores), keyed by student.
+  studentFullReport: (studentId: number) => ['studentFullReport', studentId] as const,
   // Dashboard tiles: lightweight {total, attempted} counts (backend-cached totals).
   studentQuestionCount: ['studentQuestionCount'] as const,
   studentErdCount: ['studentErdCount'] as const,

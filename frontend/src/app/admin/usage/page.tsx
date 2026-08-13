@@ -15,10 +15,11 @@ import {
   ActionIcon,
   Button,
 } from '@mantine/core';
-import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock } from '@tabler/icons-react';
+import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock, IconReportAnalytics } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { PlatformUsageTable } from '@/components/common/PlatformUsageTable';
+import { StudentReportDrawer } from '@/components/admin/StudentReportDrawer';
 import { UserRole } from '@/types/user.types';
 import { loginActivityService } from '@/services/loginActivity.service';
 import { queryKeys } from '@/services/query-keys';
@@ -34,6 +35,8 @@ export default function StudentUsagePage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
   const [selected, setSelected] = useState<{ id: number; name: string } | null>(null);
+  // Drives the per-student report drawer (practice + assessment scores).
+  const [reportStudent, setReportStudent] = useState<{ id: number; name: string } | null>(null);
 
   const goPrev = () => {
     setSelected(null);
@@ -123,20 +126,31 @@ export default function StudentUsagePage() {
                         <Text fw={700} size="sm">{formatDuration(r.all_time_seconds)}</Text>
                       </Table.Td>
                       <Table.Td ta="right">
-                        <Button
-                          size="compact-sm"
-                          variant={selected?.id === r.student_id ? 'filled' : 'light'}
-                          leftSection={<IconClock size={14} />}
-                          onClick={() =>
-                            setSelected(
-                              selected?.id === r.student_id
-                                ? null
-                                : { id: r.student_id, name: r.name || r.email },
-                            )
-                          }
-                        >
-                          {selected?.id === r.student_id ? 'Hide' : 'Daily'}
-                        </Button>
+                        <Group gap="xs" justify="flex-end" wrap="nowrap">
+                          <Button
+                            size="compact-sm"
+                            variant={selected?.id === r.student_id ? 'filled' : 'light'}
+                            leftSection={<IconClock size={14} />}
+                            onClick={() =>
+                              setSelected(
+                                selected?.id === r.student_id
+                                  ? null
+                                  : { id: r.student_id, name: r.name || r.email },
+                              )
+                            }
+                          >
+                            {selected?.id === r.student_id ? 'Hide' : 'Daily'}
+                          </Button>
+                          <Button
+                            size="compact-sm"
+                            variant="light"
+                            color="teal"
+                            leftSection={<IconReportAnalytics size={14} />}
+                            onClick={() => setReportStudent({ id: r.student_id, name: r.name || r.email })}
+                          >
+                            Report
+                          </Button>
+                        </Group>
                       </Table.Td>
                     </Table.Tr>
                   ))}
@@ -172,6 +186,8 @@ export default function StudentUsagePage() {
             </Card>
           )}
         </Stack>
+
+        <StudentReportDrawer student={reportStudent} onClose={() => setReportStudent(null)} />
       </DashboardLayout>
     </ProtectedRoute>
   );

@@ -37,6 +37,7 @@ export function HeaderNav() {
     { label: "Questions", href: "/student", exact: true },
     { label: "SQL Labs", href: "/student/labs" },
     { label: "Assessments", href: "/student/assessments" },
+    { label: "Report", href: "/student/report" },
   ];
   
   const unauthLinks = [

@@ -136,6 +136,10 @@ export const API_ENDPOINTS = {
     CLASS_GROUPS: (id: number) => `/assessments/${id}/class-groups`,
     CLASS_GROUPS_ALL: '/assessments/class-groups',
   },
+  STUDENT_REPORT: {
+    SUMMARY: '/student-report/summary',
+    FOR_STUDENT: (studentId: number) => `/student-report/students/${studentId}`,
+  },
   STUDENT_ASSESSMENTS: {
     BASE: '/student-assessments',
     DETAIL: (id: number) => `/student-assessments/${id}`,

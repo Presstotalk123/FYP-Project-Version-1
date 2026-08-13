@@ -36,6 +36,7 @@ from app.models.erd_prompt_version import ErdPromptVersion
 from app.models.course_info import CourseInfo
 from app.models.login_activity import LoginActivity
 from app.models.platform_session import PlatformSession
+from app.models.assessment_analytics import AssessmentAnalytics
 from app.core.cache import CacheVersion  # register cache_versions on Base
 
 def create_tables():

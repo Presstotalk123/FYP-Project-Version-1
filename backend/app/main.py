@@ -26,6 +26,7 @@ from app.models.app_setting import AppSetting
 from app.models.course_info import CourseInfo
 from app.models.login_activity import LoginActivity
 from app.models.platform_session import PlatformSession
+from app.models.assessment_analytics import AssessmentAnalytics
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it
 # correctly as a partial index (WHERE is_active = 1). This fixes SQLite ignoring

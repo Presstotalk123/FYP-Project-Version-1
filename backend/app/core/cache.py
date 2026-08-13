@@ -67,6 +67,8 @@ class Ns:
     ER_ANALYTICS = "er_analytics"
     SQL_ANALYTICS = "sql_analytics"
     LAB_ANALYTICS = "lab_analytics"
+    # Materialized cohort/class-group assessment averages (compute-once, shared store).
+    ASSESSMENT_ANALYTICS = "assessment_analytics"
     COURSE_INFO = "course_info"
     WHITELIST = "whitelist"
 
@@ -82,6 +84,7 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.ER_ANALYTICS,
     Ns.SQL_ANALYTICS,
     Ns.LAB_ANALYTICS,
+    Ns.ASSESSMENT_ANALYTICS,
     Ns.COURSE_INFO,
     Ns.WHITELIST,
 )
@@ -246,8 +249,10 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.er_diagram_question import ERDiagramQuestion
     from app.models.er_submission import ErSubmission
     from app.models.erd_tutor_message import ErdTutorMessage
+    from app.models.erd_tutor_conversation import ErdTutorConversation
     from app.models.assessment import Assessment
     from app.models.assessment_item import AssessmentItem
+    from app.models.assessment_session import AssessmentSession
     from app.models.user import User
     from app.models.course_info import CourseInfo
     from app.models.attempt import Attempt
@@ -281,6 +286,13 @@ def _model_namespaces(obj: Any) -> set[str]:
     if isinstance(obj, (LabAttempt, LabTaskSubmission, QueryReview,
                         TutorChatConversation, TutorChatMessage, User)):
         namespaces.add(Ns.LAB_ANALYTICS)
+    # Materialized assessment averages aggregate SQL attempts, lab task submissions,
+    # ER grades (stored on the tutor conversation), the session roster and user class
+    # groups. (Assessment / AssessmentItem changes are handled in their own branches
+    # below so they keep invalidating the assessment list/body too.)
+    if isinstance(obj, (Attempt, LabTaskSubmission, ErdTutorConversation,
+                        AssessmentSession, User)):
+        namespaces.add(Ns.ASSESSMENT_ANALYTICS)
     if namespaces:
         return namespaces
     if isinstance(obj, CourseInfo):
@@ -293,9 +305,9 @@ def _model_namespaces(obj: Any) -> set[str]:
     if isinstance(obj, ERDiagramQuestion):
         return {Ns.ER_QUESTIONS}
     if isinstance(obj, Assessment):
-        return {Ns.ASSESSMENTS, assessment_body_ns(obj.id)}
+        return {Ns.ASSESSMENTS, assessment_body_ns(obj.id), Ns.ASSESSMENT_ANALYTICS}
     if isinstance(obj, AssessmentItem):
-        return {Ns.ASSESSMENTS, assessment_body_ns(obj.assessment_id)}
+        return {Ns.ASSESSMENTS, assessment_body_ns(obj.assessment_id), Ns.ASSESSMENT_ANALYTICS}
     return set()
 
 

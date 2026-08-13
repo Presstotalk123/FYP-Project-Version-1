@@ -15,6 +15,7 @@ Does not commit; the caller owns the transaction.
 """
 from sqlalchemy.orm import Session
 
+from app.core.cache import Ns, bump_version
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
@@ -134,5 +135,10 @@ def reset_student_attempt(db: Session, assessment: Assessment, student_id: int) 
             AssessmentSession.id.in_(session_ids)
         ).delete(synchronize_session=False)
         summary["sessions"] = len(session_ids)
+
+    # All the deletes above are bulk delete()s that bypass the ORM unit of work, so the
+    # after_flush auto-invalidation won't fire — bump the analytics namespace explicitly
+    # (the caller commits this in the same transaction).
+    bump_version(db, Ns.ASSESSMENT_ANALYTICS)
 
     return summary

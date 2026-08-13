@@ -11,6 +11,7 @@ from app.models.lab_task_submission import LabTaskSubmission
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_class_window import AssessmentClassWindow
+from app.models.assessment_analytics import AssessmentAnalytics
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
 from app.models.erd_prompt_version import ErdPromptVersion

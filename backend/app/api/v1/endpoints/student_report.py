@@ -111,7 +111,11 @@ def _assessment_block(
         )
 
     total = assessment_scoring.compute_weighted_score(db, assessment, student_id)
-    cohort = assessment_scoring.cohort_average(db, assessment)
+    # Cohort comparison reads the shared, cached cohort analytics (compute-once) rather
+    # than recomputing every student's weighted total for each block.
+    cohort_analytics = assessment_scoring.get_or_compute_analytics(db, assessment)
+    cohort_scores = [s for s in cohort_analytics.per_student_scores.values() if s is not None]
+    cohort = round(sum(cohort_scores) / len(cohort_scores), 1) if cohort_scores else None
     above = (total > cohort) if (total is not None and cohort is not None) else None
 
     return StudentReportAssessmentBlock(
@@ -121,7 +125,7 @@ def _assessment_block(
         total_weighted_score=total,
         cohort_average=cohort,
         above_average=above,
-        student_count=len(assessment_scoring.roster_user_ids(db, assessment.id)),
+        student_count=cohort_analytics.student_count,
         items=component_scores,
     )
 

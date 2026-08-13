@@ -13,7 +13,6 @@ from app.models.whitelist import WhitelistEntry
 from app.models.question import Question
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.lab import Lab
-from app.models.lab_task import LabTask
 from app.schemas.assessment import (
     AssessmentCreate,
     AssessmentUpdate,
@@ -24,9 +23,7 @@ from app.schemas.assessment import (
     AssessmentStudentRow,
     StudentComponentScoresResponse,
     AssessmentItemComponentScore,
-    AssessmentItemAggregateScore,
     AssessmentItemAnalyticsResponse,
-    LabTaskAggregateScore,
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
@@ -521,6 +518,9 @@ def stop_assessment(
         {"is_active": 0, "attempt_complete": 1, "submitted_at": datetime.utcnow()},
         synchronize_session=False,
     )
+    # Bulk update() bypasses the ORM unit of work, so the after_flush auto-invalidation
+    # won't see the roster change — bump the analytics namespace explicitly.
+    bump_version(db, Ns.ASSESSMENT_ANALYTICS)
     db.commit()
     db.refresh(assessment)
 
@@ -760,6 +760,11 @@ def list_assessment_students(
     assessment = _get_staff_assessment(assessment_id, db)
 
     roster = _student_roster(db, assessment_id)
+    # Read every student's weighted total from the shared, cached cohort analytics
+    # instead of recomputing per student (was O(students × items) queries).
+    scores = assessment_scoring.get_or_compute_analytics(
+        db, assessment, class_group=None
+    ).per_student_scores
     students = [
         AssessmentStudentRow(
             user_id=session.user_id,
@@ -768,7 +773,7 @@ def list_assessment_students(
             is_active=bool(session.is_active),
             joined_at=session.joined_at,
             submitted_at=session.submitted_at,
-            weighted_score=assessment_scoring.compute_weighted_score(db, assessment, session.user_id),
+            weighted_score=scores.get(session.user_id),
         )
         for session, email, class_group in roster
     ]
@@ -788,108 +793,21 @@ def get_assessment_item_analytics(
     current_user: User = Depends(require_staff_role),
 ):
     """Per-question average score (and, for labs, average tasks completed) across a
-    roster of students — the whole cohort, or a single class_group when provided."""
+    roster of students — the whole cohort, or a single class_group when provided.
+
+    Reads the shared, cached analytics (compute-once, materialized in
+    assessment_analytics) instead of the per-(student × item) query fan-out."""
     assessment = _get_staff_assessment(assessment_id, db)
 
-    roster = _student_roster(db, assessment_id, class_group)
-    session_id_by_user = {session.user_id: session.id for session, _, _ in roster}
-    student_ids = list(session_id_by_user.keys())
-
-    items = (
-        db.query(AssessmentItem)
-        .filter(AssessmentItem.assessment_id == assessment_id)
-        .order_by(AssessmentItem.order_index)
-        .all()
-    )
-
-    item_rows: List[AssessmentItemAggregateScore] = []
-    total_weight = 0
-    weighted_avg_earned = 0.0
-
-    for item in items:
-        title = _resolve_item_title(item, db)
-
-        # Lab items only: task metadata (title/order) and a per-task correct tally,
-        # built from the same per-student loop below — no extra queries.
-        lab_tasks: List[LabTask] = []
-        task_correct_counts: dict = {}
-        if item.item_type in ("sql_lab", "graph_lab"):
-            lab_tasks = (
-                db.query(LabTask)
-                .filter(LabTask.lab_id == item.item_id, LabTask.is_deleted == 0)
-                .order_by(LabTask.order_index)
-                .all()
-            )
-
-        fractions: List[float] = []
-        tasks_correct_values: List[int] = []
-        tasks_total: Optional[int] = None
-
-        for uid in student_ids:
-            detail = assessment_scoring.item_score_detail(
-                db, item, uid, session_id=session_id_by_user.get(uid)
-            )
-            fractions.append(detail.fraction)
-            if detail.tasks_total is not None:
-                tasks_total = detail.tasks_total
-                tasks_correct_values.append(detail.tasks_correct or 0)
-                for task_id in (detail.correct_task_ids or ()):
-                    task_correct_counts[task_id] = task_correct_counts.get(task_id, 0) + 1
-
-        avg_fraction = round(sum(fractions) / len(fractions), 4) if fractions else None
-        avg_tasks_correct = (
-            round(sum(tasks_correct_values) / len(tasks_correct_values), 2)
-            if tasks_correct_values else None
-        )
-        avg_weighted_points = (
-            round(item.weight * avg_fraction, 2) if avg_fraction is not None else None
-        )
-
-        task_rows: Optional[List[LabTaskAggregateScore]] = None
-        if lab_tasks:
-            task_rows = [
-                LabTaskAggregateScore(
-                    task_id=task.id,
-                    task_title=task.title,
-                    order_index=task.order_index,
-                    success_rate=(
-                        round(task_correct_counts.get(task.id, 0) / len(student_ids) * 100, 1)
-                        if student_ids else None
-                    ),
-                )
-                for task in lab_tasks
-            ]
-
-        item_rows.append(AssessmentItemAggregateScore(
-            assessment_item_id=item.id,
-            item_type=item.item_type,
-            item_id=item.item_id,
-            item_title=title,
-            order_index=item.order_index,
-            weight=item.weight,
-            avg_score_fraction=avg_fraction,
-            avg_weighted_points=avg_weighted_points,
-            avg_tasks_correct=avg_tasks_correct,
-            tasks_total=tasks_total,
-            tasks=task_rows,
-        ))
-
-        total_weight += item.weight
-        weighted_avg_earned += item.weight * (avg_fraction or 0.0)
-
-    avg_weighted_score = (
-        round(weighted_avg_earned / total_weight * 100, 1)
-        if total_weight > 0 and student_ids
-        else None
-    )
+    analytics = assessment_scoring.get_or_compute_analytics(db, assessment, class_group)
 
     return AssessmentItemAnalyticsResponse(
         assessment_id=assessment.id,
         assessment_title=assessment.title,
         class_group=class_group,
-        student_count=len(student_ids),
-        avg_weighted_score=avg_weighted_score,
-        items=item_rows,
+        student_count=analytics.student_count,
+        avg_weighted_score=analytics.avg_weighted_score,
+        items=analytics.items,
     )
 
 

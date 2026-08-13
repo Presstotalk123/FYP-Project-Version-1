@@ -14,6 +14,30 @@ def find_conversation(db: Session, *, user_id: int, context_type: str = "standal
         .first()
     )
 
+def find_last_submit_scores_bulk(db: Session, *, user_ids, er_diagram_question_ids):
+    """Batch counterpart of ``find_conversation`` for roster analytics.
+
+    Returns ``{(user_id, er_diagram_question_id): last_submit_score_json_or_None}`` for
+    every conversation matching the given users × ER questions, in ONE query — replacing
+    the per-(student, question) ``find_conversation`` fan-out. Only the raw
+    ``last_submit_score`` string is loaded (percent parsing stays in the scorer).
+    """
+    if not user_ids or not er_diagram_question_ids:
+        return {}
+    rows = (
+        db.query(
+            ErdTutorConversation.user_id,
+            ErdTutorConversation.er_diagram_question_id,
+            ErdTutorConversation.last_submit_score,
+        )
+        .filter(
+            ErdTutorConversation.user_id.in_(list(user_ids)),
+            ErdTutorConversation.er_diagram_question_id.in_(list(er_diagram_question_ids)),
+        )
+        .all()
+    )
+    return {(uid, qid): score for uid, qid, score in rows}
+
 def get_or_create_conversation(db: Session, *, user_id: int, context_type: str = "standalone",
                                er_diagram_question_id: Optional[int] = None) -> ErdTutorConversation:
     conv = find_conversation(db, user_id=user_id, context_type=context_type,

@@ -64,13 +64,20 @@ def compute_grade(judge_result: dict, rubric: dict, prev: dict) -> dict:
             status = fallback if fallback in {"pass", "fail", "not_applicable"} else "fail"
             reason = (f"{reason} [Grader returned partial, which this check does not "
                       f"allow; resolved to {status}.]").strip()
+        check = {"id": cid, "dimension": rc.get("dimension", jc.get("dimension", "")),
+                 "requirement_level": level, "points": points,
+                 "status": status, "brief_reason": reason}
         if level in {"must", "should"} and status != "not_applicable":
+            earned = points if status == "pass" else 0.5 * points if status == "partial" else 0.0
             total_points += points
-            if status == "pass": earned_points += points
-            elif status == "partial": earned_points += 0.5 * points
-        final_checks.append({"id": cid, "dimension": rc.get("dimension", jc.get("dimension", "")),
-                             "requirement_level": level, "points": points,
-                             "status": status, "brief_reason": reason})
+            earned_points += earned
+            # Record what the check earned, not just its maximum. `points` is the
+            # ceiling; staff analytics show the award per row, and while this was
+            # only accumulated into the total, every AI-graded check rendered as 0
+            # against a correct overall score. Carried on scoring checks only, so
+            # the shape matches er_score_override.score_from_awards.
+            check["earned_points"] = earned
+        final_checks.append(check)
 
     percent = round(100 * earned_points / total_points) if total_points > 0 else 0
     failed_must = [{"check_id": c["id"], "dimension": c["dimension"], "summary": c["brief_reason"]}

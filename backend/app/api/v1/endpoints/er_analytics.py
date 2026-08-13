@@ -27,6 +27,7 @@ from app.services.er_score_override import (
     is_latest_attempt,
     apply_override,
     revert_override,
+    with_earned_points,
 )
 
 router = APIRouter(prefix="/er-diagram", tags=["er-analytics"])
@@ -111,16 +112,20 @@ def _override_view(db: Session, row: ErSubmission) -> Optional[dict]:
     }
 
 
-def _with_criteria(db: Session, row: ErSubmission, checks: list[dict]) -> list[dict]:
-    """Attach each check's pass_criteria from the question's rubric.
+def _enriched_checks(db: Session, row: ErSubmission, checks: list[dict]) -> list[dict]:
+    """Prepare stored checks for the staff view: pass_criteria, and what was awarded.
 
     A stored check keeps only what grading needed — id, points, status, reason —
-    so on its own it cannot tell staff what "A1" was actually testing. Joined
-    here rather than persisted per submission because the criteria text is the
-    same for every attempt at a question.
+    so on its own it cannot tell staff what "A1" was actually testing. Criteria are
+    joined here rather than persisted per submission because the text is the same
+    for every attempt at a question.
 
     A rubric edited since the attempt may no longer describe some check; those
     simply come back without criteria rather than with the wrong ones.
+
+    `earned_points` is filled in for attempts graded before compute_grade recorded
+    it — see er_score_override.with_earned_points, which also guarantees a staff
+    correction is never recomputed from its status.
     """
     rubric = (
         db.query(ERDiagramQuestion.rubric_json)
@@ -137,7 +142,8 @@ def _with_criteria(db: Session, row: ErSubmission, checks: list[dict]) -> list[d
         for c in ((rubric or {}).get("checks") or [])
         if isinstance(c, dict)
     }
-    return [{**c, "pass_criteria": criteria.get(str(c.get("id", "")).strip(), "")}
+    return [{**with_earned_points(c),
+             "pass_criteria": criteria.get(str(c.get("id", "")).strip(), "")}
             for c in checks]
 
 
@@ -157,7 +163,7 @@ def get_submission_detail(
         "score_total": row.score_total,
         "score_percent": row.score_percent,
         "score_label": row.score_label,
-        "checks": _with_criteria(db, row, json.loads(row.checks_json) if row.checks_json else []),
+        "checks": _enriched_checks(db, row, json.loads(row.checks_json) if row.checks_json else []),
         "submission_description": row.submission_description,
         "submitted_xml": row.submitted_xml,
         "has_image": bool(row.submitted_image_storage_key),
@@ -201,7 +207,7 @@ def override_submission_score(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return {
         "score": result["grade"]["score"],
-        "checks": _with_criteria(db, row, result["grade"]["checks"]),
+        "checks": _enriched_checks(db, row, result["grade"]["checks"]),
         "assessment_mark_updated": result["assessment_mark_updated"],
         "override": _override_view(db, row),
     }
@@ -221,7 +227,7 @@ def revert_submission_score(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return {
         "score": result["grade"].get("score", {}),
-        "checks": _with_criteria(db, row, result["grade"].get("checks", [])),
+        "checks": _enriched_checks(db, row, result["grade"].get("checks", [])),
         "assessment_mark_updated": result["assessment_mark_updated"],
         "override": None,
     }

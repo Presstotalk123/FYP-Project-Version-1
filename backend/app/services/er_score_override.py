@@ -144,6 +144,23 @@ def _earned_from_status(check: dict) -> float:
     return 0.0
 
 
+def with_earned_points(check: dict) -> dict:
+    """`check` guaranteed to carry `earned_points`, derived when it is absent.
+
+    Attempts graded before compute_grade recorded the award keep only `points`
+    (the check's maximum) and `status`, which made the staff "Awarded" column read
+    0 for every AI-graded check while the overall score was right. Filling on read
+    fixes those without a migration.
+
+    An existing value is never recomputed: a staff correction can award a figure
+    no status can express (13 of 18), and deriving over the top would undo it.
+    Non-scoring checks are left alone, matching what both graders emit.
+    """
+    if "earned_points" in check or not _scores(check):
+        return check
+    return {**check, "earned_points": _earned_from_status(check)}
+
+
 def _status_from_earned(earned: float, points: float) -> str:
     """Everything between none and all is `partial`, which is the only status the
     rest of the system understands — the exact figure lives in the points."""

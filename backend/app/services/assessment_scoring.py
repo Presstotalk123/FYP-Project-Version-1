@@ -12,6 +12,7 @@ even if the stored weights don't sum to exactly 100. Returns None when the asses
 no weightage at all (legacy/unweighted), so callers can show "N/A" instead of a false 0.
 """
 import json
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlalchemy import func, case
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
+from app.models.assessment_item_visit import AssessmentItemVisit
 from app.models.attempt import Attempt
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
@@ -49,19 +51,42 @@ def er_percent(db: Session, question_id: int, student_id: int) -> Optional[float
         return None
 
 
-def item_score_fraction(db: Session, item: AssessmentItem, student_id: int) -> float:
-    """Correctness fraction (0.0-1.0) for a single assessment item."""
+@dataclass
+class ItemScoreDetail:
+    """Per-student, per-item scoring detail: the correctness fraction plus the raw
+    per-type fields needed to render an activity breakdown (attempt counts, lab task
+    counts, ER visit status)."""
+    fraction: float
+    has_correct_attempt: Optional[bool] = None
+    attempt_count: Optional[int] = None
+    visited: Optional[bool] = None
+    tasks_correct: Optional[int] = None
+    tasks_total: Optional[int] = None
+
+
+def item_score_detail(
+    db: Session,
+    item: AssessmentItem,
+    student_id: int,
+    session_id: Optional[int] = None,
+) -> ItemScoreDetail:
+    """Correctness fraction (0.0-1.0) and raw activity detail for a single assessment item.
+
+    `session_id` (the student's AssessmentSession.id) is only used for the er_question
+    "visited" flag; pass None when that detail isn't needed.
+    """
     if item.item_type == "sql_question":
-        has_correct = (
-            db.query(Attempt.id)
-            .filter(
-                Attempt.user_id == student_id,
-                Attempt.question_id == item.item_id,
-                Attempt.is_correct == 1,
-            )
-            .first()
-        ) is not None
-        return 1.0 if has_correct else 0.0
+        attempts = (
+            db.query(Attempt)
+            .filter(Attempt.user_id == student_id, Attempt.question_id == item.item_id)
+            .all()
+        )
+        has_correct = any(bool(a.is_correct) for a in attempts)
+        return ItemScoreDetail(
+            fraction=1.0 if has_correct else 0.0,
+            has_correct_attempt=has_correct,
+            attempt_count=len(attempts),
+        )
 
     if item.item_type in ("sql_lab", "graph_lab"):
         total_tasks = (
@@ -69,8 +94,6 @@ def item_score_fraction(db: Session, item: AssessmentItem, student_id: int) -> f
             .filter(LabTask.lab_id == item.item_id, LabTask.is_deleted == 0)
             .count()
         )
-        if total_tasks == 0:
-            return 0.0
         correct_tasks = (
             db.query(
                 func.count(func.distinct(
@@ -83,13 +106,36 @@ def item_score_fraction(db: Session, item: AssessmentItem, student_id: int) -> f
             )
             .scalar()
         ) or 0
-        return min(1.0, correct_tasks / total_tasks)
+        fraction = min(1.0, correct_tasks / total_tasks) if total_tasks > 0 else 0.0
+        return ItemScoreDetail(
+            fraction=fraction,
+            tasks_correct=correct_tasks,
+            tasks_total=total_tasks,
+        )
 
     if item.item_type == "er_question":
+        visited = False
+        if session_id is not None:
+            visited = (
+                db.query(AssessmentItemVisit)
+                .filter(
+                    AssessmentItemVisit.session_id == session_id,
+                    AssessmentItemVisit.assessment_item_id == item.id,
+                )
+                .first()
+            ) is not None
         pct = er_percent(db, item.item_id, student_id)
-        return (pct / 100.0) if pct is not None else 0.0
+        return ItemScoreDetail(
+            fraction=(pct / 100.0) if pct is not None else 0.0,
+            visited=visited,
+        )
 
-    return 0.0
+    return ItemScoreDetail(fraction=0.0)
+
+
+def item_score_fraction(db: Session, item: AssessmentItem, student_id: int) -> float:
+    """Correctness fraction (0.0-1.0) for a single assessment item."""
+    return item_score_detail(db, item, student_id).fraction
 
 
 def compute_weighted_score(db: Session, assessment: Assessment, student_id: int) -> Optional[float]:

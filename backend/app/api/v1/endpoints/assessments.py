@@ -8,15 +8,11 @@ from app.models.user import User
 from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
-from app.models.assessment_item_visit import AssessmentItemVisit
 from app.models.assessment_class_window import AssessmentClassWindow
 from app.models.whitelist import WhitelistEntry
 from app.models.question import Question
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.lab import Lab
-from app.models.lab_task import LabTask
-from app.models.lab_task_submission import LabTaskSubmission
-from app.models.attempt import Attempt
 from app.schemas.assessment import (
     AssessmentCreate,
     AssessmentUpdate,
@@ -27,6 +23,8 @@ from app.schemas.assessment import (
     AssessmentStudentRow,
     StudentComponentScoresResponse,
     AssessmentItemComponentScore,
+    AssessmentItemAggregateScore,
+    AssessmentItemAnalyticsResponse,
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
@@ -727,33 +725,39 @@ def update_gateway_config(
 # Student activity (staff view)
 # ---------------------------------------------------------------------------
 
+def _student_roster(db: Session, assessment_id: int, class_group: Optional[str] = None):
+    """Most-recent AssessmentSession per student who has joined this assessment.
+
+    Returns a list of (session, email, class_group) tuples, optionally restricted to a
+    single class_group. Shared by the student list and the item-analytics aggregate so
+    both agree on exactly who counts as "the roster".
+    """
+    query = (
+        db.query(AssessmentSession, User.email, User.class_group)
+        .join(User, AssessmentSession.user_id == User.id)
+        .filter(AssessmentSession.assessment_id == assessment_id)
+    )
+    if class_group:
+        query = query.filter(User.class_group == class_group)
+    rows = query.order_by(AssessmentSession.joined_at.desc()).all()
+
+    # Keep only the most recent session per student (descending joined_at guarantees first seen = latest)
+    seen: dict = {}
+    for session, email, cg in rows:
+        if session.user_id not in seen:
+            seen[session.user_id] = (session, email, cg)
+    return list(seen.values())
+
+
 @router.get("/{assessment_id}/students", response_model=AssessmentStudentsResponse)
 def list_assessment_students(
     assessment_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff_role),
 ):
-    assessment = db.query(Assessment).filter(
-        Assessment.id == assessment_id,
-        Assessment.is_deleted == 0,
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+    assessment = _get_staff_assessment(assessment_id, db)
 
-    rows = (
-        db.query(AssessmentSession, User.email, User.class_group)
-        .join(User, AssessmentSession.user_id == User.id)
-        .filter(AssessmentSession.assessment_id == assessment_id)
-        .order_by(AssessmentSession.joined_at.desc())
-        .all()
-    )
-
-    # Keep only the most recent session per student (descending joined_at guarantees first seen = latest)
-    seen: dict = {}
-    for session, email, class_group in rows:
-        if session.user_id not in seen:
-            seen[session.user_id] = (session, email, class_group)
-
+    roster = _student_roster(db, assessment_id)
     students = [
         AssessmentStudentRow(
             user_id=session.user_id,
@@ -764,13 +768,96 @@ def list_assessment_students(
             submitted_at=session.submitted_at,
             weighted_score=assessment_scoring.compute_weighted_score(db, assessment, session.user_id),
         )
-        for session, email, class_group in seen.values()
+        for session, email, class_group in roster
     ]
 
     return AssessmentStudentsResponse(
         assessment_id=assessment.id,
         assessment_title=assessment.title,
         students=students,
+    )
+
+
+@router.get("/{assessment_id}/item-analytics", response_model=AssessmentItemAnalyticsResponse)
+def get_assessment_item_analytics(
+    assessment_id: int,
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Per-question average score (and, for labs, average tasks completed) across a
+    roster of students — the whole cohort, or a single class_group when provided."""
+    assessment = _get_staff_assessment(assessment_id, db)
+
+    roster = _student_roster(db, assessment_id, class_group)
+    session_id_by_user = {session.user_id: session.id for session, _, _ in roster}
+    student_ids = list(session_id_by_user.keys())
+
+    items = (
+        db.query(AssessmentItem)
+        .filter(AssessmentItem.assessment_id == assessment_id)
+        .order_by(AssessmentItem.order_index)
+        .all()
+    )
+
+    item_rows: List[AssessmentItemAggregateScore] = []
+    total_weight = 0
+    weighted_avg_earned = 0.0
+
+    for item in items:
+        title = _resolve_item_title(item, db)
+
+        fractions: List[float] = []
+        tasks_correct_values: List[int] = []
+        tasks_total: Optional[int] = None
+
+        for uid in student_ids:
+            detail = assessment_scoring.item_score_detail(
+                db, item, uid, session_id=session_id_by_user.get(uid)
+            )
+            fractions.append(detail.fraction)
+            if detail.tasks_total is not None:
+                tasks_total = detail.tasks_total
+                tasks_correct_values.append(detail.tasks_correct or 0)
+
+        avg_fraction = round(sum(fractions) / len(fractions), 4) if fractions else None
+        avg_tasks_correct = (
+            round(sum(tasks_correct_values) / len(tasks_correct_values), 2)
+            if tasks_correct_values else None
+        )
+        avg_weighted_points = (
+            round(item.weight * avg_fraction, 2) if avg_fraction is not None else None
+        )
+
+        item_rows.append(AssessmentItemAggregateScore(
+            assessment_item_id=item.id,
+            item_type=item.item_type,
+            item_id=item.item_id,
+            item_title=title,
+            order_index=item.order_index,
+            weight=item.weight,
+            avg_score_fraction=avg_fraction,
+            avg_weighted_points=avg_weighted_points,
+            avg_tasks_correct=avg_tasks_correct,
+            tasks_total=tasks_total,
+        ))
+
+        total_weight += item.weight
+        weighted_avg_earned += item.weight * (avg_fraction or 0.0)
+
+    avg_weighted_score = (
+        round(weighted_avg_earned / total_weight * 100, 1)
+        if total_weight > 0 and student_ids
+        else None
+    )
+
+    return AssessmentItemAnalyticsResponse(
+        assessment_id=assessment.id,
+        assessment_title=assessment.title,
+        class_group=class_group,
+        student_count=len(student_ids),
+        avg_weighted_score=avg_weighted_score,
+        items=item_rows,
     )
 
 
@@ -815,6 +902,10 @@ def get_student_component_scores(
 
     for item in items:
         title = _resolve_item_title(item, db)
+        detail = assessment_scoring.item_score_detail(
+            db, item, student_id, session_id=session.id if session else None
+        )
+
         score = AssessmentItemComponentScore(
             assessment_item_id=item.id,
             item_type=item.item_type,
@@ -822,64 +913,16 @@ def get_student_component_scores(
             item_title=title,
             order_index=item.order_index,
             weight=item.weight,
+            has_correct_attempt=detail.has_correct_attempt,
+            attempt_count=detail.attempt_count,
+            tasks_correct=detail.tasks_correct,
+            tasks_total=detail.tasks_total,
+            visited=detail.visited,
+            score_fraction=round(detail.fraction, 4),
+            weighted_points=round(item.weight * detail.fraction, 2),
         )
-
-        # Correctness fraction (0.0-1.0), reusing the per-type data below where possible.
-        fraction = 0.0
-
-        if item.item_type == "sql_question":
-            attempts = (
-                db.query(Attempt)
-                .filter(Attempt.user_id == student_id, Attempt.question_id == item.item_id)
-                .all()
-            )
-            score.attempt_count = len(attempts)
-            score.has_correct_attempt = any(bool(a.is_correct) for a in attempts)
-            fraction = 1.0 if score.has_correct_attempt else 0.0
-
-        elif item.item_type == "er_question":
-            visited = False
-            if session:
-                visited = (
-                    db.query(AssessmentItemVisit)
-                    .filter(
-                        AssessmentItemVisit.session_id == session.id,
-                        AssessmentItemVisit.assessment_item_id == item.id,
-                    )
-                    .first()
-                ) is not None
-            score.visited = visited
-            # ER grade comes from the LLM-graded ERD-tutor conversation (percent / 100).
-            pct = assessment_scoring.er_percent(db, item.item_id, student_id)
-            fraction = (pct / 100.0) if pct is not None else 0.0
-
-        elif item.item_type in ("sql_lab", "graph_lab"):
-            total_tasks = (
-                db.query(LabTask)
-                .filter(LabTask.lab_id == item.item_id, LabTask.is_deleted == 0)
-                .count()
-            )
-            from sqlalchemy import func, case
-            correct_count = (
-                db.query(
-                    func.count(func.distinct(
-                        case((LabTaskSubmission.is_correct == 1, LabTaskSubmission.task_id))
-                    ))
-                )
-                .filter(
-                    LabTaskSubmission.user_id == student_id,
-                    LabTaskSubmission.lab_id == item.item_id,
-                )
-                .scalar()
-            ) or 0
-            score.tasks_correct = correct_count
-            score.tasks_total = total_tasks
-            fraction = (correct_count / total_tasks) if total_tasks > 0 else 0.0
-
-        score.score_fraction = round(fraction, 4)
-        score.weighted_points = round(item.weight * fraction, 2)
         total_weight += item.weight
-        earned_weight += item.weight * fraction
+        earned_weight += item.weight * detail.fraction
 
         component_scores.append(score)
 

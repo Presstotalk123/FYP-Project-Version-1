@@ -7,6 +7,7 @@ import {
   AssessmentUpdate,
   AssessmentStudentsResponse,
   StudentComponentScoresResponse,
+  AssessmentItemAnalyticsResponse,
   GatewayConfigResponse,
   GatewayConfigUpdate,
 } from '@/types/assessment.types';
@@ -63,6 +64,13 @@ export const assessmentService = {
 
   async getStudentComponentScores(assessmentId: number, studentId: number): Promise<StudentComponentScoresResponse> {
     const response = await api.get(API_ENDPOINTS.ASSESSMENTS.STUDENT_SCORES(assessmentId, studentId));
+    return response.data;
+  },
+
+  async getAssessmentItemAnalytics(assessmentId: number, classGroup?: string | null): Promise<AssessmentItemAnalyticsResponse> {
+    const response = await api.get(API_ENDPOINTS.ASSESSMENTS.ITEM_ANALYTICS(assessmentId), {
+      params: classGroup ? { class_group: classGroup } : undefined,
+    });
     return response.data;
   },
 

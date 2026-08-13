@@ -211,3 +211,28 @@ export interface StudentComponentScoresResponse {
   items: AssessmentItemComponentScore[];
   total_weighted_score?: number | null;
 }
+
+export interface AssessmentItemAggregateScore {
+  assessment_item_id: number;
+  item_type: AssessmentItemType;
+  item_id: number;
+  item_title: string;
+  order_index: number;
+  weight?: number;
+  // Mean correctness fraction (0.0-1.0) across the roster; null if the roster is empty.
+  avg_score_fraction?: number | null;
+  avg_weighted_points?: number | null;
+  // Lab items only: mean distinct-correct-tasks per student, and the lab's total task count.
+  avg_tasks_correct?: number | null;
+  tasks_total?: number | null;
+}
+
+export interface AssessmentItemAnalyticsResponse {
+  assessment_id: number;
+  assessment_title: string;
+  // null when unfiltered (cohort-wide); set to the selected class_group otherwise.
+  class_group?: string | null;
+  student_count: number;
+  avg_weighted_score?: number | null;
+  items: AssessmentItemAggregateScore[];
+}

@@ -34,6 +34,7 @@ import {
   AssessmentStudentsResponse,
   AssessmentItemComponentScore,
   StudentComponentScoresResponse,
+  AssessmentItemAnalyticsResponse,
 } from '@/types/assessment.types';
 import { assessmentService } from '@/services/assessment.service';
 
@@ -48,6 +49,12 @@ export default function AssessmentStudentsPage() {
 
   // Lab-group (class_group) filter
   const [selectedClassGroup, setSelectedClassGroup] = useState<string | null>(null);
+
+  // Per-question averages, scoped to the current class-group filter (or the whole
+  // cohort when unfiltered).
+  const [itemAnalytics, setItemAnalytics] = useState<AssessmentItemAnalyticsResponse | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   // Activity drawer
   const [activityStudent, setActivityStudent] = useState<AssessmentStudentRow | null>(null);
@@ -77,6 +84,28 @@ export default function AssessmentStudentsPage() {
     fetchStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assessmentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchItemAnalytics = async () => {
+      setAnalyticsLoading(true);
+      setAnalyticsError(null);
+      try {
+        const result = await assessmentService.getAssessmentItemAnalytics(assessmentId, selectedClassGroup);
+        if (!cancelled) setItemAnalytics(result);
+      } catch (err) {
+        if (cancelled) return;
+        const e = err as { response?: { data?: { detail?: string } } };
+        setAnalyticsError(e.response?.data?.detail || 'Failed to load question averages');
+      } finally {
+        if (!cancelled) setAnalyticsLoading(false);
+      }
+    };
+    fetchItemAnalytics();
+    return () => {
+      cancelled = true;
+    };
+  }, [assessmentId, selectedClassGroup]);
 
   const handleResetConfirm = async () => {
     if (!resetStudent) return;
@@ -281,6 +310,64 @@ export default function AssessmentStudentsPage() {
                       style={{ width: 250 }}
                     />
                   </Group>
+
+                  <Card withBorder padding="md" radius="md">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center">
+                        <Stack gap={2}>
+                          <Text size="sm" fw={600}>
+                            Average Score — {selectedClassGroup ? selectedClassGroup : 'All Students'}
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            {itemAnalytics ? `${itemAnalytics.student_count} student${itemAnalytics.student_count !== 1 ? 's' : ''}` : '—'}
+                          </Text>
+                        </Stack>
+                        {analyticsLoading ? (
+                          <Loader size="sm" />
+                        ) : (
+                          renderWeightedScore(itemAnalytics?.avg_weighted_score, 'lg')
+                        )}
+                      </Group>
+
+                      {analyticsError && (
+                        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
+                          {analyticsError}
+                        </Alert>
+                      )}
+
+                      {!analyticsLoading && !analyticsError && itemAnalytics && (
+                        <Stack gap={6}>
+                          {itemAnalytics.items.map((item, idx) => (
+                            <Group key={item.assessment_item_id} justify="space-between" wrap="nowrap">
+                              <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                                <Text size="xs" c="dimmed" fw={500}>#{idx + 1}</Text>
+                                <Badge
+                                  size="xs"
+                                  color={itemTypeBadgeColor[item.item_type] ?? 'gray'}
+                                  variant="filled"
+                                >
+                                  {itemTypeLabel[item.item_type] ?? item.item_type}
+                                </Badge>
+                                <Text size="sm" lineClamp={1}>{item.item_title}</Text>
+                              </Group>
+                              <Group gap="sm" wrap="nowrap">
+                                {(item.item_type === 'sql_lab' || item.item_type === 'graph_lab') && (
+                                  <Text size="xs" c="dimmed">
+                                    {item.avg_tasks_correct != null && item.tasks_total != null
+                                      ? `${item.avg_tasks_correct} / ${item.tasks_total} tasks avg`
+                                      : '—'}
+                                  </Text>
+                                )}
+                                {renderWeightedScore(
+                                  item.avg_score_fraction != null ? Math.round(item.avg_score_fraction * 1000) / 10 : null
+                                )}
+                              </Group>
+                            </Group>
+                          ))}
+                        </Stack>
+                      )}
+                    </Stack>
+                  </Card>
 
                   {filteredStudents.length === 0 ? (
                     <Alert icon={<IconAlertCircle size={16} />} color="blue" title="No Students">

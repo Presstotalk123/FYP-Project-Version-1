@@ -223,3 +223,30 @@ class StudentComponentScoresResponse(BaseModel):
     items: List[AssessmentItemComponentScore]
     # Weighted total (0-100); None if the assessment is unweighted (all weights 0).
     total_weighted_score: Optional[float] = None
+
+
+class AssessmentItemAggregateScore(BaseModel):
+    assessment_item_id: int
+    item_type: str
+    item_id: int
+    item_title: str
+    order_index: int
+    weight: int = 0
+    # Mean correctness fraction (0.0-1.0) across the roster; None if the roster is empty.
+    avg_score_fraction: Optional[float] = None
+    # weight * avg_score_fraction — this item's average contribution to the weighted total.
+    avg_weighted_points: Optional[float] = None
+    # Lab items only: mean distinct-correct-tasks per student, and the lab's total task count.
+    avg_tasks_correct: Optional[float] = None
+    tasks_total: Optional[int] = None
+
+
+class AssessmentItemAnalyticsResponse(BaseModel):
+    assessment_id: int
+    assessment_title: str
+    # None when unfiltered (cohort-wide); set to the selected class_group otherwise.
+    class_group: Optional[str] = None
+    student_count: int
+    # Mean weighted total (0-100) across the roster; None if unweighted or roster is empty.
+    avg_weighted_score: Optional[float] = None
+    items: List[AssessmentItemAggregateScore]

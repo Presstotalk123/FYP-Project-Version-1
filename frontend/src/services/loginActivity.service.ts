@@ -2,6 +2,8 @@ import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import {
   LoginActivitySummary,
+  OnlineSummary,
+  OnlineUser,
   StudentUsageRow,
   UsageSummary,
 } from '@/types/login-activity.types';
@@ -73,6 +75,20 @@ export const loginActivityService = {
       API_ENDPOINTS.LOGIN_ACTIVITY.USAGE_OVERVIEW,
       { params: { year, month } },
     );
+    return response.data;
+  },
+
+  /** How many people are on the platform right now, split by role. Staff only. */
+  async getOnlineSummary(): Promise<OnlineSummary> {
+    const response = await api.get<OnlineSummary>(
+      API_ENDPOINTS.LOGIN_ACTIVITY.ONLINE_SUMMARY,
+    );
+    return response.data;
+  },
+
+  /** Who is on the platform right now, most recently seen first. Staff only. */
+  async getOnline(): Promise<OnlineUser[]> {
+    const response = await api.get<OnlineUser[]>(API_ENDPOINTS.LOGIN_ACTIVITY.ONLINE);
     return response.data;
   },
 };

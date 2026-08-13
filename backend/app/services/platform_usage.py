@@ -16,9 +16,10 @@ import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import update
+from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.time import sgt_today
 from app.models.platform_session import PlatformSession
 from app.models.user import User, UserRole
@@ -37,14 +38,13 @@ def _utc_now() -> datetime:
 
 
 def start_session(db: Session, user: User) -> int | None:
-    """Open a new platform session for a student at login; return its id (the JWT
-    ``sid``). Returns ``None`` for non-students or on any failure — the caller
-    still issues the token.
+    """Open a new platform session at login; return its id (the JWT ``sid``).
+
+    Covers every role: staff and admin sessions are what let the active-user
+    count on /admin show a students-vs-staff split. Returns ``None`` on any
+    failure — the caller still issues the token.
     """
     try:
-        if user.role != UserRole.STUDENT:
-            return None
-
         now = _utc_now()
         session = PlatformSession(
             user_id=user.id,
@@ -63,16 +63,13 @@ def start_session(db: Session, user: User) -> int | None:
 
 
 def touch_session(db: Session, user: User, sid: int | None) -> None:
-    """Advance ``last_action_at`` for the student's current session (throttled).
+    """Advance ``last_action_at`` for the caller's current session (throttled).
 
-    ``sid`` is the session id from the JWT. When it is missing (legacy token
-    issued before this feature) we fall back to the student's latest session for
-    today, creating one if none exists. Students only; never raises.
+    ``sid`` is the session id from the JWT. When it is missing (a legacy token
+    issued before this feature, or a dev-login token) we fall back to the user's
+    latest session for today, creating one if none exists. Never raises.
     """
     try:
-        if user.role != UserRole.STUDENT:
-            return
-
         if sid is None:
             today = sgt_today()
             latest = (
@@ -105,15 +102,49 @@ def touch_session(db: Session, user: User, sid: int | None) -> None:
             .where(
                 PlatformSession.id == sid,
                 PlatformSession.user_id == user.id,
-                PlatformSession.last_action_at < threshold,
+                # The throttle must not block un-setting left_at, or a user who
+                # left and returned inside the 60s window would stay counted as
+                # gone. The extra write only ever fires on a return.
+                or_(
+                    PlatformSession.last_action_at < threshold,
+                    PlatformSession.left_at.isnot(None),
+                ),
             )
-            .values(last_action_at=now)
+            .values(last_action_at=now, left_at=None)
             .execution_options(synchronize_session=False)
         )
         db.commit()
     except Exception:  # noqa: BLE001 - an action must succeed even if tracking fails
         db.rollback()
         logger.exception("Failed to touch platform session sid=%s user_id=%s", sid, getattr(user, "id", None))
+
+
+def mark_left(db: Session, user: User, sid: int | None) -> None:
+    """Record that the user's tab went away, so presence drops them at once.
+
+    Sets ``left_at`` only — never ``last_action_at``, because a session's usage
+    duration is ``last_action_at - login_at`` and moving it backwards would
+    silently shorten the recorded platform time. Never raises.
+    """
+    try:
+        if sid is None:
+            return
+
+        db.execute(
+            update(PlatformSession)
+            .where(
+                PlatformSession.id == sid,
+                PlatformSession.user_id == user.id,
+            )
+            .values(left_at=_utc_now())
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001 - leaving must never fail the request
+        db.rollback()
+        logger.exception(
+            "Failed to mark platform session left sid=%s user_id=%s", sid, getattr(user, "id", None)
+        )
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -242,3 +273,85 @@ def lifetime_total(db: Session, user_id: int) -> tuple[int, int]:
     total = sum(_duration_seconds(s) for s in sessions)
     days = len({s.login_date for s in sessions})
     return total, days
+
+
+def _presence_cutoff() -> datetime:
+    """Actions older than this no longer count as being online."""
+    return _utc_now() - timedelta(seconds=settings.PRESENCE_WINDOW_SECONDS)
+
+
+def _online_filters():
+    """Rows for users who are currently on the platform.
+
+    A session counts when its last action is inside the presence window and it
+    has not been marked left since that action (a user who left and came back
+    has ``left_at`` cleared by ``touch_session``).
+    """
+    return (
+        PlatformSession.last_action_at > _presence_cutoff(),
+        or_(
+            PlatformSession.left_at.is_(None),
+            PlatformSession.left_at <= PlatformSession.last_action_at,
+        ),
+        User.is_active == 1,
+    )
+
+
+def count_online(db: Session) -> dict:
+    """How many distinct users are online right now, split by role.
+
+    DISTINCT because a user accumulates one ``platform_sessions`` row per login,
+    so an active day leaves several behind.
+    """
+    rows = (
+        db.query(User.role, func.count(func.distinct(PlatformSession.user_id)))
+        .join(PlatformSession, PlatformSession.user_id == User.id)
+        .filter(*_online_filters())
+        .group_by(User.role)
+        .all()
+    )
+
+    by_role: dict[str, int] = {}
+    for role, n in rows:
+        # SQLAlchemy may hand back the enum or the raw string depending on backend.
+        key = role.value if isinstance(role, UserRole) else str(role)
+        by_role[key] = by_role.get(key, 0) + int(n)
+
+    students = by_role.get("student", 0)
+    staff = by_role.get("staff", 0) + by_role.get("admin", 0)
+    return {"total": students + staff, "students": students, "staff": staff}
+
+
+def list_online(db: Session) -> list[dict]:
+    """Who is online right now, most recently seen first."""
+    now = _utc_now()
+    rows = (
+        db.query(
+            User.id,
+            User.name,
+            User.email,
+            User.role,
+            User.class_group,
+            func.max(PlatformSession.last_action_at).label("seen_at"),
+        )
+        .join(PlatformSession, PlatformSession.user_id == User.id)
+        .filter(*_online_filters())
+        .group_by(User.id, User.name, User.email, User.role, User.class_group)
+        .order_by(func.max(PlatformSession.last_action_at).desc())
+        .all()
+    )
+
+    out: list[dict] = []
+    for uid, name, email, role, class_group, seen_at in rows:
+        # SQLite reads DateTime(timezone=True) back naive; the stored value is UTC.
+        if seen_at is not None and seen_at.tzinfo is None:
+            seen_at = seen_at.replace(tzinfo=timezone.utc)
+        out.append({
+            "id": uid,
+            "name": name,
+            "email": email,
+            "role": role.value if isinstance(role, UserRole) else str(role),
+            "class_group": class_group,
+            "seconds_ago": max(0, int((now - seen_at).total_seconds())) if seen_at else 0,
+        })
+    return out

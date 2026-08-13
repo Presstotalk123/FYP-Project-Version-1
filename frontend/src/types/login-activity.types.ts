@@ -51,3 +51,21 @@ export interface StudentUsageRow {
   /** Distinct calendar days with any session, all-time. */
   all_time_active_days: number;
 }
+
+/** Live count of users on the platform right now (staff dashboard card). */
+export interface OnlineSummary {
+  total: number;
+  students: number;
+  /** STAFF and ADMIN combined. */
+  staff: number;
+}
+
+/** One currently-online user, for the card's expandable list. */
+export interface OnlineUser {
+  id: number;
+  name: string | null;
+  email: string;
+  role: string;
+  class_group: string | null;
+  seconds_ago: number;
+}

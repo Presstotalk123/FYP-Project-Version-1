@@ -7,6 +7,7 @@ import { notifications } from '@mantine/notifications';
 import { User, UserRole } from '@/types/user.types';
 import { authService } from '@/services/auth.service';
 import { getPostLoginRedirect } from '@/utils/auth-redirect';
+import { usePresenceHeartbeat } from '@/hooks/use-presence-heartbeat';
 
 interface AuthContextType {
   user: User | null;
@@ -84,6 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // on the very first load after returning from Microsoft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keeps this user counted on the staff dashboard's active-user card while
+  // their tab is open, and drops them from it when the tab goes away.
+  usePresenceHeartbeat(!!user);
 
   const googleLogin = async (token: string): Promise<User> => {
     const response = await authService.googleLogin(token);

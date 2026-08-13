@@ -59,4 +59,10 @@ export const queryKeys = {
   questionById: (id: number) => ['questionById', id] as const,
   erQuestionById: (id: number) => ['erQuestionById', id] as const,
   labTasks: (id: number) => ['labTasks', id] as const,
+
+  // Live presence for the /admin active-user card. Unlike everything else here
+  // these poll (see ActiveUsersCard) — they are the one genuinely live figure
+  // on the dashboard, so they override the global staleTime: Infinity.
+  presenceSummary: ['presenceSummary'] as const,
+  presenceOnline: ['presenceOnline'] as const,
 };

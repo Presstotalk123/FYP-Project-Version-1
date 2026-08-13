@@ -89,12 +89,14 @@ with engine.connect() as _conn:
     except Exception:
         pass  # Column already exists
 
-# Staff score-override columns on er_submissions (existing local SQLite databases).
+# Column additions to tables that may already exist in a local SQLite database
+# (create_all only creates missing tables, not missing columns on existing ones).
 for _stmt in (
     "ALTER TABLE er_submissions ADD COLUMN original_grade_json TEXT",
     "ALTER TABLE er_submissions ADD COLUMN override_reason TEXT",
     "ALTER TABLE er_submissions ADD COLUMN overridden_by INTEGER",
     "ALTER TABLE er_submissions ADD COLUMN overridden_at TIMESTAMP",
+    "ALTER TABLE platform_sessions ADD COLUMN left_at TIMESTAMP",
 ):
     with engine.connect() as _conn:
         try:

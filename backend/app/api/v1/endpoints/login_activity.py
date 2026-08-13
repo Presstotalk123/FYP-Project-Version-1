@@ -5,7 +5,13 @@ from app.core.time import sgt_today
 from app.database import get_db
 from app.dependencies import get_current_sid, get_current_user, require_staff_role
 from app.models.user import User
-from app.schemas.login_activity import LoginActivitySummary, StudentUsageRow, UsageSummary
+from app.schemas.login_activity import (
+    LoginActivitySummary,
+    OnlineSummary,
+    OnlineUser,
+    StudentUsageRow,
+    UsageSummary,
+)
 from app.services import login_activity as login_activity_service
 from app.services import platform_usage
 
@@ -49,8 +55,10 @@ def record_heartbeat(
 ):
     """Advance the caller's current platform session's ``last_action_at``.
 
-    Called (throttled) by the frontend on meaningful actions. A no-op for
-    staff/admin; never fails the request (the service swallows its own errors).
+    Called (throttled) by the frontend on meaningful actions, and by the idle-tab
+    timer in ``usePresenceHeartbeat``. Applies to every role — staff sessions are
+    what let the /admin active-user count show a role split. Never fails the
+    request (the service swallows its own errors).
     """
     platform_usage.touch_session(db, current_user, sid)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -91,3 +99,36 @@ def get_usage_overview(
     """Per-student platform-time totals for a month, for the staff roster."""
     y, m = _resolve_year_month(year, month)
     return platform_usage.usage_overview(db, y, m)
+
+
+@router.post("/leave", status_code=status.HTTP_204_NO_CONTENT)
+def record_leave(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    sid: int | None = Depends(get_current_sid),
+):
+    """Mark the caller's session as gone so the active-user count drops them at once.
+
+    Sent by the browser when a tab is hidden or unloaded. Only stamps ``left_at``;
+    the session's recorded usage duration is untouched.
+    """
+    platform_usage.mark_left(db, current_user, sid)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/online-summary", response_model=OnlineSummary)
+def get_online_summary(
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """How many people are on the platform right now, split by role. Staff/admin only."""
+    return platform_usage.count_online(db)
+
+
+@router.get("/online", response_model=list[OnlineUser])
+def get_online(
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """Who is on the platform right now, most recently seen first. Staff/admin only."""
+    return platform_usage.list_online(db)

@@ -31,6 +31,12 @@ class PlatformSession(Base):
     login_date = Column(Date, nullable=False)
     login_at = Column(DateTime(timezone=True), nullable=False)
     last_action_at = Column(DateTime(timezone=True), nullable=False)
+    # Set when the user signals they are leaving (tab hidden or unloaded) so the
+    # active-user count can drop them immediately. Deliberately a separate column
+    # rather than backdating ``last_action_at``: that field is this row's usage
+    # accumulator (duration = last_action_at - login_at), and moving it backwards
+    # would silently shorten the student's recorded platform time.
+    left_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

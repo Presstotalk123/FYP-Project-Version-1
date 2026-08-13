@@ -8,6 +8,7 @@ import { UserRole } from '@/types/user.types';
 import { questionService } from '@/services/question.service';
 import { queryKeys } from '@/services/query-keys';
 import api from '@/services/api.service';
+import { ActiveUsersCard } from '@/components/admin/ActiveUsersCard';
 
 const IconRefresh = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -71,6 +72,8 @@ export default function AdminDashboard() {
           </div>
         ) : (
           <>
+            <ActiveUsersCard />
+
             {/* Metric cards */}
             <div className="grid-3" style={{ marginBottom: 18 }}>
               <article className="card metric">

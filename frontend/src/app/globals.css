@@ -1382,3 +1382,24 @@ a {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Expanded "who is online" list on the admin dashboard's Active Now card.
+   Capped and scrollable so a full cohort cannot push the metric row off screen. */
+.presence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.presence-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}

@@ -52,3 +52,20 @@ class LoginActivitySummary(BaseModel):
     year: int = Field(..., description="Year of the returned active_dates")
     month: int = Field(..., description="Month (1-12) of the returned active_dates")
     active_dates: List[date] = Field(..., description="Login dates within the requested month (ISO YYYY-MM-DD)")
+
+
+class OnlineSummary(BaseModel):
+    """Live count of users currently on the platform, for the /admin card."""
+    total: int = Field(..., description="Distinct users active within the presence window")
+    students: int = Field(..., description="Of those, users with the student role")
+    staff: int = Field(..., description="Of those, STAFF and ADMIN combined")
+
+
+class OnlineUser(BaseModel):
+    """One currently-online user, for the /admin expandable list."""
+    id: int
+    name: Optional[str] = None
+    email: str
+    role: str
+    class_group: Optional[str] = None
+    seconds_ago: int = Field(..., description="Seconds since this user's last recorded action")

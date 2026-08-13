@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     # query, so size this to the App Service instance's CPU headroom.
     THREADPOOL_MAX_THREADS: int = 100
 
+    # Active-user count on /admin (see docs/superpowers/specs/2026-08-14-active-user-count-design.md).
+    # BEAT is how often an idle-but-visible tab checks in; WINDOW is how long a
+    # stale last_action_at still counts as online. WINDOW must stay >=
+    # 2 * BEAT + 60 (the touch_session write throttle), or one delayed beat
+    # makes a user flicker offline.
+    PRESENCE_BEAT_SECONDS: int = 600
+    PRESENCE_WINDOW_SECONDS: int = 1500
+
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

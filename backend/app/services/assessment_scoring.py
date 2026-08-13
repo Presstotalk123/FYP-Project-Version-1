@@ -15,7 +15,6 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.models.assessment import Assessment
@@ -62,6 +61,9 @@ class ItemScoreDetail:
     visited: Optional[bool] = None
     tasks_correct: Optional[int] = None
     tasks_total: Optional[int] = None
+    # The specific task ids this student solved (lab items only) — lets callers tally
+    # per-task success rates across a roster without an extra query.
+    correct_task_ids: Optional[set] = None
 
 
 def item_score_detail(
@@ -94,23 +96,25 @@ def item_score_detail(
             .filter(LabTask.lab_id == item.item_id, LabTask.is_deleted == 0)
             .count()
         )
-        correct_tasks = (
-            db.query(
-                func.count(func.distinct(
-                    case((LabTaskSubmission.is_correct == 1, LabTaskSubmission.task_id))
-                ))
+        correct_task_ids = {
+            row[0] for row in (
+                db.query(LabTaskSubmission.task_id)
+                .filter(
+                    LabTaskSubmission.user_id == student_id,
+                    LabTaskSubmission.lab_id == item.item_id,
+                    LabTaskSubmission.is_correct == 1,
+                )
+                .distinct()
+                .all()
             )
-            .filter(
-                LabTaskSubmission.user_id == student_id,
-                LabTaskSubmission.lab_id == item.item_id,
-            )
-            .scalar()
-        ) or 0
+        }
+        correct_tasks = len(correct_task_ids)
         fraction = min(1.0, correct_tasks / total_tasks) if total_tasks > 0 else 0.0
         return ItemScoreDetail(
             fraction=fraction,
             tasks_correct=correct_tasks,
             tasks_total=total_tasks,
+            correct_task_ids=correct_task_ids,
         )
 
     if item.item_type == "er_question":

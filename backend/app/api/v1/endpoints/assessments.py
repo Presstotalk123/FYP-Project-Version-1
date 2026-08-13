@@ -13,6 +13,7 @@ from app.models.whitelist import WhitelistEntry
 from app.models.question import Question
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.lab import Lab
+from app.models.lab_task import LabTask
 from app.schemas.assessment import (
     AssessmentCreate,
     AssessmentUpdate,
@@ -25,6 +26,7 @@ from app.schemas.assessment import (
     AssessmentItemComponentScore,
     AssessmentItemAggregateScore,
     AssessmentItemAnalyticsResponse,
+    LabTaskAggregateScore,
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
@@ -807,6 +809,18 @@ def get_assessment_item_analytics(
     for item in items:
         title = _resolve_item_title(item, db)
 
+        # Lab items only: task metadata (title/order) and a per-task correct tally,
+        # built from the same per-student loop below — no extra queries.
+        lab_tasks: List[LabTask] = []
+        task_correct_counts: dict = {}
+        if item.item_type in ("sql_lab", "graph_lab"):
+            lab_tasks = (
+                db.query(LabTask)
+                .filter(LabTask.lab_id == item.item_id, LabTask.is_deleted == 0)
+                .order_by(LabTask.order_index)
+                .all()
+            )
+
         fractions: List[float] = []
         tasks_correct_values: List[int] = []
         tasks_total: Optional[int] = None
@@ -819,6 +833,8 @@ def get_assessment_item_analytics(
             if detail.tasks_total is not None:
                 tasks_total = detail.tasks_total
                 tasks_correct_values.append(detail.tasks_correct or 0)
+                for task_id in (detail.correct_task_ids or ()):
+                    task_correct_counts[task_id] = task_correct_counts.get(task_id, 0) + 1
 
         avg_fraction = round(sum(fractions) / len(fractions), 4) if fractions else None
         avg_tasks_correct = (
@@ -828,6 +844,21 @@ def get_assessment_item_analytics(
         avg_weighted_points = (
             round(item.weight * avg_fraction, 2) if avg_fraction is not None else None
         )
+
+        task_rows: Optional[List[LabTaskAggregateScore]] = None
+        if lab_tasks:
+            task_rows = [
+                LabTaskAggregateScore(
+                    task_id=task.id,
+                    task_title=task.title,
+                    order_index=task.order_index,
+                    success_rate=(
+                        round(task_correct_counts.get(task.id, 0) / len(student_ids) * 100, 1)
+                        if student_ids else None
+                    ),
+                )
+                for task in lab_tasks
+            ]
 
         item_rows.append(AssessmentItemAggregateScore(
             assessment_item_id=item.id,
@@ -840,6 +871,7 @@ def get_assessment_item_analytics(
             avg_weighted_points=avg_weighted_points,
             avg_tasks_correct=avg_tasks_correct,
             tasks_total=tasks_total,
+            tasks=task_rows,
         ))
 
         total_weight += item.weight

@@ -336,33 +336,47 @@ export default function AssessmentStudentsPage() {
                       )}
 
                       {!analyticsLoading && !analyticsError && itemAnalytics && (
-                        <Stack gap={6}>
+                        <Stack gap={10}>
                           {itemAnalytics.items.map((item, idx) => (
-                            <Group key={item.assessment_item_id} justify="space-between" wrap="nowrap">
-                              <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-                                <Text size="xs" c="dimmed" fw={500}>#{idx + 1}</Text>
-                                <Badge
-                                  size="xs"
-                                  color={itemTypeBadgeColor[item.item_type] ?? 'gray'}
-                                  variant="filled"
-                                >
-                                  {itemTypeLabel[item.item_type] ?? item.item_type}
-                                </Badge>
-                                <Text size="sm" lineClamp={1}>{item.item_title}</Text>
+                            <Stack key={item.assessment_item_id} gap={4}>
+                              <Group justify="space-between" wrap="nowrap">
+                                <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                                  <Text size="xs" c="dimmed" fw={500}>#{idx + 1}</Text>
+                                  <Badge
+                                    size="xs"
+                                    color={itemTypeBadgeColor[item.item_type] ?? 'gray'}
+                                    variant="filled"
+                                  >
+                                    {itemTypeLabel[item.item_type] ?? item.item_type}
+                                  </Badge>
+                                  <Text size="sm" lineClamp={1}>{item.item_title}</Text>
+                                </Group>
+                                <Group gap="sm" wrap="nowrap">
+                                  {(item.item_type === 'sql_lab' || item.item_type === 'graph_lab') && (
+                                    <Text size="xs" c="dimmed">
+                                      {item.avg_tasks_correct != null && item.tasks_total != null
+                                        ? `${item.avg_tasks_correct} / ${item.tasks_total} tasks avg`
+                                        : '—'}
+                                    </Text>
+                                  )}
+                                  {renderWeightedScore(
+                                    item.avg_score_fraction != null ? Math.round(item.avg_score_fraction * 1000) / 10 : null
+                                  )}
+                                </Group>
                               </Group>
-                              <Group gap="sm" wrap="nowrap">
-                                {(item.item_type === 'sql_lab' || item.item_type === 'graph_lab') && (
-                                  <Text size="xs" c="dimmed">
-                                    {item.avg_tasks_correct != null && item.tasks_total != null
-                                      ? `${item.avg_tasks_correct} / ${item.tasks_total} tasks avg`
-                                      : '—'}
-                                  </Text>
-                                )}
-                                {renderWeightedScore(
-                                  item.avg_score_fraction != null ? Math.round(item.avg_score_fraction * 1000) / 10 : null
-                                )}
-                              </Group>
-                            </Group>
+                              {(item.item_type === 'sql_lab' || item.item_type === 'graph_lab') && !!item.tasks?.length && (
+                                <Stack gap={2} pl="lg">
+                                  {item.tasks.map((task) => (
+                                    <Group key={task.task_id} justify="space-between" wrap="nowrap">
+                                      <Text size="xs" c="dimmed" lineClamp={1}>{task.task_title}</Text>
+                                      <Text size="xs" c="dimmed">
+                                        {task.success_rate != null ? `${task.success_rate}%` : '—'}
+                                      </Text>
+                                    </Group>
+                                  ))}
+                                </Stack>
+                              )}
+                            </Stack>
                           ))}
                         </Stack>
                       )}

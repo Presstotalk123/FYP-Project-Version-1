@@ -225,6 +225,14 @@ class StudentComponentScoresResponse(BaseModel):
     total_weighted_score: Optional[float] = None
 
 
+class LabTaskAggregateScore(BaseModel):
+    task_id: int
+    task_title: str
+    order_index: int
+    # % of the roster who solved this specific task (0-100); None if the roster is empty.
+    success_rate: Optional[float] = None
+
+
 class AssessmentItemAggregateScore(BaseModel):
     assessment_item_id: int
     item_type: str
@@ -239,6 +247,8 @@ class AssessmentItemAggregateScore(BaseModel):
     # Lab items only: mean distinct-correct-tasks per student, and the lab's total task count.
     avg_tasks_correct: Optional[float] = None
     tasks_total: Optional[int] = None
+    # Lab items only: per-task success rate across the roster.
+    tasks: Optional[List[LabTaskAggregateScore]] = None
 
 
 class AssessmentItemAnalyticsResponse(BaseModel):

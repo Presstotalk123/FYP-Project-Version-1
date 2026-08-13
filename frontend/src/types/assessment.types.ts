@@ -212,6 +212,14 @@ export interface StudentComponentScoresResponse {
   total_weighted_score?: number | null;
 }
 
+export interface LabTaskAggregateScore {
+  task_id: number;
+  task_title: string;
+  order_index: number;
+  // % of the roster who solved this specific task (0-100); null if the roster is empty.
+  success_rate?: number | null;
+}
+
 export interface AssessmentItemAggregateScore {
   assessment_item_id: number;
   item_type: AssessmentItemType;
@@ -225,6 +233,8 @@ export interface AssessmentItemAggregateScore {
   // Lab items only: mean distinct-correct-tasks per student, and the lab's total task count.
   avg_tasks_correct?: number | null;
   tasks_total?: number | null;
+  // Lab items only: per-task success rate across the roster.
+  tasks?: LabTaskAggregateScore[] | null;
 }
 
 export interface AssessmentItemAnalyticsResponse {

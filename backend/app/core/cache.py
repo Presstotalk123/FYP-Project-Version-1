@@ -249,10 +249,8 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.er_diagram_question import ERDiagramQuestion
     from app.models.er_submission import ErSubmission
     from app.models.erd_tutor_message import ErdTutorMessage
-    from app.models.erd_tutor_conversation import ErdTutorConversation
     from app.models.assessment import Assessment
     from app.models.assessment_item import AssessmentItem
-    from app.models.assessment_session import AssessmentSession
     from app.models.user import User
     from app.models.course_info import CourseInfo
     from app.models.attempt import Attempt
@@ -286,12 +284,19 @@ def _model_namespaces(obj: Any) -> set[str]:
     if isinstance(obj, (LabAttempt, LabTaskSubmission, QueryReview,
                         TutorChatConversation, TutorChatMessage, User)):
         namespaces.add(Ns.LAB_ANALYTICS)
-    # Materialized assessment averages aggregate SQL attempts, lab task submissions,
-    # ER grades (stored on the tutor conversation), the session roster and user class
-    # groups. (Assessment / AssessmentItem changes are handled in their own branches
-    # below so they keep invalidating the assessment list/body too.)
-    if isinstance(obj, (Attempt, LabTaskSubmission, ErdTutorConversation,
-                        AssessmentSession, User)):
+    # Materialized assessment averages are deliberately NOT invalidated by a live
+    # student's Attempt / LabTaskSubmission / ErdTutorConversation / AssessmentSession
+    # write (a single submission, join, or auto-finalize). Bumping on every one of
+    # those would force a full-cohort recompute after each answer during a running
+    # exam — wasted work, since these numbers aren't shown as "final" until the
+    # assessment ends. Recompute is instead triggered only at the explicit checkpoints
+    # that actually change what a report should show: `stop_assessment` (which also
+    # eagerly warms the cache) and a staff-initiated student reset both bump this
+    # namespace themselves (see assessments.py / assessment_reset.py). A class_group
+    # edit is an admin action, not a student action, so it still invalidates here.
+    # (Assessment / AssessmentItem changes are handled in their own branches below so
+    # they keep invalidating the assessment list/body too.)
+    if isinstance(obj, User):
         namespaces.add(Ns.ASSESSMENT_ANALYTICS)
     if namespaces:
         return namespaces

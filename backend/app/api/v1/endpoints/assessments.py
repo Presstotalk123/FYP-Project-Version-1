@@ -524,6 +524,12 @@ def stop_assessment(
     db.commit()
     db.refresh(assessment)
 
+    # Results are frozen the moment the assessment stops, so compute + persist the
+    # cohort and per-class-group analytics right now instead of leaving them to be
+    # computed lazily by whichever student or staff member opens a report first.
+    # Runs after the commit above so it reads the final, committed roster/version.
+    assessment_scoring.warm_analytics_cache(db, assessment)
+
     return AssessmentListItem(
         id=assessment.id,
         title=assessment.title,

@@ -14,7 +14,7 @@ no weightage at all (legacy/unweighted), so callers can show "N/A" instead of a 
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func
@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.cache import Ns, cache_read, get_version
 from app.models.assessment import Assessment
 from app.models.assessment_analytics import AssessmentAnalytics
+from app.models.assessment_class_window import AssessmentClassWindow
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_item_visit import AssessmentItemVisit
 from app.models.assessment_session import AssessmentSession
@@ -499,22 +500,86 @@ def _materialize(db: Session, assessment: Assessment, class_group: Optional[str]
     return result
 
 
+def _still_accepting_submissions(db: Session, assessment: Assessment) -> bool:
+    """True while the assessment can still receive submissions, so its analytics are not
+    yet final. Manual run: `is_running`. Timing Gateway: any enabled window whose end is
+    still in the future. While this holds, analytics are computed live (never cached), so
+    a mid-assessment read reflects current data instead of freezing a preliminary
+    snapshot; once the assessment closes, the version-gated cache/table takes over."""
+    if assessment.is_running:
+        return True
+    if assessment.gateway_enabled:
+        now = datetime.now(timezone.utc)
+        ends = (
+            db.query(AssessmentClassWindow.end_at)
+            .filter(
+                AssessmentClassWindow.assessment_id == assessment.id,
+                AssessmentClassWindow.is_enabled == 1,
+            )
+            .all()
+        )
+        for (end_at,) in ends:
+            end = end_at if end_at.tzinfo else end_at.replace(tzinfo=timezone.utc)
+            if now < end:
+                return True
+    return False
+
+
 def get_or_compute_analytics(
     db: Session, assessment: Assessment, class_group: Optional[str] = None
 ) -> RosterAnalytics:
     """Shared, compute-once analytics for a roster (whole cohort or one class_group).
 
-    Three layers keyed by (assessment_id, class_group), all gated by the
+    While the assessment is still open, results are not final and students keep
+    submitting, so compute fresh on each (rare, read-driven) request rather than caching
+    a snapshot that would otherwise freeze at first view. Once it closes, serve through
+    three layers keyed by (assessment_id, class_group), all gated by the
     ASSESSMENT_ANALYTICS version: L1 in-process cache -> L2 assessment_analytics table
-    -> L3 bulk recompute. Every report reads through this so the aggregate is computed
-    once and reused.
+    -> L3 bulk recompute, so the final aggregate is computed once and reused.
     """
+    if _still_accepting_submissions(db, assessment):
+        return compute_roster_analytics(db, assessment, class_group)
+
     return cache_read(
         db,
         Ns.ASSESSMENT_ANALYTICS,
         key=(assessment.id, class_group),
         producer=lambda: _materialize(db, assessment, class_group),
     )
+
+
+def roster_class_groups(db: Session, assessment_id: int) -> list[str]:
+    """Distinct, non-null class_groups actually present in this assessment's roster —
+    used to eager-materialize each group's analytics (not every group in the system,
+    just the ones with students on this assessment)."""
+    rows = (
+        db.query(User.class_group)
+        .join(AssessmentSession, AssessmentSession.user_id == User.id)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            User.class_group.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    return [cg for (cg,) in rows if cg]
+
+
+def warm_analytics_cache(db: Session, assessment: Assessment) -> None:
+    """Eagerly compute and persist the cohort-wide analytics plus every class_group
+    present in the roster, right after a data-changing event (assessment stop, a
+    student reset) instead of waiting for the first report view to pay the cost.
+
+    Best-effort: a failure here must never fail the caller's action (stopping the
+    assessment, resetting a student). If warming fails or is skipped, the first
+    viewer's request simply falls back to the normal lazy compute-on-read path.
+    """
+    try:
+        get_or_compute_analytics(db, assessment, class_group=None)
+        for cg in roster_class_groups(db, assessment.id):
+            get_or_compute_analytics(db, assessment, class_group=cg)
+    except Exception:
+        pass
 
 
 def cohort_average(db: Session, assessment: Assessment) -> Optional[float]:

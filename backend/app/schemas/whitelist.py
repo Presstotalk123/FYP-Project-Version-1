@@ -32,3 +32,54 @@ class WhitelistEntryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ParsedStudent(BaseModel):
+    """A single row parsed from an uploaded roster sheet, echoed back by the
+    frontend on /whitelist/upload/confirm so the server can re-derive the
+    diff itself rather than trusting client-side classification."""
+    name: str
+    email: EmailStr
+    class_group: Optional[str] = None
+
+
+class UploadAddition(BaseModel):
+    email: str
+    name: Optional[str] = None
+    class_group: Optional[str] = None
+
+
+class UploadUpdate(BaseModel):
+    id: int
+    email: str
+    old_name: Optional[str] = None
+    new_name: Optional[str] = None
+    old_class_group: Optional[str] = None
+    new_class_group: Optional[str] = None
+
+
+class UploadRemoval(BaseModel):
+    id: int
+    email: str
+    name: Optional[str] = None
+    class_group: Optional[str] = None
+
+
+class UploadPreviewResponse(BaseModel):
+    to_add: list[UploadAddition]
+    to_update: list[UploadUpdate]
+    to_remove: list[UploadRemoval]
+    failed: list[dict]
+    students: list[ParsedStudent]
+
+
+class UploadConfirmRequest(BaseModel):
+    students: list[ParsedStudent]
+    confirm_removals: bool = False
+
+
+class UploadConfirmResponse(BaseModel):
+    imported: int
+    updated: int
+    removed: int
+    failed: list[dict]

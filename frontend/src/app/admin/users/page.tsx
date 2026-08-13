@@ -100,11 +100,35 @@ export default function ManageUsersPage() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [uploading, setUploading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [importSummary, setImportSummary] = useState<{
     imported: number;
-    skipped: any[];
+    updated: number;
+    removed: number;
     failed: any[];
   } | null>(null);
+
+  interface ParsedStudent {
+    name: string;
+    email: string;
+    class_group: string | null;
+  }
+  interface UploadPreview {
+    to_add: { email: string; name: string | null; class_group: string | null }[];
+    to_update: {
+      id: number;
+      email: string;
+      old_name: string | null;
+      new_name: string | null;
+      old_class_group: string | null;
+      new_class_group: string | null;
+    }[];
+    to_remove: { id: number; email: string; name: string | null; class_group: string | null }[];
+    failed: any[];
+    students: ParsedStudent[];
+  }
+  const [uploadPreview, setUploadPreview] = useState<UploadPreview | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Session-cached (see providers.tsx): revisiting this page serves cache, no refetch.
@@ -263,8 +287,7 @@ export default function ManageUsersPage() {
       const res = await api.post('/whitelist/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setImportSummary(res.data);
-      invalidateWhitelist();
+      setUploadPreview(res.data);
     } catch (err: unknown) {
       notifications.show({
         title: 'Upload Failed',
@@ -277,6 +300,29 @@ export default function ManageUsersPage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+    }
+  };
+
+  const handleConfirmUpload = async (confirmRemovals: boolean) => {
+    if (!uploadPreview) return;
+    setConfirming(true);
+    try {
+      const res = await api.post('/whitelist/upload/confirm', {
+        students: uploadPreview.students,
+        confirm_removals: confirmRemovals,
+      });
+      setUploadPreview(null);
+      setImportSummary(res.data);
+      invalidateWhitelist();
+    } catch (err: unknown) {
+      notifications.show({
+        title: 'Import Failed',
+        message: getErrorMessage(err, 'An error occurred while applying the import.'),
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -505,6 +551,95 @@ export default function ManageUsersPage() {
         </Modal>
 
         <Modal
+          opened={!!uploadPreview}
+          onClose={() => setUploadPreview(null)}
+          title="Review Import"
+          centered
+          size="lg"
+        >
+          {uploadPreview && (
+            <Stack>
+              <Text size="sm" c="dimmed">
+                Review the changes below before applying them. This cannot be undone.
+              </Text>
+
+              {uploadPreview.to_add.length > 0 && (
+                <Alert icon={<IconCheck size={16} />} color="green" title={`${uploadPreview.to_add.length} to add`}>
+                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                    {uploadPreview.to_add.map((s, i) => (
+                      <Text key={i} size="sm">• {s.email} — {s.name || '—'} ({s.class_group || '—'})</Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+
+              {uploadPreview.to_update.length > 0 && (
+                <Alert icon={<IconEdit size={16} />} color="blue" title={`${uploadPreview.to_update.length} to update`}>
+                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                    {uploadPreview.to_update.map((s, i) => (
+                      <Text key={i} size="sm">
+                        • {s.email}: {s.old_name || '—'} → {s.new_name || '—'}, {s.old_class_group || '—'} → {s.new_class_group || '—'}
+                      </Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+
+              {uploadPreview.to_remove.length > 0 && (
+                <Alert icon={<IconAlertCircle size={16} />} color="red" title={`${uploadPreview.to_remove.length} to remove (not in sheet)`}>
+                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                    {uploadPreview.to_remove.map((s, i) => (
+                      <Text key={i} size="sm">• {s.email} — {s.name || '—'} ({s.class_group || '—'})</Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+
+              {uploadPreview.failed.length > 0 && (
+                <Alert icon={<IconAlertCircle size={16} />} color="orange" title={`${uploadPreview.failed.length} rows skipped (invalid data)`}>
+                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
+                    {uploadPreview.failed.map((f, i) => (
+                      <Text key={i} size="sm">• {f.email}: {f.reason}</Text>
+                    ))}
+                  </Stack>
+                </Alert>
+              )}
+
+              {uploadPreview.to_add.length === 0 && uploadPreview.to_update.length === 0 && uploadPreview.to_remove.length === 0 && (
+                <Text size="sm" c="dimmed">No changes detected — the whitelist already matches this sheet.</Text>
+              )}
+
+              <Group justify="flex-end">
+                <Button variant="default" onClick={() => setUploadPreview(null)} disabled={confirming}>
+                  Cancel
+                </Button>
+                {uploadPreview.to_remove.length > 0 && (
+                  <Button
+                    variant="light"
+                    loading={confirming}
+                    onClick={() => handleConfirmUpload(false)}
+                  >
+                    Add &amp; Update Only
+                  </Button>
+                )}
+                <Button
+                  color={uploadPreview.to_remove.length > 0 ? 'red' : undefined}
+                  loading={confirming}
+                  disabled={
+                    uploadPreview.to_add.length === 0 &&
+                    uploadPreview.to_update.length === 0 &&
+                    uploadPreview.to_remove.length === 0
+                  }
+                  onClick={() => handleConfirmUpload(true)}
+                >
+                  {uploadPreview.to_remove.length > 0 ? 'Confirm All (Incl. Removals)' : 'Confirm'}
+                </Button>
+              </Group>
+            </Stack>
+          )}
+        </Modal>
+
+        <Modal
           opened={!!importSummary}
           onClose={() => setImportSummary(null)}
           title="Import Complete"
@@ -514,19 +649,10 @@ export default function ManageUsersPage() {
           {importSummary && (
             <Stack>
               <Alert icon={<IconCheck size={16} />} color="green">
-                {importSummary.imported} students imported successfully.
+                {importSummary.imported} added, {importSummary.updated} updated, {importSummary.removed} removed.
               </Alert>
-              {importSummary.skipped.length > 0 && (
-                <Alert icon={<IconAlertCircle size={16} />} color="orange" title={`${importSummary.skipped.length} Skipped (already exists)`}>
-                  <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
-                    {importSummary.skipped.map((s, i) => (
-                      <Text key={i} size="sm">• {s.email}</Text>
-                    ))}
-                  </Stack>
-                </Alert>
-              )}
               {importSummary.failed.length > 0 && (
-                <Alert icon={<IconAlertCircle size={16} />} color="red" title={`${importSummary.failed.length} Failed (invalid data)`}>
+                <Alert icon={<IconAlertCircle size={16} />} color="red" title={`${importSummary.failed.length} Failed`}>
                   <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
                     {importSummary.failed.map((f, i) => (
                       <Text key={i} size="sm">• {f.email}: {f.reason}</Text>

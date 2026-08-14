@@ -24,7 +24,9 @@ from app.services.erd_tutor.llm import make_llm
 from app.services.erd_tutor import prompts
 from app.services.erd_tutor.drawio_parser import parse_drawio
 from app.services.erd_tutor.derivation import derive
-from app.services.erd_tutor.description_claims import fill_unknown_endpoints
+from app.services.erd_tutor.description_claims import (
+    apply_endpoint_claims, merge_objects, read_claims, restamp_provenance,
+)
 
 logger = logging.getLogger(__name__)
 # Only tutor_system and grade_system are admin-editable (see
@@ -52,10 +54,6 @@ async def observe_node(state: dict) -> dict:
             logger.warning("drawio parse failed (%s); falling back to vision", exc)
 
     user = [{"type": "text", "text": prompts.OBSERVE_USER.format(problem_statement=state["problem_statement"])}]
-    description = (state.get("submission_description") or "").strip()
-    if description:
-        user.append({"type": "text",
-                     "text": prompts.OBSERVE_DESCRIPTION_BLOCK.format(submission_description=description)})
     if state.get("image_b64"):
         user.append(_image_block(state["image_b64"]))
     llm = make_llm("observe").with_structured_output(ObservationJSON)
@@ -64,29 +62,42 @@ async def observe_node(state: dict) -> dict:
 
 
 async def normalize_node(state: dict) -> dict:
+    observation = state.get("observation")
+
+    # The description is read ONCE and applied in two places, because objects and
+    # endpoint values live in different shapes. Objects must be merged before the
+    # normalize LLM runs or the canonical model will not contain them — and a
+    # described relationship then gets its cardinalities from the same derive()
+    # path as a drawn one. Endpoint values must be applied after derive(), or the
+    # deterministic pass would overwrite them.
+    claims = await read_claims(state.get("submission_description"), observation)
+    observation, provenance = merge_objects(observation, claims)
+
     msg = prompts.NORMALIZE_USER.format(problem_statement=state["problem_statement"],
-                                        observation_json=json.dumps(state["observation"], ensure_ascii=False))
+                                        observation_json=json.dumps(observation, ensure_ascii=False))
     llm = make_llm("normalize").with_structured_output(CanonicalERD)
     can = await llm.ainvoke([SystemMessage(prompts.NORMALIZE_SYSTEM), HumanMessage(msg)])
     out = can.model_dump()
+    # The LLM just rewrote that JSON and may have paraphrased away the evidence
+    # merge_objects wrote; put the provenance back deterministically, so a mark
+    # taken on the student's word stays traceable to the words it came from.
+    out = restamp_provenance(out, provenance)
+
     # Cardinality and participation are a lookup table over the observed marks,
     # not a judgement — so they are computed, not asked for. The LLM keeps the
     # naming/OCR work it is good at. Measured motivation: given exact parser
     # input it returned the same value for two different endpoints of two
     # same-named relationships, discarding a marker the student had drawn
     # correctly. Keyed by id here, so same-named relationships cannot merge.
-    cards, parts = derive(state.get("observation"))
+    #
+    # Note this derives from the ENRICHED observation, not state["observation"]:
+    # that is what gives a relationship the student only described its endpoints.
+    cards, parts = derive(observation)
     if cards:
-        # Where the diagram yielded nothing, the student's own description may
-        # say what they intended. It can only fill gaps, never overrule a mark
-        # that was actually read, and each filled value carries the quote it
-        # came from. The call is skipped entirely when there is no description
-        # or nothing unknown, which is the normal draw.io case.
-        cards, parts, filled = await fill_unknown_endpoints(
-            cards, parts, state.get("observation"), state.get("submission_description"))
+        cards, parts, applied = apply_endpoint_claims(cards, parts, claims)
         out["cardinalities"], out["participation"] = cards, parts
-        if filled:
-            logger.info("normalize: %d endpoint value(s) came from the description", filled)
+        if applied:
+            logger.info("normalize: %d endpoint value(s) came from the description", applied)
     return {"canonical_erd": out}
 
 

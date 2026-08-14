@@ -430,23 +430,6 @@ upgrade, or invent anything that is not visibly drawn):
 Return only valid JSON in the required observation schema."""
 
 
-# Supplementary, appended to the OBSERVE user message only when the student
-# provided a description. Kept separate from OBSERVE_USER (a verbatim DSL port)
-# to avoid reformatting the ported prompt.
-OBSERVE_DESCRIPTION_BLOCK = """Student_Description (supplementary, optional):
-The student's own words describing what they drew. Use this ONLY to disambiguate
-marks that are visibly present in the image but ambiguous (which line is a
-relationship, which attribute is a key, cardinality or participation direction).
-The image remains the sole source of truth. Do NOT add, upgrade, or infer any
-entity, relationship, attribute, cardinality, or participation that is not
-visibly drawn, no matter what the description claims. If the description
-conflicts with the image, trust the image and record the discrepancy in
-uncertain_items.
-
-Student_Description:
-{submission_description}"""
-
-
 # ============================================================================
 # NORMALIZE  <-  DSL node 'Extract ERD 2'
 # ============================================================================

@@ -267,6 +267,28 @@ export interface AssessmentItemAnalyticsResponse {
   // null when unfiltered (cohort-wide); set to the selected class_group otherwise.
   class_group?: string | null;
   student_count: number;
+  // Students expected to sit this assessment, narrowed to class_group when one is selected.
+  // The shared denominator for every item's attempted_count.
+  registered_count?: number;
   avg_weighted_score?: number | null;
   items: AssessmentItemAggregateScore[];
+}
+
+// One assessment's headline numbers for the admin dashboard index.
+export interface AssessmentAnalyticsSummaryRow {
+  assessment_id: number;
+  title: string;
+  is_published: boolean;
+  question_count: number;
+  registered_count: number;
+  // Students who opened the assessment — not the same as having attempted anything.
+  started_count: number;
+  avg_weighted_score?: number | null;
+}
+
+export interface AssessmentAnalyticsSummaryResponse {
+  // Platform-wide counts for the Overview tab's metric card.
+  platform_registered: number;
+  platform_signed_in: number;
+  assessments: AssessmentAnalyticsSummaryRow[];
 }

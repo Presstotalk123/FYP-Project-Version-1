@@ -8,6 +8,7 @@ import {
   AssessmentStudentsResponse,
   StudentComponentScoresResponse,
   AssessmentItemAnalyticsResponse,
+  AssessmentAnalyticsSummaryResponse,
   GatewayConfigResponse,
   GatewayConfigUpdate,
 } from '@/types/assessment.types';
@@ -71,6 +72,11 @@ export const assessmentService = {
     const response = await api.get(API_ENDPOINTS.ASSESSMENTS.ITEM_ANALYTICS(assessmentId), {
       params: classGroup ? { class_group: classGroup } : undefined,
     });
+    return response.data;
+  },
+
+  async getAnalyticsSummary(): Promise<AssessmentAnalyticsSummaryResponse> {
+    const response = await api.get(API_ENDPOINTS.ASSESSMENTS.ANALYTICS_SUMMARY);
     return response.data;
   },
 

@@ -290,6 +290,32 @@ class AssessmentItemAnalyticsResponse(BaseModel):
     # None when unfiltered (cohort-wide); set to the selected class_group otherwise.
     class_group: Optional[str] = None
     student_count: int
+    # Students expected to sit this assessment (whitelist ∪ users), narrowed to class_group
+    # when one is selected. The shared denominator for every item's attempted_count — it is
+    # identical for all items, so it is not repeated per item.
+    registered_count: int = 0
     # Mean weighted total (0-100) across the roster; None if unweighted or roster is empty.
     avg_weighted_score: Optional[float] = None
     items: List[AssessmentItemAggregateScore]
+
+
+class AssessmentAnalyticsSummaryRow(BaseModel):
+    """One assessment's headline numbers for the admin dashboard index."""
+    assessment_id: int
+    title: str
+    is_published: bool
+    question_count: int
+    # Students expected to sit it (whitelist ∪ users), scoped by the gateway's class groups.
+    registered_count: int
+    # Students who opened it — a session exists. Not the same as having attempted anything.
+    started_count: int
+    # Mean weighted total (0-100); None if the assessment is unweighted or nobody started.
+    avg_weighted_score: Optional[float] = None
+
+
+class AssessmentAnalyticsSummaryResponse(BaseModel):
+    # Platform-wide, unscoped by class group — feeds the Overview tab's metric card. Served
+    # here because /whitelist is admin-only while this dashboard is staff + admin.
+    platform_registered: int
+    platform_signed_in: int
+    assessments: List[AssessmentAnalyticsSummaryRow]

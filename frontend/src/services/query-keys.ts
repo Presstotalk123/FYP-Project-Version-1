@@ -7,6 +7,17 @@ export const queryKeys = {
   labs: ['labs'] as const,
   erdQuestions: ['erdQuestions'] as const,
   assessments: ['assessments'] as const,
+  // Admin dashboard: one row per assessment, plus platform registered/signed-in counts.
+  // Shared by the Overview and Assessments tabs so it is fetched once.
+  assessmentAnalyticsSummary: ['assessmentAnalyticsSummary'] as const,
+  // Per-assessment item analytics, keyed by class group so the cohort view and each
+  // tutorial group are cached separately — re-picking a group costs no request.
+  assessmentItemAnalytics: (assessmentId: number, classGroup: string | null) =>
+    ['assessmentItemAnalytics', assessmentId, classGroup] as const,
+  // One assessment's roster. Keyed by id — must NOT reuse `assessments`, which holds the
+  // assessments *list* for /admin/assessments; storing a roster there would collide.
+  assessmentStudents: (assessmentId: number) =>
+    ['assessmentStudents', assessmentId] as const,
   whitelist: ['whitelist'] as const,
   users: ['users'] as const,
   attempts: ['attempts'] as const,

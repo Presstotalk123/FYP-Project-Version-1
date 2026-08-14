@@ -24,12 +24,19 @@ from app.schemas.assessment import (
     StudentComponentScoresResponse,
     AssessmentItemComponentScore,
     AssessmentItemAnalyticsResponse,
+    AssessmentAnalyticsSummaryRow,
+    AssessmentAnalyticsSummaryResponse,
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
 )
 from app.dependencies import get_current_user, require_staff_role
-from app.services import assessment_clone, assessment_reset, assessment_scoring
+from app.services import (
+    assessment_clone,
+    assessment_registration,
+    assessment_reset,
+    assessment_scoring,
+)
 from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
 from sqlalchemy import func
 
@@ -215,6 +222,53 @@ def list_all_class_groups(
     Lets the editor list groups before the assessment has been created and given an id.
     Declared ahead of ``/{assessment_id}`` so it isn't captured by that dynamic route."""
     return _distinct_class_groups(db)
+
+
+@router.get("/analytics/summary", response_model=AssessmentAnalyticsSummaryResponse)
+def get_assessment_analytics_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """One row per assessment for the admin dashboard's Assessments tab, plus the
+    platform-wide registered/signed-in counts its Overview tab shows.
+
+    Declared ahead of ``/{assessment_id}`` so that dynamic route does not capture
+    "analytics" as an id — the same ordering constraint ``/class-groups`` documents.
+
+    Each row's average and started count come from the materialized per-assessment
+    analytics, so this is a cache read per assessment rather than a fresh aggregate."""
+    assessments = (
+        db.query(Assessment)
+        .filter(Assessment.is_deleted == 0)
+        .order_by(Assessment.id.desc())
+        .all()
+    )
+
+    item_counts = dict(
+        db.query(AssessmentItem.assessment_id, func.count(AssessmentItem.id))
+        .group_by(AssessmentItem.assessment_id)
+        .all()
+    )
+
+    rows: List[AssessmentAnalyticsSummaryRow] = []
+    for assessment in assessments:
+        analytics = assessment_scoring.get_or_compute_analytics(db, assessment, None)
+        scope_groups = assessment_registration.assessment_class_groups(db, assessment)
+        rows.append(AssessmentAnalyticsSummaryRow(
+            assessment_id=assessment.id,
+            title=assessment.title,
+            is_published=bool(assessment.is_published),
+            question_count=item_counts.get(assessment.id, 0),
+            registered_count=assessment_registration.registered_count(db, scope_groups),
+            started_count=analytics.student_count,
+            avg_weighted_score=analytics.avg_weighted_score,
+        ))
+
+    return AssessmentAnalyticsSummaryResponse(
+        platform_registered=assessment_registration.registered_count(db, None),
+        platform_signed_in=assessment_registration.signed_in_student_count(db),
+        assessments=rows,
+    )
 
 
 @router.get("/{assessment_id}", response_model=AssessmentResponse)
@@ -802,16 +856,26 @@ def get_assessment_item_analytics(
     roster of students — the whole cohort, or a single class_group when provided.
 
     Reads the shared, cached analytics (compute-once, materialized in
-    assessment_analytics) instead of the per-(student × item) query fan-out."""
+    assessment_analytics) instead of the per-(student × item) query fan-out.
+    `registered_count` is computed live rather than read from that cache, so editing the
+    whitelist moves the denominator immediately."""
     assessment = _get_staff_assessment(assessment_id, db)
 
     analytics = assessment_scoring.get_or_compute_analytics(db, assessment, class_group)
+
+    # Selecting a group narrows the denominator to that group; otherwise it is whoever the
+    # gateway admits (everyone, when the gateway is off).
+    scope_groups = (
+        [class_group] if class_group
+        else assessment_registration.assessment_class_groups(db, assessment)
+    )
 
     return AssessmentItemAnalyticsResponse(
         assessment_id=assessment.id,
         assessment_title=assessment.title,
         class_group=class_group,
         student_count=analytics.student_count,
+        registered_count=assessment_registration.registered_count(db, scope_groups),
         avg_weighted_score=analytics.avg_weighted_score,
         items=analytics.items,
     )

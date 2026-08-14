@@ -244,6 +244,12 @@ class LabTaskAggregateScore(BaseModel):
     order_index: int
     # % of the roster who solved this specific task (0-100); None if the roster is empty.
     success_rate: Optional[float] = None
+    # Headcounts behind success_rate: students who solved it, students who submitted at
+    # least once, and every submission they made. success_rate is correct_count/roster,
+    # so correct_count <= attempted_count <= the roster size.
+    correct_count: int = 0
+    attempted_count: int = 0
+    total_attempts: int = 0
 
 
 class AssessmentItemAggregateScore(BaseModel):
@@ -262,6 +268,20 @@ class AssessmentItemAggregateScore(BaseModel):
     tasks_total: Optional[int] = None
     # Lab items only: per-task success rate across the roster.
     tasks: Optional[List[LabTaskAggregateScore]] = None
+
+    # --- Headcounts (the counts behind avg_score_fraction) -----------------------
+    # Students who got this item fully right. "Fully" is per type: a correct attempt
+    # (sql_question), every non-deleted task solved (labs), a "pass" grade (er_question) —
+    # so an ER item scoring 60% counts as attempted but not correct.
+    correct_count: int = 0
+    # Students who submitted at least once, and the total submissions across the roster.
+    # ER attempts are read from er_submissions, which only the LangGraph engine writes:
+    # under ERD_TUTOR_ENGINE=dify these stay 0 even though scores exist.
+    attempted_count: int = 0
+    total_attempts: int = 0
+    # Mean attempts among the students who attempted (not the whole roster) — None when
+    # nobody attempted, so the UI shows "—" rather than a misleading 0.
+    avg_attempts: Optional[float] = None
 
 
 class AssessmentItemAnalyticsResponse(BaseModel):

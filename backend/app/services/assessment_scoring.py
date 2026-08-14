@@ -29,6 +29,7 @@ from app.models.assessment_item_visit import AssessmentItemVisit
 from app.models.assessment_session import AssessmentSession
 from app.models.attempt import Attempt
 from app.models.er_diagram_question import ERDiagramQuestion
+from app.models.er_submission import ErSubmission
 from app.models.lab import Lab
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
@@ -53,6 +54,19 @@ def _percent_from_score_json(last_submit_score: Optional[str]) -> Optional[float
         return float(data.get("percent"))
     except (TypeError, ValueError):
         return None
+
+
+def _label_from_score_json(last_submit_score: Optional[str]) -> Optional[str]:
+    """Parse the grader's verdict (`"pass"` / `"partial"` / `"fail"`) out of an ERD-tutor
+    `last_submit_score` JSON string. Used to headcount ER items as correct/not, matching
+    the pass-only rule the student report already uses for completion."""
+    if not last_submit_score:
+        return None
+    try:
+        data = json.loads(last_submit_score)
+    except (ValueError, TypeError):
+        return None
+    return data.get("label") if isinstance(data, dict) else None
 
 
 def er_percent(db: Session, question_id: int, student_id: int) -> Optional[float]:
@@ -256,6 +270,22 @@ def compute_roster_analytics(
             .all()
         }
 
+    # --- SQL questions: attempts per (user, question), correct or not ---
+    sql_attempts: dict = {}
+    if student_ids and sql_q_ids:
+        sql_attempts = {
+            (uid, qid): cnt
+            for uid, qid, cnt in db.query(
+                Attempt.user_id, Attempt.question_id, func.count(Attempt.id)
+            )
+            .filter(
+                Attempt.user_id.in_(student_ids),
+                Attempt.question_id.in_(sql_q_ids),
+            )
+            .group_by(Attempt.user_id, Attempt.question_id)
+            .all()
+        }
+
     # --- Labs: total tasks per lab, and each student's solved-task set per lab ---
     lab_total_tasks: dict = {}
     if lab_ids:
@@ -283,13 +313,60 @@ def compute_roster_analytics(
         ):
             lab_solved[(uid, lid)].add(tid)
 
-    # --- ER questions: latest graded percent per (user, question) ---
+    # --- Labs: submissions per (user, lab) and per (user, lab, task), correct or not ---
+    lab_attempts: dict = defaultdict(int)       # (user_id, lab_id) -> submissions
+    lab_task_attempts: dict = defaultdict(int)  # (user_id, lab_id, task_id) -> submissions
+    if student_ids and lab_ids:
+        for uid, lid, tid, cnt in (
+            db.query(
+                LabTaskSubmission.user_id,
+                LabTaskSubmission.lab_id,
+                LabTaskSubmission.task_id,
+                func.count(LabTaskSubmission.id),
+            )
+            .filter(
+                LabTaskSubmission.user_id.in_(student_ids),
+                LabTaskSubmission.lab_id.in_(lab_ids),
+            )
+            .group_by(
+                LabTaskSubmission.user_id,
+                LabTaskSubmission.lab_id,
+                LabTaskSubmission.task_id,
+            )
+            .all()
+        ):
+            lab_attempts[(uid, lid)] += cnt
+            lab_task_attempts[(uid, lid, tid)] = cnt
+
+    # --- ER questions: latest graded percent/verdict per (user, question) ---
     er_percents: dict = {}  # (user_id, question_id) -> percent (0-100) or None
+    er_labels: dict = {}    # (user_id, question_id) -> "pass" / "partial" / "fail" / None
     if student_ids and er_q_ids:
         raw = erd_persistence.find_last_submit_scores_bulk(
             db, user_ids=student_ids, er_diagram_question_ids=er_q_ids
         )
         er_percents = {key: _percent_from_score_json(s) for key, s in raw.items()}
+        er_labels = {key: _label_from_score_json(s) for key, s in raw.items()}
+
+    # --- ER questions: graded submissions per (user, question) ---
+    # er_submissions is written by the LangGraph engine only, so under
+    # ERD_TUTOR_ENGINE=dify these counts stay 0 while the scores above still populate.
+    er_attempts: dict = {}
+    if student_ids and er_q_ids:
+        er_attempts = {
+            (uid, qid): cnt
+            for uid, qid, cnt in db.query(
+                ErSubmission.user_id,
+                ErSubmission.er_diagram_question_id,
+                func.count(ErSubmission.id),
+            )
+            .filter(
+                ErSubmission.user_id.in_(student_ids),
+                ErSubmission.er_diagram_question_id.in_(er_q_ids),
+            )
+            .group_by(ErSubmission.user_id, ErSubmission.er_diagram_question_id)
+            .all()
+        }
 
     item_rows: list = []
     total_weight = 0
@@ -302,12 +379,23 @@ def compute_roster_analytics(
         avg_tasks_correct: Optional[float] = None
         tasks_total: Optional[int] = None
         task_rows: Optional[list] = None
+        # Headcounts alongside the averages: how many of the roster got it right, how
+        # many tried, and how many tries that took in total.
+        correct_count = 0
+        attempted_count = 0
+        total_attempts = 0
 
         if item.item_type == "sql_question":
             fractions = [
                 1.0 if (uid, item.item_id) in solved_sql else 0.0
                 for uid in student_ids
             ]
+            correct_count = sum(1 for f in fractions if f >= 1.0)
+            for uid in student_ids:
+                tries = sql_attempts.get((uid, item.item_id), 0)
+                if tries:
+                    attempted_count += 1
+                total_attempts += tries
         elif item.item_type in ("sql_lab", "graph_lab"):
             total = lab_total_tasks.get(item.item_id, 0)
             tasks_total = total
@@ -318,6 +406,13 @@ def compute_roster_analytics(
                 correct = len(solved)
                 fractions.append(min(1.0, correct / total) if total > 0 else 0.0)
                 tasks_correct_values.append(correct)
+                # "Correct" for a lab means every one of its tasks solved.
+                if total > 0 and correct >= total:
+                    correct_count += 1
+                tries = lab_attempts.get((uid, item.item_id), 0)
+                if tries:
+                    attempted_count += 1
+                total_attempts += tries
                 for tid in solved:
                     task_correct_counts[tid] += 1
             avg_tasks_correct = (
@@ -330,8 +425,13 @@ def compute_roster_analytics(
                 .order_by(LabTask.order_index)
                 .all()
             )
-            task_rows = [
-                LabTaskAggregateScore(
+            task_rows = []
+            for task in lab_tasks:
+                per_student_tries = [
+                    lab_task_attempts.get((uid, item.item_id, task.id), 0)
+                    for uid in student_ids
+                ]
+                task_rows.append(LabTaskAggregateScore(
                     task_id=task.id,
                     task_title=task.title,
                     order_index=task.order_index,
@@ -339,13 +439,22 @@ def compute_roster_analytics(
                         round(task_correct_counts.get(task.id, 0) / n * 100, 1)
                         if n else None
                     ),
-                )
-                for task in lab_tasks
-            ]
+                    correct_count=task_correct_counts.get(task.id, 0),
+                    attempted_count=sum(1 for t in per_student_tries if t),
+                    total_attempts=sum(per_student_tries),
+                ))
         elif item.item_type == "er_question":
             for uid in student_ids:
                 pct = er_percents.get((uid, item.item_id))
                 fractions.append((pct / 100.0) if pct is not None else 0.0)
+                # ER scores are proportional, so "correct" is the grader's pass verdict —
+                # the same rule the student report uses for ER completion.
+                if er_labels.get((uid, item.item_id)) == "pass":
+                    correct_count += 1
+                tries = er_attempts.get((uid, item.item_id), 0)
+                if tries:
+                    attempted_count += 1
+                total_attempts += tries
         else:
             fractions = [0.0 for _ in student_ids]
 
@@ -369,6 +478,12 @@ def compute_roster_analytics(
             avg_tasks_correct=avg_tasks_correct,
             tasks_total=tasks_total,
             tasks=task_rows,
+            correct_count=correct_count,
+            attempted_count=attempted_count,
+            total_attempts=total_attempts,
+            avg_attempts=(
+                round(total_attempts / attempted_count, 1) if attempted_count else None
+            ),
         ))
 
         total_weight += item.weight
@@ -396,9 +511,18 @@ def compute_roster_analytics(
 
 # --- Cache-over-table accessor ---------------------------------------------------
 
+# Shape of the assessment_analytics.payload JSON. Bump whenever a field is added to (or
+# changed in) the serialized aggregate: rows written by an older build stay in the table
+# across a deploy and their `version` may still match, so without this they would keep
+# serving a payload missing the new fields. A mismatch is treated as a cache miss.
+#   1 -> original; 2 -> added per-item/per-task correct & attempt headcounts.
+_PAYLOAD_SCHEMA = 2
+
+
 def _serialize_analytics(result: RosterAnalytics) -> str:
     """RosterAnalytics -> JSON string for the assessment_analytics.payload column."""
     return json.dumps({
+        "schema": _PAYLOAD_SCHEMA,
         "class_group": result.class_group,
         "student_count": result.student_count,
         "avg_weighted_score": result.avg_weighted_score,
@@ -406,6 +530,15 @@ def _serialize_analytics(result: RosterAnalytics) -> str:
         # JSON object keys must be strings; restored to int on read.
         "per_student_scores": {str(uid): s for uid, s in result.per_student_scores.items()},
     })
+
+
+def _payload_schema_current(payload: str) -> bool:
+    """True when a stored payload was written by this build's serializer. Unreadable
+    JSON counts as stale so the caller recomputes rather than raising."""
+    try:
+        return json.loads(payload).get("schema") == _PAYLOAD_SCHEMA
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def _deserialize_analytics(assessment_id: int, payload: str) -> RosterAnalytics:
@@ -483,8 +616,9 @@ def _materialize(db: Session, assessment: Assessment, class_group: Optional[str]
     """L2 (durable table) + L3 (recompute) behind the in-process cache.
 
     Serves the stored row when its version matches the current ASSESSMENT_ANALYTICS
-    generation; otherwise recomputes in bulk, persists the row, and returns it. The
-    request session stays read-only throughout (the write goes through its own session).
+    generation AND its payload was written by this build's serializer; otherwise
+    recomputes in bulk, persists the row, and returns it. The request session stays
+    read-only throughout (the write goes through its own session).
     """
     cur = get_version(db, Ns.ASSESSMENT_ANALYTICS)
     if cur < 0:
@@ -492,7 +626,7 @@ def _materialize(db: Session, assessment: Assessment, class_group: Optional[str]
         return compute_roster_analytics(db, assessment, class_group)
 
     row = _load_analytics_row(db, assessment.id, class_group)
-    if row is not None and row.version == cur:
+    if row is not None and row.version == cur and _payload_schema_current(row.payload):
         return _deserialize_analytics(assessment.id, row.payload)
 
     result = compute_roster_analytics(db, assessment, class_group)

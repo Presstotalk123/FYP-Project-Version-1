@@ -17,6 +17,7 @@ import {
   ScrollArea,
   Modal,
   Select,
+  Box,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -33,6 +34,7 @@ import {
   AssessmentStudentRow,
   AssessmentStudentsResponse,
   AssessmentItemComponentScore,
+  AssessmentItemAggregateScore,
   StudentComponentScoresResponse,
   AssessmentItemAnalyticsResponse,
 } from '@/types/assessment.types';
@@ -179,6 +181,24 @@ export default function AssessmentStudentsPage() {
         {score}%
       </Badge>
     );
+
+  // "4 of 12 correct · 18 attempts by 9 students (avg 2.0)" — the headcounts behind the
+  // averages above. The attempts half is dropped when nothing was recorded, so an ER item
+  // graded by the Dify engine (which writes no er_submissions rows) reads as correct-only
+  // instead of claiming zero attempts.
+  const renderItemCounts = (item: AssessmentItemAggregateScore, rosterSize: number) => {
+    const correct = item.correct_count ?? 0;
+    const attempted = item.attempted_count ?? 0;
+    const attempts = item.total_attempts ?? 0;
+    const parts = [`${correct} of ${rosterSize} correct`];
+    if (attempts > 0) {
+      parts.push(
+        `${attempts} attempt${attempts === 1 ? '' : 's'} by ${attempted} student${attempted === 1 ? '' : 's'}` +
+        (item.avg_attempts != null ? ` (avg ${item.avg_attempts})` : '')
+      );
+    }
+    return <Text size="xs" c="dimmed">{parts.join(' · ')}</Text>;
+  };
 
   const renderItemScore = (item: AssessmentItemComponentScore, studentId: number) => {
     if (item.item_type === 'sql_question') {
@@ -364,13 +384,18 @@ export default function AssessmentStudentsPage() {
                                   )}
                                 </Group>
                               </Group>
+                              <Box pl="lg">
+                                {renderItemCounts(item, itemAnalytics.student_count)}
+                              </Box>
                               {(item.item_type === 'sql_lab' || item.item_type === 'graph_lab') && !!item.tasks?.length && (
                                 <Stack gap={2} pl="lg">
                                   {item.tasks.map((task) => (
                                     <Group key={task.task_id} justify="space-between" wrap="nowrap">
                                       <Text size="xs" c="dimmed" lineClamp={1}>{task.task_title}</Text>
-                                      <Text size="xs" c="dimmed">
-                                        {task.success_rate != null ? `${task.success_rate}%` : '—'}
+                                      <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                                        {task.correct_count ?? 0}/{itemAnalytics.student_count} correct
+                                        {(task.total_attempts ?? 0) > 0 && ` · ${task.total_attempts} attempts`}
+                                        {task.success_rate != null ? ` · ${task.success_rate}%` : ''}
                                       </Text>
                                     </Group>
                                   ))}

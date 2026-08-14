@@ -228,6 +228,11 @@ export interface LabTaskAggregateScore {
   order_index: number;
   // % of the roster who solved this specific task (0-100); null if the roster is empty.
   success_rate?: number | null;
+  // Headcounts behind success_rate: students who solved it, students who submitted at
+  // least once, and every submission they made.
+  correct_count?: number;
+  attempted_count?: number;
+  total_attempts?: number;
 }
 
 export interface AssessmentItemAggregateScore {
@@ -245,6 +250,15 @@ export interface AssessmentItemAggregateScore {
   tasks_total?: number | null;
   // Lab items only: per-task success rate across the roster.
   tasks?: LabTaskAggregateScore[] | null;
+  // Students who got this item fully right: a correct attempt (sql_question), every task
+  // solved (labs), a "pass" grade (er_question).
+  correct_count?: number;
+  // Students who submitted at least once, and their total submissions. ER attempts come
+  // from er_submissions, which only the LangGraph engine writes.
+  attempted_count?: number;
+  total_attempts?: number;
+  // Mean attempts among students who attempted; null when nobody did.
+  avg_attempts?: number | null;
 }
 
 export interface AssessmentItemAnalyticsResponse {

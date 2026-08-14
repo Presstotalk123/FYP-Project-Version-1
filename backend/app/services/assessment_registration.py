@@ -12,20 +12,44 @@ the ASSESSMENT_ANALYTICS version happened to bump.
 """
 from typing import Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.assessment import Assessment
 from app.models.assessment_class_window import AssessmentClassWindow
 from app.models.user import User, UserRole
 from app.models.whitelist import WhitelistEntry
 
 
-def assessment_class_groups(db: Session, assessment: Assessment) -> Optional[list[str]]:
-    """Class groups gating this assessment, or None meaning "everyone".
+def excluded_class_groups() -> list[str]:
+    """Staff/test class groups that never count as participants (see config)."""
+    return settings.ANALYTICS_EXCLUDED_CLASS_GROUPS or []
 
-    Only the Timing Gateway restricts who may sit an assessment. With it off — or on but with
-    no enabled window configured — there is no per-group restriction, so every registered
-    student is in scope and None is returned.
+
+def exclude_test_groups(query, column):
+    """Drop staff/test groups from a query.
+
+    ``NOT IN`` evaluates to NULL — and therefore filters out the row — when the column is
+    NULL, so a student with no class group at all would silently vanish. The explicit
+    IS NULL branch keeps them.
+    """
+    excluded = excluded_class_groups()
+    if not excluded:
+        return query
+    return query.filter(or_(column.is_(None), column.notin_(excluded)))
+
+
+def assessment_class_groups(db: Session, assessment: Assessment) -> Optional[list[str]]:
+    """Class groups gating this assessment. None means "everyone"; [] means "nobody".
+
+    Only the Timing Gateway restricts who may sit an assessment, so with it off there is no
+    per-group restriction and None is returned.
+
+    With the gateway ON but no enabled window configured, the gateway resolves to NO_WINDOW
+    for every student — nobody can sit it. That returns an empty list, NOT None: treating it
+    as "unrestricted" would report the whole cohort as registered for an assessment no one
+    can access (e.g. "0/312 started" the moment staff enable the gateway before scheduling).
     """
     if not assessment.gateway_enabled:
         return None
@@ -38,8 +62,7 @@ def assessment_class_groups(db: Session, assessment: Assessment) -> Optional[lis
         .distinct()
         .all()
     )
-    groups = [cg for (cg,) in rows if cg]
-    return groups or None
+    return [cg for (cg,) in rows if cg]
 
 
 def registered_emails(db: Session, class_groups: Optional[list[str]] = None) -> set[str]:
@@ -47,13 +70,15 @@ def registered_emails(db: Session, class_groups: Optional[list[str]] = None) -> 
 
     Whitelist entries unioned with real user accounts. Lowercasing is what dedupes the two
     sources: the same student appears in both once they log in. Passing an empty list means
-    "no groups", which correctly yields an empty set.
+    "no groups", which correctly yields an empty set. Staff/test groups are always excluded.
     """
     user_q = db.query(User.email).filter(User.role == UserRole.STUDENT)
     wl_q = db.query(WhitelistEntry.email).filter(WhitelistEntry.role == UserRole.STUDENT)
     if class_groups is not None:
         user_q = user_q.filter(User.class_group.in_(class_groups))
         wl_q = wl_q.filter(WhitelistEntry.class_group.in_(class_groups))
+    user_q = exclude_test_groups(user_q, User.class_group)
+    wl_q = exclude_test_groups(wl_q, WhitelistEntry.class_group)
     emails = {email.lower() for (email,) in user_q.all() if email}
     emails |= {email.lower() for (email,) in wl_q.all() if email}
     return emails
@@ -93,6 +118,8 @@ def registered_students(
     if class_groups is not None:
         wl_q = wl_q.filter(WhitelistEntry.class_group.in_(class_groups))
         user_q = user_q.filter(User.class_group.in_(class_groups))
+    wl_q = exclude_test_groups(wl_q, WhitelistEntry.class_group)
+    user_q = exclude_test_groups(user_q, User.class_group)
 
     by_email: dict[str, dict] = {}
     # Whitelist first so the user rows below overwrite them.

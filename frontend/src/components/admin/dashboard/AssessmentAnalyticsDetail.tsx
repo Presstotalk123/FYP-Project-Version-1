@@ -87,8 +87,11 @@ function QuestionStudentList({
 
         {query.data && query.data.students.length > 0 && (
           <>
+            {/* Counts the rows actually rendered, not registered_count: the list is the union
+                of registered students and the roster, so the two can differ and the header
+                would otherwise claim "5 registered" above 7 rows. */}
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-              {query.data.registered_count} registered · weakest first
+              {query.data.students.length} student{query.data.students.length === 1 ? '' : 's'} · weakest first
             </div>
             <table className="da-table" style={{ background: 'transparent' }}>
               <tbody>
@@ -134,18 +137,10 @@ export function AssessmentAnalyticsDetail({
     enabled: classGroup !== null,
   });
 
-  // Group options come from this assessment's own roster, not a global list.
-  const studentsQuery = useQuery({
-    queryKey: queryKeys.assessmentStudents(assessmentId),
-    queryFn: () => assessmentService.getAssessmentStudents(assessmentId),
-  });
-  const groupOptions = Array.from(
-    new Set(
-      (studentsQuery.data?.students ?? [])
-        .map((s) => s.class_group)
-        .filter((c): c is string => !!c),
-    ),
-  ).sort();
+  // Group options ride along on the analytics response, already scoped to this assessment's
+  // roster. Previously this fetched the entire student roster — every row with its scores —
+  // purely to populate a dropdown, which cost a second request and ~8 backend queries.
+  const groupOptions = cohortQuery.data?.class_groups ?? [];
 
   if (cohortQuery.isLoading) {
     return (
@@ -202,6 +197,16 @@ export function AssessmentAnalyticsDetail({
         <div className="loading-center">
           <div className="spinner" />
           <span>Loading {classGroup}…</span>
+        </div>
+      )}
+
+      {/* Without this the failure is silent: `comparing` goes false, the table falls back to
+          cohort-wide figures headed "Cohort", and the dropdown still reads the group name —
+          so staff would be looking at the wrong numbers with no indication anything failed. */}
+      {classGroup && groupQuery.error != null && (
+        <div className="da-alert alert-error" role="alert">
+          <strong>Could not load {classGroup}</strong>
+          <span>Showing cohort-wide figures instead. Re-select the group to retry.</span>
         </div>
       )}
 

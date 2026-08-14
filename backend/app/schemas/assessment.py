@@ -296,6 +296,10 @@ class AssessmentItemAnalyticsResponse(BaseModel):
     registered_count: int = 0
     # Mean weighted total (0-100) across the roster; None if unweighted or roster is empty.
     avg_weighted_score: Optional[float] = None
+    # Distinct class groups present in THIS assessment's roster, for the group filter. Sent
+    # here so the dashboard doesn't have to fetch the entire student roster just to populate
+    # a dropdown, and so the options stay scoped to this assessment rather than the platform.
+    class_groups: List[str] = []
     items: List[AssessmentItemAggregateScore]
 
 

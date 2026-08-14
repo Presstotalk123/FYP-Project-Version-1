@@ -18,10 +18,6 @@ export const queryKeys = {
   // caches separately and collapsing then re-expanding costs no request.
   assessmentItemStudents: (assessmentId: number, itemId: number, classGroup: string | null) =>
     ['assessmentItemStudents', assessmentId, itemId, classGroup] as const,
-  // One assessment's roster. Keyed by id — must NOT reuse `assessments`, which holds the
-  // assessments *list* for /admin/assessments; storing a roster there would collide.
-  assessmentStudents: (assessmentId: number) =>
-    ['assessmentStudents', assessmentId] as const,
   whitelist: ['whitelist'] as const,
   users: ['users'] as const,
   attempts: ['attempts'] as const,

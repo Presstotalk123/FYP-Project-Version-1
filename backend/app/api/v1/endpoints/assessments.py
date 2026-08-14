@@ -39,6 +39,7 @@ from app.services import (
     assessment_reset,
     assessment_scoring,
 )
+from app.services.erd_tutor import persistence as erd_persistence
 from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
 from sqlalchemy import func
 
@@ -252,6 +253,19 @@ def get_assessment_analytics_summary(
         .all()
     )
 
+    # Most assessments share the same registration scope (typically "everyone", since the
+    # gateway is usually off), and resolving it walks the whole users + whitelist_entries
+    # tables. Memoize per request so this is O(distinct scopes) rather than O(assessments) —
+    # it was 2 queries per assessment, i.e. ~45% of this endpoint's entire query count. The
+    # memo dies with the request, so registration stays live.
+    registered_memo: dict = {}
+
+    def registered_for(groups: Optional[List[str]]) -> int:
+        key = tuple(sorted(groups)) if groups is not None else None
+        if key not in registered_memo:
+            registered_memo[key] = assessment_registration.registered_count(db, groups)
+        return registered_memo[key]
+
     rows: List[AssessmentAnalyticsSummaryRow] = []
     for assessment in assessments:
         analytics = assessment_scoring.get_or_compute_analytics(db, assessment, None)
@@ -261,13 +275,13 @@ def get_assessment_analytics_summary(
             title=assessment.title,
             is_published=bool(assessment.is_published),
             question_count=item_counts.get(assessment.id, 0),
-            registered_count=assessment_registration.registered_count(db, scope_groups),
+            registered_count=registered_for(scope_groups),
             started_count=analytics.student_count,
             avg_weighted_score=analytics.avg_weighted_score,
         ))
 
     return AssessmentAnalyticsSummaryResponse(
-        platform_registered=assessment_registration.registered_count(db, None),
+        platform_registered=registered_for(None),
         platform_signed_in=assessment_registration.signed_in_student_count(db),
         assessments=rows,
     )
@@ -879,6 +893,7 @@ def get_assessment_item_analytics(
         student_count=analytics.student_count,
         registered_count=assessment_registration.registered_count(db, scope_groups),
         avg_weighted_score=analytics.avg_weighted_score,
+        class_groups=sorted(assessment_scoring.roster_class_groups(db, assessment.id)),
         items=analytics.items,
     )
 
@@ -1067,6 +1082,19 @@ def get_item_students(
         .all()
     ) if roster_ids else []
 
+    # ER items are graded through the tutor conversation, while `attempts` counts
+    # er_submissions rows — written only by the LangGraph engine, inside a best-effort block
+    # that swallows its own failures. The two can therefore disagree: a real grade exists
+    # while the analytics row does not, which would render a green "85%" badge labelled
+    # "Not attempted". The conversation's score is the authoritative signal that a student
+    # was graded, so it decides the status for ER items.
+    er_graded: set = set()
+    if item.item_type == "er_question" and roster_ids:
+        raw_scores = erd_persistence.find_last_submit_scores_bulk(
+            db, user_ids=roster_ids, er_diagram_question_ids=[item.item_id]
+        )
+        er_graded = {uid for (uid, _qid), score in raw_scores.items() if score}
+
     rows: List[ItemStudentRow] = []
     seen_emails: set = set()
 
@@ -1077,7 +1105,7 @@ def get_item_students(
             email=(email or "").lower(),
             name=name,
             class_group=group,
-            status="graded" if attempts > 0 else "not_attempted",
+            status="graded" if (attempts > 0 or uid in er_graded) else "not_attempted",
             score_percent=round(fraction * 100, 1),
             detail=_item_detail_string(item.item_type, fraction, tasks_total),
             attempts=attempts,

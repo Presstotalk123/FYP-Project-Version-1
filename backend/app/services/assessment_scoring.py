@@ -34,11 +34,12 @@ from app.models.lab import Lab
 from app.models.lab_task import LabTask
 from app.models.lab_task_submission import LabTaskSubmission
 from app.models.question import Question
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.assessment import (
     AssessmentItemAggregateScore,
     LabTaskAggregateScore,
 )
+from app.services import assessment_registration
 from app.services.erd_tutor import persistence as erd_persistence
 
 
@@ -197,19 +198,28 @@ def roster_user_ids(
 ) -> list[int]:
     """Distinct user ids of everyone who has a session on this assessment.
 
-    The whole cohort for cohort-average purposes — mirrors the endpoint's
-    `_student_roster` but returns ids only (one row per user is implicit in the
-    distinct set, so the "latest session per user" collapse isn't needed here).
-    Pass `class_group` to restrict to a single group (the class-group roster).
+    The whole cohort for cohort-average purposes. Returns ids only (one row per user is
+    implicit in the distinct set, so the "latest session per user" collapse isn't needed
+    here). Pass `class_group` to restrict to a single group (the class-group roster).
+
+    Counts only genuine participants: `role = student`, excluding the staff/test class
+    groups. Without this the numerator and denominator of every "attempted / registered"
+    ratio come from different populations — a tutor who opens an assessment to check it
+    holds a session but is not registered, yielding "13/12 attempted". The endpoint's
+    `_student_roster` is deliberately NOT filtered the same way: it drives the visible
+    roster table, which stays a complete audit view of who actually joined.
     """
     query = (
         db.query(AssessmentSession.user_id)
-        .filter(AssessmentSession.assessment_id == assessment_id)
+        .join(User, User.id == AssessmentSession.user_id)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            User.role == UserRole.STUDENT,
+        )
     )
     if class_group:
-        query = query.join(User, User.id == AssessmentSession.user_id).filter(
-            User.class_group == class_group
-        )
+        query = query.filter(User.class_group == class_group)
+    query = assessment_registration.exclude_test_groups(query, User.class_group)
     rows = query.distinct().all()
     return [uid for (uid,) in rows]
 
@@ -329,9 +339,14 @@ def compute_roster_analytics(
                 LabTaskSubmission.task_id,
                 func.count(LabTaskSubmission.id),
             )
+            # Deleted tasks are excluded to match lab_total_tasks above. Without this the
+            # item's attempt total counts submissions against tasks that no longer exist,
+            # so it can exceed the sum of the per-task lines rendered beneath it.
+            .join(LabTask, LabTask.id == LabTaskSubmission.task_id)
             .filter(
                 LabTaskSubmission.user_id.in_(student_ids),
                 LabTaskSubmission.lab_id.in_(lab_ids),
+                LabTask.is_deleted == 0,
             )
             .group_by(
                 LabTaskSubmission.user_id,
@@ -378,9 +393,11 @@ def compute_roster_analytics(
     weighted_avg_earned = 0.0
     per_student_earned = {uid: 0.0 for uid in student_ids}
     per_student_item: dict = {}
+    # Resolved in one batch (3 queries max) rather than one query per item inside the loop.
+    item_titles = resolve_item_titles(db, items)
 
     for item in items:
-        title = resolve_item_title(db, item)
+        title = item_titles.get(item.id, f"Item #{item.item_id}")
         fractions: list = []
         avg_tasks_correct: Optional[float] = None
         tasks_total: Optional[int] = None
@@ -759,8 +776,57 @@ def cohort_average(db: Session, assessment: Assessment) -> Optional[float]:
     return round(sum(scores) / len(scores), 1)
 
 
+def resolve_item_titles(db: Session, items: list) -> dict:
+    """Titles for a batch of assessment items, keyed by AssessmentItem.id.
+
+    The batched counterpart of `resolve_item_title`: three queries at most regardless of how
+    many items an assessment has, instead of one per item. Worth batching because
+    `compute_roster_analytics` runs uncached on every read while an assessment is still open,
+    so the per-item lookups repeat on each dashboard refresh.
+    """
+    by_type: dict = defaultdict(set)
+    for item in items:
+        by_type[item.item_type].add(item.item_id)
+
+    sql_titles: dict = {}
+    if by_type.get("sql_question"):
+        sql_titles = dict(
+            db.query(Question.id, Question.title)
+            .filter(Question.id.in_(by_type["sql_question"])).all()
+        )
+    er_titles: dict = {}
+    if by_type.get("er_question"):
+        er_titles = dict(
+            db.query(ERDiagramQuestion.id, ERDiagramQuestion.title)
+            .filter(ERDiagramQuestion.id.in_(by_type["er_question"])).all()
+        )
+    lab_ids = by_type.get("sql_lab", set()) | by_type.get("graph_lab", set())
+    lab_titles: dict = {}
+    if lab_ids:
+        lab_titles = dict(
+            db.query(Lab.id, Lab.title)
+            .filter(Lab.id.in_(lab_ids), Lab.is_deleted == 0).all()
+        )
+
+    resolved: dict = {}
+    for item in items:
+        if item.item_type == "sql_question":
+            resolved[item.id] = sql_titles.get(item.item_id) or f"Question #{item.item_id}"
+        elif item.item_type == "er_question":
+            resolved[item.id] = er_titles.get(item.item_id) or f"ER Question #{item.item_id}"
+        elif item.item_type in ("sql_lab", "graph_lab"):
+            resolved[item.id] = lab_titles.get(item.item_id) or f"Lab #{item.item_id}"
+        else:
+            resolved[item.id] = f"Item #{item.item_id}"
+    return resolved
+
+
 def resolve_item_title(db: Session, item: AssessmentItem) -> str:
-    """Display title for a polymorphic assessment item (SQL/ER question or lab)."""
+    """Display title for a polymorphic assessment item (SQL/ER question or lab).
+
+    Single-item form, kept for callers handling one item. Use `resolve_item_titles` when
+    resolving a whole assessment's items.
+    """
     if item.item_type == "sql_question":
         row = db.query(Question.title).filter(Question.id == item.item_id).first()
         return row[0] if row else f"Question #{item.item_id}"

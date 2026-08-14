@@ -271,6 +271,9 @@ export interface AssessmentItemAnalyticsResponse {
   // The shared denominator for every item's attempted_count.
   registered_count?: number;
   avg_weighted_score?: number | null;
+  // Class groups present in this assessment's roster — the group filter's options. Sent with
+  // the analytics so the dashboard needn't fetch the whole roster to populate a dropdown.
+  class_groups?: string[];
   items: AssessmentItemAggregateScore[];
 }
 

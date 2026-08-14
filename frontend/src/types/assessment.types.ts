@@ -228,6 +228,11 @@ export interface LabTaskAggregateScore {
   order_index: number;
   // % of the roster who solved this specific task (0-100); null if the roster is empty.
   success_rate?: number | null;
+  // Headcounts behind success_rate: students who solved it, students who submitted at
+  // least once, and every submission they made.
+  correct_count?: number;
+  attempted_count?: number;
+  total_attempts?: number;
 }
 
 export interface AssessmentItemAggregateScore {
@@ -245,6 +250,15 @@ export interface AssessmentItemAggregateScore {
   tasks_total?: number | null;
   // Lab items only: per-task success rate across the roster.
   tasks?: LabTaskAggregateScore[] | null;
+  // Students who got this item fully right: a correct attempt (sql_question), every task
+  // solved (labs), a "pass" grade (er_question).
+  correct_count?: number;
+  // Students who submitted at least once, and their total submissions. ER attempts come
+  // from er_submissions, which only the LangGraph engine writes.
+  attempted_count?: number;
+  total_attempts?: number;
+  // Mean attempts among students who attempted; null when nobody did.
+  avg_attempts?: number | null;
 }
 
 export interface AssessmentItemAnalyticsResponse {
@@ -253,6 +267,57 @@ export interface AssessmentItemAnalyticsResponse {
   // null when unfiltered (cohort-wide); set to the selected class_group otherwise.
   class_group?: string | null;
   student_count: number;
+  // Students expected to sit this assessment, narrowed to class_group when one is selected.
+  // The shared denominator for every item's attempted_count.
+  registered_count?: number;
   avg_weighted_score?: number | null;
+  // Class groups present in this assessment's roster — the group filter's options. Sent with
+  // the analytics so the dashboard needn't fetch the whole roster to populate a dropdown.
+  class_groups?: string[];
   items: AssessmentItemAggregateScore[];
+}
+
+// One assessment's headline numbers for the admin dashboard index.
+export interface AssessmentAnalyticsSummaryRow {
+  assessment_id: number;
+  title: string;
+  is_published: boolean;
+  question_count: number;
+  registered_count: number;
+  // Students who opened the assessment — not the same as having attempted anything.
+  started_count: number;
+  avg_weighted_score?: number | null;
+}
+
+export interface AssessmentAnalyticsSummaryResponse {
+  // Platform-wide counts for the Overview tab's metric card.
+  platform_registered: number;
+  platform_signed_in: number;
+  assessments: AssessmentAnalyticsSummaryRow[];
+}
+
+// One student's outcome on one assessment question.
+export type ItemStudentStatus = 'not_started' | 'not_attempted' | 'graded';
+
+export interface ItemStudentRow {
+  email: string;
+  name?: string | null;
+  class_group?: string | null;
+  status: ItemStudentStatus;
+  // 0-100. null only when status is 'not_started'.
+  score_percent?: number | null;
+  // "3/4 tasks", "Correct", "Incorrect"; null for ER items.
+  detail?: string | null;
+  attempts: number;
+}
+
+export interface ItemStudentsResponse {
+  assessment_id: number;
+  assessment_item_id: number;
+  item_title: string;
+  item_type: AssessmentItemType;
+  class_group?: string | null;
+  registered_count: number;
+  // Server-sorted weakest-first; render in the order received.
+  students: ItemStudentRow[];
 }

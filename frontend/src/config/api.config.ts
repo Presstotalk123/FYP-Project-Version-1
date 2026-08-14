@@ -134,6 +134,9 @@ export const API_ENDPOINTS = {
     STUDENTS: (id: number) => `/assessments/${id}/students`,
     STUDENT_SCORES: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/component-scores`,
     ITEM_ANALYTICS: (id: number) => `/assessments/${id}/item-analytics`,
+    ANALYTICS_SUMMARY: '/assessments/analytics/summary',
+    ITEM_STUDENTS: (id: number, itemId: number) =>
+      `/assessments/${id}/items/${itemId}/students`,
     RESET_STUDENT: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/reset`,
     WINDOWS: (id: number) => `/assessments/${id}/windows`,
     CLASS_GROUPS: (id: number) => `/assessments/${id}/class-groups`,

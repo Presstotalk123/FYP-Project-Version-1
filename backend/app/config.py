@@ -75,6 +75,12 @@ class Settings(BaseSettings):
         "https://www.ntuakela.net"
     ]
 
+    # Class groups that are staff/test accounts rather than real participants. Excluded from
+    # BOTH sides of every analytics ratio — the registered denominator and the roster
+    # numerator — so a tutor sitting an assessment to check it does not skew the cohort
+    # average or produce "13/12 attempted".
+    ANALYTICS_EXCLUDED_CLASS_GROUPS: list[str] = ["TEST", "TA", "PROF"]
+
     # Dify ER rubric endpoint
     DIFY_ER_RUBRIC_URL: Optional[str] = None
     DIFY_ER_RUBRIC_API_KEY: Optional[str] = None

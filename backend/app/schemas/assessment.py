@@ -244,6 +244,12 @@ class LabTaskAggregateScore(BaseModel):
     order_index: int
     # % of the roster who solved this specific task (0-100); None if the roster is empty.
     success_rate: Optional[float] = None
+    # Headcounts behind success_rate: students who solved it, students who submitted at
+    # least once, and every submission they made. success_rate is correct_count/roster,
+    # so correct_count <= attempted_count <= the roster size.
+    correct_count: int = 0
+    attempted_count: int = 0
+    total_attempts: int = 0
 
 
 class AssessmentItemAggregateScore(BaseModel):
@@ -263,6 +269,20 @@ class AssessmentItemAggregateScore(BaseModel):
     # Lab items only: per-task success rate across the roster.
     tasks: Optional[List[LabTaskAggregateScore]] = None
 
+    # --- Headcounts (the counts behind avg_score_fraction) -----------------------
+    # Students who got this item fully right. "Fully" is per type: a correct attempt
+    # (sql_question), every non-deleted task solved (labs), a "pass" grade (er_question) —
+    # so an ER item scoring 60% counts as attempted but not correct.
+    correct_count: int = 0
+    # Students who submitted at least once, and the total submissions across the roster.
+    # ER attempts are read from er_submissions, which only the LangGraph engine writes:
+    # under ERD_TUTOR_ENGINE=dify these stay 0 even though scores exist.
+    attempted_count: int = 0
+    total_attempts: int = 0
+    # Mean attempts among the students who attempted (not the whole roster) — None when
+    # nobody attempted, so the UI shows "—" rather than a misleading 0.
+    avg_attempts: Optional[float] = None
+
 
 class AssessmentItemAnalyticsResponse(BaseModel):
     assessment_id: int
@@ -270,6 +290,64 @@ class AssessmentItemAnalyticsResponse(BaseModel):
     # None when unfiltered (cohort-wide); set to the selected class_group otherwise.
     class_group: Optional[str] = None
     student_count: int
+    # Students expected to sit this assessment (whitelist ∪ users), narrowed to class_group
+    # when one is selected. The shared denominator for every item's attempted_count — it is
+    # identical for all items, so it is not repeated per item.
+    registered_count: int = 0
     # Mean weighted total (0-100) across the roster; None if unweighted or roster is empty.
     avg_weighted_score: Optional[float] = None
+    # Distinct class groups present in THIS assessment's roster, for the group filter. Sent
+    # here so the dashboard doesn't have to fetch the entire student roster just to populate
+    # a dropdown, and so the options stay scoped to this assessment rather than the platform.
+    class_groups: List[str] = []
     items: List[AssessmentItemAggregateScore]
+
+
+class AssessmentAnalyticsSummaryRow(BaseModel):
+    """One assessment's headline numbers for the admin dashboard index."""
+    assessment_id: int
+    title: str
+    is_published: bool
+    question_count: int
+    # Students expected to sit it (whitelist ∪ users), scoped by the gateway's class groups.
+    registered_count: int
+    # Students who opened it — a session exists. Not the same as having attempted anything.
+    started_count: int
+    # Mean weighted total (0-100); None if the assessment is unweighted or nobody started.
+    avg_weighted_score: Optional[float] = None
+
+
+class AssessmentAnalyticsSummaryResponse(BaseModel):
+    # Platform-wide, unscoped by class group — feeds the Overview tab's metric card. Served
+    # here because /whitelist is admin-only while this dashboard is staff + admin.
+    platform_registered: int
+    platform_signed_in: int
+    assessments: List[AssessmentAnalyticsSummaryRow]
+
+
+class ItemStudentRow(BaseModel):
+    """One student's outcome on one assessment question."""
+    email: str
+    name: Optional[str] = None
+    class_group: Optional[str] = None
+    # not_started (registered, never opened the assessment) | not_attempted (opened it,
+    # never submitted for this question) | graded (submitted at least once).
+    status: str
+    # 0-100. None only when status is not_started — that student has no data at all,
+    # which is different from scoring zero.
+    score_percent: Optional[float] = None
+    # Context beside the percent: "3/4 tasks", "Correct", "Incorrect". None for ER items,
+    # whose percent is already the whole story.
+    detail: Optional[str] = None
+    attempts: int = 0
+
+
+class ItemStudentsResponse(BaseModel):
+    assessment_id: int
+    assessment_item_id: int
+    item_title: str
+    item_type: str
+    class_group: Optional[str] = None
+    registered_count: int
+    # Sorted weakest-first: non-starters, then ascending percent, ties broken by email.
+    students: List[ItemStudentRow]

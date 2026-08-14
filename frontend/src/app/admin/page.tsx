@@ -1,138 +1,88 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
-import { questionService } from '@/services/question.service';
-import { queryKeys } from '@/services/query-keys';
-import api from '@/services/api.service';
-import { ActiveUsersCard } from '@/components/admin/ActiveUsersCard';
+import { OverviewTab } from '@/components/admin/dashboard/OverviewTab';
+import { AssessmentAnalyticsTab } from '@/components/admin/dashboard/AssessmentAnalyticsTab';
 
-const IconRefresh = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-  </svg>
-);
+type DashboardTab = 'overview' | 'assessments';
+
+const TABS: { key: DashboardTab; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'assessments', label: 'Assessments' },
+];
 
 export default function AdminDashboard() {
-  const router = useRouter();
-
-  // Cached session-wide (see providers.tsx). `questions` is shared with the
-  // Problems page, so visiting both fetches it only once.
-  const questionsQuery = useQuery({
-    queryKey: queryKeys.questions,
-    queryFn: () => questionService.getQuestions(),
-  });
-  const usersQuery = useQuery({
-    queryKey: queryKeys.users,
-    queryFn: async () => (await api.get('/users')).data as { role: string }[],
-  });
-  const attemptsQuery = useQuery({
-    queryKey: queryKeys.attempts,
-    queryFn: async () => (await api.get('/attempts')).data as unknown[],
-  });
-
-  const loading = questionsQuery.isLoading;
-  const stats = {
-    totalQuestions: questionsQuery.data?.length ?? 0,
-    totalStudents: usersQuery.data?.filter((u) => u.role === 'student').length ?? 0,
-    totalAttempts: attemptsQuery.data?.length ?? 0,
-  };
-
-  const refresh = () => {
-    questionsQuery.refetch();
-    usersQuery.refetch();
-    attemptsQuery.refetch();
-  };
-  const refreshing = questionsQuery.isFetching || usersQuery.isFetching || attemptsQuery.isFetching;
+  const [tab, setTab] = useState<DashboardTab>('overview');
 
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
-        <div className="page-head">
-          <div>
-            <h2>Admin Dashboard</h2>
-            <p>Welcome to the SQL Learning Platform administration panel.</p>
+        <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start', minHeight: '100%' }}>
+          {/* Left tab sidebar — same pattern as /admin/problems */}
+          <div
+            style={{
+              width: '180px',
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              position: 'sticky',
+              top: '84px',
+              alignSelf: 'flex-start',
+            }}
+          >
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 650,
+                textTransform: 'uppercase',
+                color: 'var(--text-muted)',
+                marginBottom: '4px',
+                padding: '0 12px',
+                letterSpacing: '0.05em',
+              }}
+            >
+              Dashboard
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {TABS.map((t) => {
+                const active = tab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius)',
+                      border: 'none',
+                      background: active ? 'var(--surface-brand)' : 'transparent',
+                      color: active ? 'var(--brand-lilac)' : 'var(--brand-charcoal)',
+                      fontWeight: active ? 750 : 650,
+                      fontSize: '14px',
+                      width: '100%',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background 140ms ease, color 140ms ease',
+                    }}
+                  >
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="button-row">
-            <button className="btn btn-secondary" onClick={refresh} disabled={refreshing} title="Reload latest data from the server">
-              <IconRefresh />
-              {refreshing ? 'Refreshing…' : 'Refresh'}
-            </button>
+
+          {/* Main content */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {tab === 'overview' ? <OverviewTab /> : <AssessmentAnalyticsTab />}
           </div>
         </div>
-
-        {loading ? (
-          <div className="loading-center">
-            <div className="spinner" />
-            <span>Loading stats…</span>
-          </div>
-        ) : (
-          <>
-            <ActiveUsersCard />
-
-            {/* Metric cards */}
-            <div className="grid-3" style={{ marginBottom: 18 }}>
-              <article className="card metric">
-                <div>
-                  <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Total Questions
-                  </span>
-                  <strong>{stats.totalQuestions}</strong>
-                </div>
-                <span className="badge brand-badge">SQL</span>
-              </article>
-
-              <article className="card metric">
-                <div>
-                  <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Registered Students
-                  </span>
-                  <strong>{stats.totalStudents}</strong>
-                </div>
-                <span className="badge badge-success">Students</span>
-              </article>
-
-              <article className="card metric">
-                <div>
-                  <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Total Attempts
-                  </span>
-                  <strong>{stats.totalAttempts}</strong>
-                </div>
-                <span className="badge badge-warn">Attempts</span>
-              </article>
-            </div>
-
-            {/* Quick actions */}
-            <article className="card">
-              <h3 style={{ marginBottom: 14 }}>Quick Actions</h3>
-              <div className="button-row">
-                <button
-                  className="btn btn-primary"
-                  onClick={() => router.push('/admin/questions')}
-                >
-                  Manage Questions
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => router.push('/admin/questions/new')}
-                >
-                  Create New Question
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => router.push('/admin/labs')}
-                >
-                  Manage Labs
-                </button>
-              </div>
-            </article>
-          </>
-        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

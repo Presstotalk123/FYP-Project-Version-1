@@ -24,12 +24,22 @@ from app.schemas.assessment import (
     StudentComponentScoresResponse,
     AssessmentItemComponentScore,
     AssessmentItemAnalyticsResponse,
+    AssessmentAnalyticsSummaryRow,
+    AssessmentAnalyticsSummaryResponse,
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
+    ItemStudentRow,
+    ItemStudentsResponse,
 )
 from app.dependencies import get_current_user, require_staff_role
-from app.services import assessment_clone, assessment_reset, assessment_scoring
+from app.services import (
+    assessment_clone,
+    assessment_registration,
+    assessment_reset,
+    assessment_scoring,
+)
+from app.services.erd_tutor import persistence as erd_persistence
 from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
 from sqlalchemy import func
 
@@ -215,6 +225,66 @@ def list_all_class_groups(
     Lets the editor list groups before the assessment has been created and given an id.
     Declared ahead of ``/{assessment_id}`` so it isn't captured by that dynamic route."""
     return _distinct_class_groups(db)
+
+
+@router.get("/analytics/summary", response_model=AssessmentAnalyticsSummaryResponse)
+def get_assessment_analytics_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """One row per assessment for the admin dashboard's Assessments tab, plus the
+    platform-wide registered/signed-in counts its Overview tab shows.
+
+    Declared ahead of ``/{assessment_id}`` so that dynamic route does not capture
+    "analytics" as an id — the same ordering constraint ``/class-groups`` documents.
+
+    Each row's average and started count come from the materialized per-assessment
+    analytics, so this is a cache read per assessment rather than a fresh aggregate."""
+    assessments = (
+        db.query(Assessment)
+        .filter(Assessment.is_deleted == 0)
+        .order_by(Assessment.id.desc())
+        .all()
+    )
+
+    item_counts = dict(
+        db.query(AssessmentItem.assessment_id, func.count(AssessmentItem.id))
+        .group_by(AssessmentItem.assessment_id)
+        .all()
+    )
+
+    # Most assessments share the same registration scope (typically "everyone", since the
+    # gateway is usually off), and resolving it walks the whole users + whitelist_entries
+    # tables. Memoize per request so this is O(distinct scopes) rather than O(assessments) —
+    # it was 2 queries per assessment, i.e. ~45% of this endpoint's entire query count. The
+    # memo dies with the request, so registration stays live.
+    registered_memo: dict = {}
+
+    def registered_for(groups: Optional[List[str]]) -> int:
+        key = tuple(sorted(groups)) if groups is not None else None
+        if key not in registered_memo:
+            registered_memo[key] = assessment_registration.registered_count(db, groups)
+        return registered_memo[key]
+
+    rows: List[AssessmentAnalyticsSummaryRow] = []
+    for assessment in assessments:
+        analytics = assessment_scoring.get_or_compute_analytics(db, assessment, None)
+        scope_groups = assessment_registration.assessment_class_groups(db, assessment)
+        rows.append(AssessmentAnalyticsSummaryRow(
+            assessment_id=assessment.id,
+            title=assessment.title,
+            is_published=bool(assessment.is_published),
+            question_count=item_counts.get(assessment.id, 0),
+            registered_count=registered_for(scope_groups),
+            started_count=analytics.student_count,
+            avg_weighted_score=analytics.avg_weighted_score,
+        ))
+
+    return AssessmentAnalyticsSummaryResponse(
+        platform_registered=registered_for(None),
+        platform_signed_in=assessment_registration.signed_in_student_count(db),
+        assessments=rows,
+    )
 
 
 @router.get("/{assessment_id}", response_model=AssessmentResponse)
@@ -802,17 +872,28 @@ def get_assessment_item_analytics(
     roster of students — the whole cohort, or a single class_group when provided.
 
     Reads the shared, cached analytics (compute-once, materialized in
-    assessment_analytics) instead of the per-(student × item) query fan-out."""
+    assessment_analytics) instead of the per-(student × item) query fan-out.
+    `registered_count` is computed live rather than read from that cache, so editing the
+    whitelist moves the denominator immediately."""
     assessment = _get_staff_assessment(assessment_id, db)
 
     analytics = assessment_scoring.get_or_compute_analytics(db, assessment, class_group)
+
+    # Selecting a group narrows the denominator to that group; otherwise it is whoever the
+    # gateway admits (everyone, when the gateway is off).
+    scope_groups = (
+        [class_group] if class_group
+        else assessment_registration.assessment_class_groups(db, assessment)
+    )
 
     return AssessmentItemAnalyticsResponse(
         assessment_id=assessment.id,
         assessment_title=assessment.title,
         class_group=class_group,
         student_count=analytics.student_count,
+        registered_count=assessment_registration.registered_count(db, scope_groups),
         avg_weighted_score=analytics.avg_weighted_score,
+        class_groups=sorted(assessment_scoring.roster_class_groups(db, assessment.id)),
         items=analytics.items,
     )
 
@@ -927,3 +1008,137 @@ def reset_student_attempt(
     summary = assessment_reset.reset_student_attempt(db, assessment, student_id)
     db.commit()
     return {"detail": "Attempt reset", "student_id": student_id, "deleted": summary}
+
+
+def _item_detail_string(
+    item_type: str, fraction: float, tasks_total: Optional[int]
+) -> Optional[str]:
+    """Human-readable context beside a student's percent.
+
+    Lab task counts are derived from the fraction rather than stored per student, keeping the
+    cached payload to two numbers per (student, item). Exact except when a student solved
+    tasks that were later deleted — the fraction caps at 1.0, so the row reads "4/4 tasks",
+    which is what should be displayed anyway.
+    """
+    if item_type == "sql_question":
+        return "Correct" if fraction >= 1.0 else "Incorrect"
+    if item_type in ("sql_lab", "graph_lab"):
+        if not tasks_total:
+            return None
+        return f"{round(fraction * tasks_total)}/{tasks_total} tasks"
+    return None
+
+
+@router.get(
+    "/{assessment_id}/items/{assessment_item_id}/students",
+    response_model=ItemStudentsResponse,
+)
+def get_item_students(
+    assessment_id: int,
+    assessment_item_id: int,
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Every registered student's outcome on one question, weakest first.
+
+    Scores come from the cached roster analytics (so they cannot disagree with the average
+    shown on the question row); registration is resolved live, so adding a whitelist row
+    appears immediately."""
+    assessment = _get_staff_assessment(assessment_id, db)
+
+    item = (
+        db.query(AssessmentItem)
+        .filter(
+            AssessmentItem.id == assessment_item_id,
+            AssessmentItem.assessment_id == assessment_id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question not found in this assessment",
+        )
+
+    # Analytics scoped to the SAME class group as the request, so per_student_item covers
+    # exactly the roster being listed.
+    analytics = assessment_scoring.get_or_compute_analytics(db, assessment, class_group)
+
+    tasks_total = next(
+        (i.tasks_total for i in analytics.items if i.assessment_item_id == item.id), None
+    )
+
+    scope_groups = (
+        [class_group] if class_group
+        else assessment_registration.assessment_class_groups(db, assessment)
+    )
+    registered = assessment_registration.registered_students(db, scope_groups)
+
+    roster_ids = assessment_scoring.roster_user_ids(db, assessment_id, class_group)
+    roster_users = (
+        db.query(User.id, User.email, User.name, User.class_group)
+        .filter(User.id.in_(roster_ids))
+        .all()
+    ) if roster_ids else []
+
+    # ER items are graded through the tutor conversation, while `attempts` counts
+    # er_submissions rows — written only by the LangGraph engine, inside a best-effort block
+    # that swallows its own failures. The two can therefore disagree: a real grade exists
+    # while the analytics row does not, which would render a green "85%" badge labelled
+    # "Not attempted". The conversation's score is the authoritative signal that a student
+    # was graded, so it decides the status for ER items.
+    er_graded: set = set()
+    if item.item_type == "er_question" and roster_ids:
+        raw_scores = erd_persistence.find_last_submit_scores_bulk(
+            db, user_ids=roster_ids, er_diagram_question_ids=[item.item_id]
+        )
+        er_graded = {uid for (uid, _qid), score in raw_scores.items() if score}
+
+    rows: List[ItemStudentRow] = []
+    seen_emails: set = set()
+
+    for uid, email, name, group in roster_users:
+        fraction, attempts = analytics.per_student_item.get((uid, item.id), (0.0, 0))
+        seen_emails.add((email or "").lower())
+        rows.append(ItemStudentRow(
+            email=(email or "").lower(),
+            name=name,
+            class_group=group,
+            status="graded" if (attempts > 0 or uid in er_graded) else "not_attempted",
+            score_percent=round(fraction * 100, 1),
+            detail=_item_detail_string(item.item_type, fraction, tasks_total),
+            attempts=attempts,
+        ))
+
+    # Registered students with no session at all — they never opened the assessment, which is
+    # a different problem from failing the question, so they carry no score.
+    for student in registered:
+        if student["email"] in seen_emails:
+            continue
+        rows.append(ItemStudentRow(
+            email=student["email"],
+            name=student["name"],
+            class_group=student["class_group"],
+            status="not_started",
+            score_percent=None,
+            detail=None,
+            attempts=0,
+        ))
+
+    # Weakest first: non-starters lead, then ascending percent, ties by email.
+    rows.sort(key=lambda r: (
+        0 if r.status == "not_started" else 1,
+        r.score_percent if r.score_percent is not None else 0.0,
+        r.email,
+    ))
+
+    return ItemStudentsResponse(
+        assessment_id=assessment.id,
+        assessment_item_id=item.id,
+        item_title=assessment_scoring.resolve_item_title(db, item),
+        item_type=item.item_type,
+        class_group=class_group,
+        registered_count=len(registered),
+        students=rows,
+    )

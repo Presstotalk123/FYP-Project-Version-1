@@ -7,6 +7,17 @@ export const queryKeys = {
   labs: ['labs'] as const,
   erdQuestions: ['erdQuestions'] as const,
   assessments: ['assessments'] as const,
+  // Admin dashboard: one row per assessment, plus platform registered/signed-in counts.
+  // Shared by the Overview and Assessments tabs so it is fetched once.
+  assessmentAnalyticsSummary: ['assessmentAnalyticsSummary'] as const,
+  // Per-assessment item analytics, keyed by class group so the cohort view and each
+  // tutorial group are cached separately — re-picking a group costs no request.
+  assessmentItemAnalytics: (assessmentId: number, classGroup: string | null) =>
+    ['assessmentItemAnalytics', assessmentId, classGroup] as const,
+  // Per-question student drill-down, keyed by question and class group so each expansion
+  // caches separately and collapsing then re-expanding costs no request.
+  assessmentItemStudents: (assessmentId: number, itemId: number, classGroup: string | null) =>
+    ['assessmentItemStudents', assessmentId, itemId, classGroup] as const,
   whitelist: ['whitelist'] as const,
   users: ['users'] as const,
   attempts: ['attempts'] as const,

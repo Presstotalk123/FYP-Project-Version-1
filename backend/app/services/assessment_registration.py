@@ -71,3 +71,39 @@ def signed_in_student_count(db: Session) -> int:
     sign-up rate.
     """
     return db.query(User.id).filter(User.role == UserRole.STUDENT).count()
+
+
+def registered_students(
+    db: Session, class_groups: Optional[list[str]] = None
+) -> list[dict]:
+    """Registered students for a scope, with identity — the counting counterpart of
+    ``registered_emails``.
+
+    Deduped on lowercased email. A real ``users`` row WINS over a whitelist row for name and
+    class group: the account reflects what the student is now, the whitelist only what staff
+    pre-registered. Returned sorted by email so callers have a stable order before their own
+    sort is applied.
+    """
+    wl_q = db.query(
+        WhitelistEntry.email, WhitelistEntry.name, WhitelistEntry.class_group
+    ).filter(WhitelistEntry.role == UserRole.STUDENT)
+    user_q = db.query(User.email, User.name, User.class_group).filter(
+        User.role == UserRole.STUDENT
+    )
+    if class_groups is not None:
+        wl_q = wl_q.filter(WhitelistEntry.class_group.in_(class_groups))
+        user_q = user_q.filter(User.class_group.in_(class_groups))
+
+    by_email: dict[str, dict] = {}
+    # Whitelist first so the user rows below overwrite them.
+    for email, name, group in wl_q.all():
+        if email:
+            by_email[email.lower()] = {
+                "email": email.lower(), "name": name, "class_group": group,
+            }
+    for email, name, group in user_q.all():
+        if email:
+            by_email[email.lower()] = {
+                "email": email.lower(), "name": name, "class_group": group,
+            }
+    return sorted(by_email.values(), key=lambda r: r["email"])

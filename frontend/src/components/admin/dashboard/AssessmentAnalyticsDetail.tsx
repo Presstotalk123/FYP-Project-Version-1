@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
-import { AssessmentItemAggregateScore } from '@/types/assessment.types';
+import { AssessmentItemAggregateScore, ItemStudentRow } from '@/types/assessment.types';
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   sql_question: 'SQL Question',
@@ -39,6 +39,78 @@ function renderDelta(group: number | null, cohort: number | null) {
   );
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  not_started: 'Not started',
+  not_attempted: 'Not attempted',
+  graded: '',
+};
+
+// The expanded student list for one question. Fetches only while open; the query key
+// includes the class group so each group caches separately.
+function QuestionStudentList({
+  assessmentId,
+  itemId,
+  classGroup,
+  colSpan,
+}: {
+  assessmentId: number;
+  itemId: number;
+  classGroup: string | null;
+  colSpan: number;
+}) {
+  const query = useQuery({
+    queryKey: queryKeys.assessmentItemStudents(assessmentId, itemId, classGroup),
+    queryFn: () => assessmentService.getItemStudents(assessmentId, itemId, classGroup),
+  });
+
+  const renderCell = (row: ItemStudentRow) => {
+    if (row.status === 'not_started') {
+      return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+    }
+    const pct = row.score_percent ?? 0;
+    const cls = pct >= 75 ? 'badge-success' : pct >= 50 ? 'badge-warn' : 'badge-danger';
+    return <span className={`badge ${cls}`}>{pct}%</span>;
+  };
+
+  return (
+    <tr>
+      <td colSpan={colSpan} style={{ background: 'var(--surface-muted)', padding: '10px 14px' }}>
+        {query.isLoading && <span style={{ color: 'var(--text-muted)' }}>Loading students…</span>}
+
+        {query.error != null && (
+          <span style={{ color: 'var(--error)' }}>Failed to load students for this question.</span>
+        )}
+
+        {query.data && query.data.students.length === 0 && (
+          <span style={{ color: 'var(--text-muted)' }}>No students registered for this group.</span>
+        )}
+
+        {query.data && query.data.students.length > 0 && (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              {query.data.registered_count} registered · weakest first
+            </div>
+            <table className="da-table" style={{ background: 'transparent' }}>
+              <tbody>
+                {query.data.students.map((row) => (
+                  <tr key={row.email}>
+                    <td style={{ width: '45%' }}>{row.name || row.email}</td>
+                    <td style={{ width: '15%' }}>{row.class_group ?? '—'}</td>
+                    <td style={{ width: '15%' }}>{renderCell(row)}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>
+                      {STATUS_LABEL[row.status] || row.detail || ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 export function AssessmentAnalyticsDetail({
   assessmentId,
   onBack,
@@ -47,6 +119,9 @@ export function AssessmentAnalyticsDetail({
   onBack: () => void;
 }) {
   const [classGroup, setClassGroup] = useState<string | null>(null);
+  // One question expanded at a time — opening a second collapses the first, so the page
+  // never becomes a wall of student lists.
+  const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
 
   const cohortQuery = useQuery({
     queryKey: queryKeys.assessmentItemAnalytics(assessmentId, null),
@@ -185,29 +260,49 @@ export function AssessmentAnalyticsDetail({
                   (c) => c.assessment_item_id === item.assessment_item_id,
                 );
                 const denominator = scoped.registered_count ?? 0;
+                const expanded = expandedItemId === item.assessment_item_id;
+                const colSpan = comparing ? 5 : 3;
                 return (
-                  <tr key={item.assessment_item_id}>
-                    <td>
-                      <span style={{ color: 'var(--text-muted)', marginRight: 8 }}>#{idx + 1}</span>
-                      <span className="badge badge-info" style={{ marginRight: 8 }}>
-                        {ITEM_TYPE_LABEL[item.item_type] ?? item.item_type}
-                      </span>
-                      {item.item_title}
-                    </td>
-                    <td>{renderScore(itemPercent(item))}</td>
-                    {comparing && <td>{renderScore(cohortItem ? itemPercent(cohortItem) : null)}</td>}
-                    {comparing && (
+                  <React.Fragment key={item.assessment_item_id}>
+                    <tr
+                      style={{ cursor: 'pointer' }}
+                      onClick={() =>
+                        setExpandedItemId(expanded ? null : item.assessment_item_id)
+                      }
+                    >
                       <td>
-                        {renderDelta(
-                          itemPercent(item),
-                          cohortItem ? itemPercent(cohortItem) : null,
-                        )}
+                        <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>
+                          {expanded ? '▾' : '▸'}
+                        </span>
+                        <span style={{ color: 'var(--text-muted)', marginRight: 8 }}>#{idx + 1}</span>
+                        <span className="badge badge-info" style={{ marginRight: 8 }}>
+                          {ITEM_TYPE_LABEL[item.item_type] ?? item.item_type}
+                        </span>
+                        {item.item_title}
                       </td>
+                      <td>{renderScore(itemPercent(item))}</td>
+                      {comparing && <td>{renderScore(cohortItem ? itemPercent(cohortItem) : null)}</td>}
+                      {comparing && (
+                        <td>
+                          {renderDelta(
+                            itemPercent(item),
+                            cohortItem ? itemPercent(cohortItem) : null,
+                          )}
+                        </td>
+                      )}
+                      <td>
+                        {item.attempted_count ?? 0}/{denominator}
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <QuestionStudentList
+                        assessmentId={assessmentId}
+                        itemId={item.assessment_item_id}
+                        classGroup={classGroup}
+                        colSpan={colSpan}
+                      />
                     )}
-                    <td>
-                      {item.attempted_count ?? 0}/{denominator}
-                    </td>
-                  </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>

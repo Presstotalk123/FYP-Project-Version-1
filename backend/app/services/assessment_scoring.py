@@ -230,6 +230,11 @@ class RosterAnalytics:
     items: list = field(default_factory=list)  # list[AssessmentItemAggregateScore]
     # user_id -> weighted total (0-100), or None when the assessment is unweighted.
     per_student_scores: dict = field(default_factory=dict)
+    # (user_id, assessment_item_id) -> (fraction 0.0-1.0, attempt count). Retained from the
+    # same pass that produces the per-item averages, so the drill-down can list individual
+    # students without recomputing — and can never disagree with the average above it.
+    # Roster students only; registered non-starters are merged in by the endpoint.
+    per_student_item: dict = field(default_factory=dict)
 
 
 def compute_roster_analytics(
@@ -372,6 +377,7 @@ def compute_roster_analytics(
     total_weight = 0
     weighted_avg_earned = 0.0
     per_student_earned = {uid: 0.0 for uid in student_ids}
+    per_student_item: dict = {}
 
     for item in items:
         title = resolve_item_title(db, item)
@@ -463,8 +469,20 @@ def compute_roster_analytics(
             round(item.weight * avg_fraction, 2) if avg_fraction is not None else None
         )
 
+        # Which attempt tally applies depends on the item type. These dicts are keyed by
+        # item.item_id (the content id), while per_student_item is keyed by item.id (the
+        # assessment_item_id) — they are different numbers, do not interchange them.
+        attempts_source = {
+            "sql_question": sql_attempts,
+            "sql_lab": lab_attempts,
+            "graph_lab": lab_attempts,
+            "er_question": er_attempts,
+        }.get(item.item_type)
+
         for idx, uid in enumerate(student_ids):
             per_student_earned[uid] += item.weight * fractions[idx]
+            tries = attempts_source.get((uid, item.item_id), 0) if attempts_source else 0
+            per_student_item[(uid, item.id)] = (fractions[idx], tries)
 
         item_rows.append(AssessmentItemAggregateScore(
             assessment_item_id=item.id,
@@ -506,6 +524,7 @@ def compute_roster_analytics(
         avg_weighted_score=avg_weighted_score,
         items=item_rows,
         per_student_scores=per_student_scores,
+        per_student_item=per_student_item,
     )
 
 
@@ -515,8 +534,9 @@ def compute_roster_analytics(
 # changed in) the serialized aggregate: rows written by an older build stay in the table
 # across a deploy and their `version` may still match, so without this they would keep
 # serving a payload missing the new fields. A mismatch is treated as a cache miss.
-#   1 -> original; 2 -> added per-item/per-task correct & attempt headcounts.
-_PAYLOAD_SCHEMA = 2
+#   1 -> original; 2 -> added per-item/per-task correct & attempt headcounts;
+#   3 -> added per_student_item (per-student, per-item fraction + attempts).
+_PAYLOAD_SCHEMA = 3
 
 
 def _serialize_analytics(result: RosterAnalytics) -> str:
@@ -529,6 +549,11 @@ def _serialize_analytics(result: RosterAnalytics) -> str:
         "items": [item.model_dump() for item in result.items],
         # JSON object keys must be strings; restored to int on read.
         "per_student_scores": {str(uid): s for uid, s in result.per_student_scores.items()},
+        # Composite "uid:item_id" key for the same reason.
+        "per_student_item": {
+            f"{uid}:{item_id}": [frac, tries]
+            for (uid, item_id), (frac, tries) in result.per_student_item.items()
+        },
     })
 
 
@@ -550,6 +575,10 @@ def _deserialize_analytics(assessment_id: int, payload: str) -> RosterAnalytics:
         avg_weighted_score=data.get("avg_weighted_score"),
         items=[AssessmentItemAggregateScore.model_validate(i) for i in data.get("items", [])],
         per_student_scores={int(uid): s for uid, s in data.get("per_student_scores", {}).items()},
+        per_student_item={
+            (int(key.split(":")[0]), int(key.split(":")[1])): (value[0], value[1])
+            for key, value in data.get("per_student_item", {}).items()
+        },
     )
 
 

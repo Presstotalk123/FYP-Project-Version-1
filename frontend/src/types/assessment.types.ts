@@ -292,3 +292,29 @@ export interface AssessmentAnalyticsSummaryResponse {
   platform_signed_in: number;
   assessments: AssessmentAnalyticsSummaryRow[];
 }
+
+// One student's outcome on one assessment question.
+export type ItemStudentStatus = 'not_started' | 'not_attempted' | 'graded';
+
+export interface ItemStudentRow {
+  email: string;
+  name?: string | null;
+  class_group?: string | null;
+  status: ItemStudentStatus;
+  // 0-100. null only when status is 'not_started'.
+  score_percent?: number | null;
+  // "3/4 tasks", "Correct", "Incorrect"; null for ER items.
+  detail?: string | null;
+  attempts: number;
+}
+
+export interface ItemStudentsResponse {
+  assessment_id: number;
+  assessment_item_id: number;
+  item_title: string;
+  item_type: AssessmentItemType;
+  class_group?: string | null;
+  registered_count: number;
+  // Server-sorted weakest-first; render in the order received.
+  students: ItemStudentRow[];
+}

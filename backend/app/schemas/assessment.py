@@ -319,3 +319,31 @@ class AssessmentAnalyticsSummaryResponse(BaseModel):
     platform_registered: int
     platform_signed_in: int
     assessments: List[AssessmentAnalyticsSummaryRow]
+
+
+class ItemStudentRow(BaseModel):
+    """One student's outcome on one assessment question."""
+    email: str
+    name: Optional[str] = None
+    class_group: Optional[str] = None
+    # not_started (registered, never opened the assessment) | not_attempted (opened it,
+    # never submitted for this question) | graded (submitted at least once).
+    status: str
+    # 0-100. None only when status is not_started — that student has no data at all,
+    # which is different from scoring zero.
+    score_percent: Optional[float] = None
+    # Context beside the percent: "3/4 tasks", "Correct", "Incorrect". None for ER items,
+    # whose percent is already the whole story.
+    detail: Optional[str] = None
+    attempts: int = 0
+
+
+class ItemStudentsResponse(BaseModel):
+    assessment_id: int
+    assessment_item_id: int
+    item_title: str
+    item_type: str
+    class_group: Optional[str] = None
+    registered_count: int
+    # Sorted weakest-first: non-starters, then ascending percent, ties broken by email.
+    students: List[ItemStudentRow]

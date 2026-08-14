@@ -29,6 +29,8 @@ from app.schemas.assessment import (
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
+    ItemStudentRow,
+    ItemStudentsResponse,
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.services import (
@@ -991,3 +993,124 @@ def reset_student_attempt(
     summary = assessment_reset.reset_student_attempt(db, assessment, student_id)
     db.commit()
     return {"detail": "Attempt reset", "student_id": student_id, "deleted": summary}
+
+
+def _item_detail_string(
+    item_type: str, fraction: float, tasks_total: Optional[int]
+) -> Optional[str]:
+    """Human-readable context beside a student's percent.
+
+    Lab task counts are derived from the fraction rather than stored per student, keeping the
+    cached payload to two numbers per (student, item). Exact except when a student solved
+    tasks that were later deleted — the fraction caps at 1.0, so the row reads "4/4 tasks",
+    which is what should be displayed anyway.
+    """
+    if item_type == "sql_question":
+        return "Correct" if fraction >= 1.0 else "Incorrect"
+    if item_type in ("sql_lab", "graph_lab"):
+        if not tasks_total:
+            return None
+        return f"{round(fraction * tasks_total)}/{tasks_total} tasks"
+    return None
+
+
+@router.get(
+    "/{assessment_id}/items/{assessment_item_id}/students",
+    response_model=ItemStudentsResponse,
+)
+def get_item_students(
+    assessment_id: int,
+    assessment_item_id: int,
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Every registered student's outcome on one question, weakest first.
+
+    Scores come from the cached roster analytics (so they cannot disagree with the average
+    shown on the question row); registration is resolved live, so adding a whitelist row
+    appears immediately."""
+    assessment = _get_staff_assessment(assessment_id, db)
+
+    item = (
+        db.query(AssessmentItem)
+        .filter(
+            AssessmentItem.id == assessment_item_id,
+            AssessmentItem.assessment_id == assessment_id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question not found in this assessment",
+        )
+
+    # Analytics scoped to the SAME class group as the request, so per_student_item covers
+    # exactly the roster being listed.
+    analytics = assessment_scoring.get_or_compute_analytics(db, assessment, class_group)
+
+    tasks_total = next(
+        (i.tasks_total for i in analytics.items if i.assessment_item_id == item.id), None
+    )
+
+    scope_groups = (
+        [class_group] if class_group
+        else assessment_registration.assessment_class_groups(db, assessment)
+    )
+    registered = assessment_registration.registered_students(db, scope_groups)
+
+    roster_ids = assessment_scoring.roster_user_ids(db, assessment_id, class_group)
+    roster_users = (
+        db.query(User.id, User.email, User.name, User.class_group)
+        .filter(User.id.in_(roster_ids))
+        .all()
+    ) if roster_ids else []
+
+    rows: List[ItemStudentRow] = []
+    seen_emails: set = set()
+
+    for uid, email, name, group in roster_users:
+        fraction, attempts = analytics.per_student_item.get((uid, item.id), (0.0, 0))
+        seen_emails.add((email or "").lower())
+        rows.append(ItemStudentRow(
+            email=(email or "").lower(),
+            name=name,
+            class_group=group,
+            status="graded" if attempts > 0 else "not_attempted",
+            score_percent=round(fraction * 100, 1),
+            detail=_item_detail_string(item.item_type, fraction, tasks_total),
+            attempts=attempts,
+        ))
+
+    # Registered students with no session at all — they never opened the assessment, which is
+    # a different problem from failing the question, so they carry no score.
+    for student in registered:
+        if student["email"] in seen_emails:
+            continue
+        rows.append(ItemStudentRow(
+            email=student["email"],
+            name=student["name"],
+            class_group=student["class_group"],
+            status="not_started",
+            score_percent=None,
+            detail=None,
+            attempts=0,
+        ))
+
+    # Weakest first: non-starters lead, then ascending percent, ties by email.
+    rows.sort(key=lambda r: (
+        0 if r.status == "not_started" else 1,
+        r.score_percent if r.score_percent is not None else 0.0,
+        r.email,
+    ))
+
+    return ItemStudentsResponse(
+        assessment_id=assessment.id,
+        assessment_item_id=item.id,
+        item_title=assessment_scoring.resolve_item_title(db, item),
+        item_type=item.item_type,
+        class_group=class_group,
+        registered_count=len(registered),
+        students=rows,
+    )

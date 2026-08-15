@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -84,6 +84,7 @@ class ChatbotRequest(BaseModel):
 @router.post("/send")
 async def send_chatbot_message(
     request: ChatbotRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -138,6 +139,37 @@ Your rules:
 - Ask guiding questions to help the student reason through the problem
 - Reference specific table and column names from the schema when relevant
 - Keep responses concise and focused"""
+
+    # Adaptive path (SQL_TUTOR_ADAPTIVE): swap the flat prompt for one tailored to
+    # the student's live concept mastery / scaffolding level / prior SOLO level.
+    # Falls back silently to the default prompt on any error so chat never breaks.
+    sql_conversation_id = None
+    if settings.SQL_TUTOR_ADAPTIVE:
+        try:
+            from app.services import sql_tutor_adaptive
+            turn = sql_tutor_adaptive.prepare_turn(
+                db, current_user.id, question, student_query=student_query,
+            )
+            system_prompt = turn.system_prompt
+            sql_conversation_id = turn.conversation.id
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("adaptive prepare_turn failed; using default prompt")
+
+    # Learning-analytics telemetry + SOLO classification (gated by AKELA_AGENTS_ENABLED
+    # inside each task). Scheduled to run after the response streams; never blocks chat.
+    if settings.AKELA_AGENTS_ENABLED:
+        from app.services.learning_telemetry import log_event, EVENT_CHAT_MESSAGE
+        from app.services.solo_classifier import classify_message
+        background_tasks.add_task(
+            log_event, user_id=current_user.id, event_type=EVENT_CHAT_MESSAGE,
+            question_id=request.question_id, conversation_id=sql_conversation_id,
+        )
+        background_tasks.add_task(
+            classify_message,
+            user_id=current_user.id, conversation_id=sql_conversation_id,
+            message_id=None, message_text=request.user_message,
+        )
 
     # Persist + memory: load prior turns for this (user, question), then record
     # the incoming message. History is fetched BEFORE appending so the current

@@ -1,0 +1,19 @@
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index
+from sqlalchemy.sql import func
+from app.database import Base
+
+# Import FK-target models so their tables are registered on Base.metadata
+# (required for create_all / FK resolution when this model is imported directly).
+from app.models import sql_tutor_conversation as _sql_tutor_conversation  # noqa: F401
+
+
+class SqlTutorMessage(Base):
+    """One message in an adaptive SQL-tutor conversation transcript."""
+    __tablename__ = "sql_tutor_messages"
+    __table_args__ = (Index("ix_sql_tutor_msg_conv", "conversation_id", "created_at"),)
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("sql_tutor_conversations.id"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # user | assistant
+    content = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

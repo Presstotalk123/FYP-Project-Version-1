@@ -20,5 +20,14 @@ from app.models.tutor_chat_conversation import TutorChatConversation
 from app.models.tutor_chat_message import TutorChatMessage
 from app.models.query_review import QueryReview
 from app.models.login_activity import LoginActivity
+# Akela multi-agent / learning-analytics models
+from app.models.sql_concept import SqlConcept
+from app.models.sql_concept_prerequisite import SqlConceptPrerequisite
+from app.models.question_concept import QuestionConcept
+from app.models.learning_event import LearningEvent
+from app.models.concept_mastery import ConceptMastery
+from app.models.solo_classification import SoloClassification
+from app.models.sql_tutor_conversation import SqlTutorConversation
+from app.models.sql_tutor_message import SqlTutorMessage
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity", "SqlConcept", "SqlConceptPrerequisite", "QuestionConcept", "LearningEvent", "ConceptMastery", "SoloClassification", "SqlTutorConversation", "SqlTutorMessage"]

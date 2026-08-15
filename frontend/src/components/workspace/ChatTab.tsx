@@ -5,6 +5,7 @@ import { chatbotService, ChatMessage } from '@/services/chatbot.service';
 import { QuestionDetail } from '@/types/question.types';
 import { ExecuteResponse } from '@/types/attempt.types';
 import { AiTutorAvatar } from './AiTutorAvatar';
+import { ScaffoldingIndicator } from './ScaffoldingIndicator';
 
 interface ChatTabProps {
   questionId: number;
@@ -30,7 +31,7 @@ const IconSend = () => (
   </svg>
 );
 
-export function ChatTab({ questionId }: ChatTabProps) {
+export function ChatTab({ questionId, result }: ChatTabProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -189,6 +190,17 @@ export function ChatTab({ questionId }: ChatTabProps) {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+
+      {/* ── Header strip: current AI-support (scaffolding) level ─────────── */}
+      <div style={{
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+        padding: '6px 12px 0',
+      }}>
+        <ScaffoldingIndicator
+          questionId={questionId}
+          refreshKey={result?.attempts_used ?? undefined}
+        />
+      </div>
 
       {/* ── Message list ──────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 0' }}>

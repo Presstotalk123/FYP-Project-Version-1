@@ -146,6 +146,13 @@ export const API_ENDPOINTS = {
     SUMMARY: '/student-report/summary',
     FOR_STUDENT: (studentId: number) => `/student-report/students/${studentId}`,
   },
+  LAD: {
+    CONCEPT_GRAPH: '/lad/concept-graph',
+    PEER_BENCHMARK: '/lad/peer-benchmark',
+    SCAFFOLDING: (questionId: number) => `/lad/scaffolding/${questionId}`,
+    CONCEPTS: '/lad/concepts',
+    QUESTION_CONCEPTS: (questionId: number) => `/lad/questions/${questionId}/concepts`,
+  },
   STUDENT_ASSESSMENTS: {
     BASE: '/student-assessments',
     DETAIL: (id: number) => `/student-assessments/${id}`,

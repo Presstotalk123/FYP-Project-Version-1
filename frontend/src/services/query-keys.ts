@@ -76,4 +76,11 @@ export const queryKeys = {
   // on the dashboard, so they override the global staleTime: Infinity.
   presenceSummary: ['presenceSummary'] as const,
   presenceOnline: ['presenceOnline'] as const,
+
+  // Learning Analytics Dashboard (student-scoped).
+  ladConceptGraph: ['ladConceptGraph'] as const,
+  ladPeerBenchmark: ['ladPeerBenchmark'] as const,
+  // Concept taxonomy (shared) + a question's tags (staff editor).
+  ladConcepts: ['ladConcepts'] as const,
+  ladQuestionConcepts: (questionId: number) => ['ladQuestionConcepts', questionId] as const,
 };

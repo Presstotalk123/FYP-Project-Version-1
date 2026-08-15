@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import dynamic from 'next/dynamic';
@@ -10,6 +10,8 @@ import { QuestionDetail, Difficulty } from '@/types/question.types';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
+import { ladService } from '@/services/lad.service';
+import { Concept } from '@/types/lad.types';
 
 interface QuestionFormProps {
   question?: QuestionDetail;
@@ -44,6 +46,70 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Concept tagging (Learning Analytics). Best-effort: if the taxonomy isn't
+  // seeded / the endpoint is unavailable, the section simply doesn't render.
+  const [concepts, setConcepts] = useState<Concept[]>([]);
+  // concept_id -> weight for the tags selected on this question.
+  const [conceptTags, setConceptTags] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    ladService
+      .listConcepts()
+      .then((list) => {
+        if (!cancelled) setConcepts(list);
+      })
+      .catch(() => {
+        /* taxonomy unavailable — hide the section */
+      });
+    if (isEdit && question) {
+      ladService
+        .getQuestionConcepts(question.id)
+        .then((tags) => {
+          if (cancelled) return;
+          const map: Record<number, number> = {};
+          for (const t of tags) map[t.concept_id] = t.weight;
+          setConceptTags(map);
+        })
+        .catch(() => {
+          /* no existing tags */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, question]);
+
+  const toggleConcept = (conceptId: number) => {
+    setConceptTags((prev) => {
+      const next = { ...prev };
+      if (conceptId in next) delete next[conceptId];
+      else next[conceptId] = 1.0;
+      return next;
+    });
+  };
+
+  const setConceptWeight = (conceptId: number, weight: number) => {
+    setConceptTags((prev) => ({ ...prev, [conceptId]: weight }));
+  };
+
+  const persistConceptTags = async (questionId: number) => {
+    // Best-effort — a tagging failure must not fail the question save itself.
+    try {
+      const tags = Object.entries(conceptTags).map(([cid, weight]) => ({
+        concept_id: Number(cid),
+        weight,
+      }));
+      await ladService.setQuestionConcepts(questionId, tags);
+    } catch {
+      notifications.show({
+        title: 'Concept tags not saved',
+        message: 'The question was saved, but its concept tags could not be updated.',
+        color: 'yellow',
+      });
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,6 +165,7 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
       if (isEdit && question) {
         // Update existing question
         await api.put(API_ENDPOINTS.QUESTIONS.DETAIL(question.id), payload);
+        await persistConceptTags(question.id);
         notifications.show({
           title: 'Success',
           message: 'Question updated successfully',
@@ -106,7 +173,8 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
         });
       } else {
         // Create new question
-        await api.post(API_ENDPOINTS.QUESTIONS.BASE, payload);
+        const created = await api.post<{ id: number }>(API_ENDPOINTS.QUESTIONS.BASE, payload);
+        if (created.data?.id) await persistConceptTags(created.data.id);
         notifications.show({
           title: 'Success',
           message: 'Question created successfully',
@@ -354,6 +422,59 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
             </div>
           </div>
         </>
+      )}
+
+      {/* Concept tags (Learning Analytics) */}
+      {concepts.length > 0 && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <span style={labelStyle}>SQL Concepts</span>
+          <p style={helpStyle}>
+            Tag the SQL concepts this question exercises. These drive per-concept mastery
+            tracking and the student learning dashboard. Weights (default 1.0) let one
+            concept count more than another for a question.
+          </p>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gap: 8,
+              border: '1px solid var(--border-strong)',
+              borderRadius: 'var(--radius)',
+              padding: 12,
+              maxHeight: 260,
+              overflowY: 'auto',
+            }}
+          >
+            {concepts.map((c) => {
+              const selected = c.id in conceptTags;
+              return (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleConcept(c.id)}
+                    />
+                    <span>{c.display_name}</span>
+                  </label>
+                  {selected && (
+                    <input
+                      type="number"
+                      className="da-input"
+                      aria-label={`${c.display_name} weight`}
+                      value={conceptTags[c.id]}
+                      min={0.1}
+                      max={5}
+                      step={0.1}
+                      onChange={(e) => setConceptWeight(c.id, Number(e.target.value) || 1.0)}
+                      style={{ width: 64, marginLeft: 'auto', padding: '2px 6px', fontSize: 12 }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* Actions */}

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, er_analytics, sql_analytics, lab_analytics, labs, users, whitelist, assessments, student_assessments, erd_prompts, app_settings, course_info, login_activity, student_report
+from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, er_analytics, sql_analytics, lab_analytics, labs, users, whitelist, assessments, student_assessments, erd_prompts, app_settings, course_info, login_activity, student_report, lad
 # Import models to register them with SQLAlchemy
 from app.models.user import User
 from app.models.whitelist import WhitelistEntry
@@ -27,6 +27,15 @@ from app.models.course_info import CourseInfo
 from app.models.login_activity import LoginActivity
 from app.models.platform_session import PlatformSession
 from app.models.assessment_analytics import AssessmentAnalytics
+# Akela multi-agent / learning-analytics models (register for SQLite auto-create)
+from app.models.sql_concept import SqlConcept
+from app.models.sql_concept_prerequisite import SqlConceptPrerequisite
+from app.models.question_concept import QuestionConcept
+from app.models.learning_event import LearningEvent
+from app.models.concept_mastery import ConceptMastery
+from app.models.solo_classification import SoloClassification
+from app.models.sql_tutor_conversation import SqlTutorConversation
+from app.models.sql_tutor_message import SqlTutorMessage
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it
 # correctly as a partial index (WHERE is_active = 1). This fixes SQLite ignoring
@@ -179,6 +188,7 @@ app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(student_assessments.router, prefix="/api/v1")
 app.include_router(student_report.router, prefix="/api/v1")
 app.include_router(login_activity.router, prefix="/api/v1")
+app.include_router(lad.router, prefix="/api/v1")
 
 
 @app.get("/")

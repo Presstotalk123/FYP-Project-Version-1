@@ -71,6 +71,10 @@ class Ns:
     ASSESSMENT_ANALYTICS = "assessment_analytics"
     COURSE_INFO = "course_info"
     WHITELIST = "whitelist"
+    # Peer-benchmark class-average mastery per concept. Deliberately has NO
+    # after_flush invalidation hook: the LAD reads it with a date-stamped key so it
+    # refreshes once a day, not on every concept_mastery write (see lad_service).
+    CONCEPT_MASTERY_AGGREGATE = "concept_mastery_aggregate"
 
 
 # Static namespaces that get a seed row on startup. `assessment_body:{id}` rows are
@@ -87,6 +91,7 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.ASSESSMENT_ANALYTICS,
     Ns.COURSE_INFO,
     Ns.WHITELIST,
+    Ns.CONCEPT_MASTERY_AGGREGATE,
 )
 
 

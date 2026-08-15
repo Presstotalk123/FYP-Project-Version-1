@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from app.database import get_db
@@ -77,6 +77,7 @@ def _grade_advanced_submission(
 def execute_query(
     execute_request: ExecuteRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -262,6 +263,26 @@ def execute_query(
         # Credit the query execution time back to the assessment deadline (no-op if untimed).
         if query_start is not None:
             credit_query_time(db, assessment_session, query_start)
+
+    # Learning-analytics telemetry: record the submission for the mastery pipeline.
+    # Runs after the response is sent, in its own session, gated by AKELA_AGENTS_ENABLED,
+    # and can never affect the attempt write or the student's response.
+    from app.services.learning_telemetry import log_event, EVENT_QUERY_SUBMITTED
+    from app.services.learner_profiling import process_query_submitted
+    background_tasks.add_task(
+        log_event,
+        user_id=user_id,
+        event_type=EVENT_QUERY_SUBMITTED,
+        question_id=execute_request.question_id,
+        payload={"is_correct": bool(is_correct)},
+    )
+    # Learner Profiling Agent: deterministic per-concept mastery update.
+    background_tasks.add_task(
+        process_query_submitted,
+        user_id=user_id,
+        question_id=execute_request.question_id,
+        is_correct=bool(is_correct),
+    )
 
     # Real correctness is always persisted above (Attempt/UserProgress) for grading, but
     # questions with hide_correctness on don't reveal it to students in the response — they

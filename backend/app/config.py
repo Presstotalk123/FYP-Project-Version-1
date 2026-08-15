@@ -116,7 +116,45 @@ class Settings(BaseSettings):
     # mirroring DIFY_ER_*_TIMEOUT_SECONDS. Bounds a hung upstream call so it can't
     # tie up the request indefinitely (max_retries=3 is set separately on the client).
     ERD_AZURE_OPENAI_TIMEOUT_SECONDS: int = 60
-    
+
+    # --- Akela multi-agent / learning-analytics platform ---------------------
+    # Two independent flags so telemetry + mastery can be built and validated
+    # dark (writing learning_events silently) before any student-facing chat
+    # behavior changes. Instant rollback via env var, mirroring ERD_TUTOR_ENGINE.
+    #
+    # AKELA_AGENTS_ENABLED: master switch for learning-event logging and the
+    #   background Learner Profiling / SOLO Classifier agents. When False, none
+    #   of that machinery runs and the platform behaves exactly as before.
+    # SQL_TUTOR_ADAPTIVE: when True, the SQL chatbot's /send + /lab-chat use
+    #   adaptive prompt construction (mastery/scaffolding lookup); when False the
+    #   existing stateless single-shot prompts are used.
+    AKELA_AGENTS_ENABLED: bool = False
+    SQL_TUTOR_ADAPTIVE: bool = False
+
+    # Azure OpenAI for the SOLO classifier (reuses the ERD v1-surface approach;
+    # SQL_-prefixed so the scope is explicit). Falls back to the generic AI_*
+    # settings when unset — see app.services.solo_classifier.
+    SQL_AZURE_OPENAI_ENDPOINT: Optional[str] = None
+    SQL_AZURE_OPENAI_API_KEY: Optional[str] = None
+    SQL_AZURE_OPENAI_TUTOR_DEPLOYMENT: str = "gpt-5.4-nano"
+    SQL_AZURE_OPENAI_SOLO_DEPLOYMENT: str = "gpt-5.4-mini"
+
+    # Mastery model tuning (deterministic Learner Profiling Agent). Per-attempt
+    # additive deltas on mastery_level (0..1), scaled by the question_concepts weight.
+    CONCEPT_MASTERY_SUCCESS_DELTA: float = 0.15
+    CONCEPT_MASTERY_FAILURE_DELTA: float = 0.10
+
+    # Adaptive scaffolding transitions (per active concept).
+    SCAFFOLDING_UPGRADE_STREAK: int = 3    # consecutive successes to fade support one level
+    SCAFFOLDING_DOWNGRADE_STREAK: int = 2  # consecutive failures to restore support one level
+
+    # SOLO classifier confidence gate: below this, fall back to a generic prompt.
+    SOLO_CONFIDENCE_THRESHOLD: float = 0.6
+
+    # Peer-benchmarking anonymization floor: suppress class averages for cohorts
+    # smaller than this to prevent de-anonymization.
+    PEER_BENCHMARK_MIN_COHORT: int = 5
+
     class Config:
         env_file = ".env"
         case_sensitive = True

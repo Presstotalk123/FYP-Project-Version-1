@@ -85,6 +85,7 @@ export function LabWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState<LabQueryHistoryResponse[]>([]);
   const [isResetting, setIsResetting] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
   const [isLoadingDatabase, setIsLoadingDatabase] = useState(false);
 
@@ -601,6 +602,8 @@ export function LabWorkspace({
 
   // Exit session
   const handleExit = async () => {
+    if (isExiting) return;
+    setIsExiting(true);
     try {
       if (isStaffMode && taskOrderChanged.current) {
         await Promise.all(
@@ -623,6 +626,7 @@ export function LabWorkspace({
         message: error.response?.data?.detail || 'Failed to exit session',
         color: 'red',
       });
+      setIsExiting(false);
     }
   };
 
@@ -852,9 +856,10 @@ export function LabWorkspace({
           className="btn btn-brand"
           style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
           onClick={handleExit}
+          disabled={isExiting}
         >
           <IconLogout />
-          Save and Exit
+          {isExiting ? 'Ending…' : 'Save and Exit'}
         </button>
       </div>
 

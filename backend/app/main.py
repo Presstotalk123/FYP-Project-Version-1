@@ -114,6 +114,19 @@ for _stmt in (
         except Exception:
             pass  # Column already exists
 
+# Index additions for tables that may already exist in a local SQLite database
+# (create_all does not add new indexes to a table it already sees). Speeds up the
+# presence queries' last_action_at filter; see app/models/platform_session.py.
+with engine.connect() as _conn:
+    try:
+        _conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_platform_sessions_last_action_at "
+            "ON platform_sessions (last_action_at)"
+        ))
+        _conn.commit()
+    except Exception:
+        pass  # Index already exists
+
 print(f"Connected to database: {settings.DATABASE_URL[:30]}...")
 
 # Provision the backend read-cache: create/seed the cache_versions table (idempotent,

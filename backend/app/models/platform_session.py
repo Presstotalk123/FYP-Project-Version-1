@@ -41,4 +41,10 @@ class PlatformSession(Base):
 
     __table_args__ = (
         Index("ix_platform_sessions_user_date", "user_id", "login_date"),
+        # Presence queries (count_online / list_online) filter on last_action_at
+        # against a recent cutoff. Without this index that filter is a full-table
+        # scan, which degrades as rows accumulate (never deleted; one per login).
+        # The single leading column carries the selective range predicate; the
+        # left_at condition is a cross-column compare that no index can satisfy.
+        Index("ix_platform_sessions_last_action_at", "last_action_at"),
     )

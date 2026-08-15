@@ -11,9 +11,28 @@ import {
 // Client-side throttle for the activity heartbeat. Meaningful actions fire far
 // more often than we want to write (every API call + navigation), so we send at
 // most one heartbeat per window; the backend throttles again as a backstop.
-const HEARTBEAT_THROTTLE_MS = 60_000;
+//
+// Exported so other ping sources (the idle-tab timer in use-presence-heartbeat)
+// can check "did anything already ping recently?" before sending their own —
+// otherwise an actively-used tab sends two independent, redundant pings.
+export const HEARTBEAT_THROTTLE_MS = 120_000;
 let lastHeartbeatAt = 0;
 let heartbeatInFlight = false;
+
+/** When the last heartbeat (from any source) was sent, or 0 if none yet. */
+export function getLastHeartbeatAt(): number {
+  return lastHeartbeatAt;
+}
+
+/** Record that a heartbeat is being sent right now, from any source. */
+export function markHeartbeatSent(): void {
+  lastHeartbeatAt = Date.now();
+}
+
+/** Undo markHeartbeatSent after a failed send, so the next attempt isn't throttled. */
+export function clearHeartbeatSent(): void {
+  lastHeartbeatAt = 0;
+}
 
 export const loginActivityService = {
   /**
@@ -39,13 +58,13 @@ export const loginActivityService = {
     if (heartbeatInFlight || now - lastHeartbeatAt < HEARTBEAT_THROTTLE_MS) return;
     if (typeof window !== 'undefined' && !localStorage.getItem('access_token')) return;
 
-    lastHeartbeatAt = now;
+    markHeartbeatSent();
     heartbeatInFlight = true;
     api
       .post(API_ENDPOINTS.LOGIN_ACTIVITY.HEARTBEAT)
       .catch(() => {
         // Best-effort: allow a retry sooner if the ping failed.
-        lastHeartbeatAt = 0;
+        clearHeartbeatSent();
       })
       .finally(() => {
         heartbeatInFlight = false;

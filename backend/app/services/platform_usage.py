@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # frontend also throttles its heartbeat; this is the server-side backstop so a
 # burst of actions costs at most one write per window (and bounds tracking
 # granularity to ~this many seconds).
-THROTTLE_SECONDS = 60
+THROTTLE_SECONDS = 120
 
 
 def _utc_now() -> datetime:
@@ -167,10 +167,15 @@ def _sessions_in_month(db: Session, user_id: int, year: int, month: int) -> list
     )
 
 
+def _duration_seconds_between(login_at: datetime, last_action_at: datetime) -> int:
+    """Non-negative whole-second duration between a session's two timestamps."""
+    delta = (last_action_at - login_at).total_seconds()
+    return int(delta) if delta > 0 else 0
+
+
 def _duration_seconds(session: PlatformSession) -> int:
     """Non-negative whole-second duration of one session."""
-    delta = (session.last_action_at - session.login_at).total_seconds()
-    return int(delta) if delta > 0 else 0
+    return _duration_seconds_between(session.login_at, session.last_action_at)
 
 
 def daily_usage(db: Session, user_id: int, year: int, month: int) -> list[dict]:
@@ -221,37 +226,69 @@ def usage_overview(db: Session, year: int, month: int) -> list[dict]:
     always visible, even in a month with no activity). Each row carries the
     selected month's figures (``total_seconds``, ``active_days``) and the
     cumulative figures across every day (``all_time_seconds``,
-    ``all_time_active_days``). Sorted by all-time total descending. One pass over
-    all student sessions; aggregation done in Python for SQLite/Postgres parity.
+    ``all_time_active_days``). Sorted by all-time total descending.
+
+    The all-time total is an exact live sum over every session ever recorded, so
+    this necessarily reads the full session history for every student — there is
+    no month-range filter that can bound that half of the work away, and it grows
+    with the school year. What *is* avoidable is doing it wastefully: the previous
+    version joined in the full ``User`` row and re-hydrated it once per session
+    (a student with 300 sessions transferred and rebuilt their name/email/
+    class_group 300 times). This fetches each student's identity once, then pulls
+    only the four session columns actually used, via ``user_id IN (...)`` (hits
+    the ``user_id`` index) instead of a per-row join. Duration is still summed in
+    Python rather than in SQL, matching ``daily_usage``'s reasoning: SQLite and
+    Postgres don't agree on datetime-subtraction semantics, so keeping the
+    arithmetic in Python keeps this function's output identical on both.
+
+    If the full-history scan itself ever becomes the bottleneck (as opposed to
+    just the per-row overhead fixed here), the real structural fix is a
+    maintained per-student rollup updated incrementally in ``touch_session``,
+    so a read no longer has to replay the entire session history.
     """
     first, last = _month_bounds(year, month)
-    rows = (
-        db.query(PlatformSession, User)
-        .join(User, User.id == PlatformSession.user_id)
+
+    students = (
+        db.query(User.id, User.name, User.email, User.class_group)
         .filter(User.role == UserRole.STUDENT)
+        .all()
+    )
+    if not students:
+        return []
+    student_info = {s.id: s for s in students}
+
+    session_rows = (
+        db.query(
+            PlatformSession.user_id,
+            PlatformSession.login_date,
+            PlatformSession.login_at,
+            PlatformSession.last_action_at,
+        )
+        .filter(PlatformSession.user_id.in_(student_info.keys()))
         .all()
     )
 
     totals: dict[int, dict] = {}
     month_days: dict[int, set[date]] = defaultdict(set)
     all_days: dict[int, set[date]] = defaultdict(set)
-    for session, user in rows:
-        acc = totals.get(user.id)
+    for user_id, login_date, login_at, last_action_at in session_rows:
+        acc = totals.get(user_id)
         if acc is None:
-            acc = totals[user.id] = {
-                "student_id": user.id,
-                "name": user.name,
-                "email": user.email,
-                "class_group": user.class_group,
+            info = student_info[user_id]
+            acc = totals[user_id] = {
+                "student_id": info.id,
+                "name": info.name,
+                "email": info.email,
+                "class_group": info.class_group,
                 "total_seconds": 0,
                 "all_time_seconds": 0,
             }
-        duration = _duration_seconds(session)
+        duration = _duration_seconds_between(login_at, last_action_at)
         acc["all_time_seconds"] += duration
-        all_days[user.id].add(session.login_date)
-        if first <= session.login_date <= last:
+        all_days[user_id].add(login_date)
+        if first <= login_date <= last:
             acc["total_seconds"] += duration
-            month_days[user.id].add(session.login_date)
+            month_days[user_id].add(login_date)
 
     result = []
     for uid, acc in totals.items():

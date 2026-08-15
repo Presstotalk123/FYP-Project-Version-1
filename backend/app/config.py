@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     # average or produce "13/12 attempted".
     ANALYTICS_EXCLUDED_CLASS_GROUPS: list[str] = ["TEST", "TA", "PROF"]
 
+    # Accounts confined to a fixed subset of backend endpoints regardless of
+    # their DB role, and the path prefixes they're allowed to hit. Enforced
+    # by the restrict_limited_users middleware in main.py. Emails compared
+    # case-insensitively.
+    RESTRICTED_USER_EMAILS: set[str] = {"qichen.wang@ntu.edu.sg", "mysterystudent007@gmail.com"}
+    RESTRICTED_USER_ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
+        "/api/v1/auth",       # must stay open, otherwise the user can't log in
+        "/api/v1/questions",  # SQL Questions authoring
+        "/api/v1/labs",       # SQL Lab authoring
+    )
+
     # Dify ER rubric endpoint
     DIFY_ER_RUBRIC_URL: Optional[str] = None
     DIFY_ER_RUBRIC_API_KEY: Optional[str] = None

@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from app.config import settings
+from app.core.security import decode_token
 from app.database import engine, Base
 from app.api.v1.endpoints import auth, questions, execute, attempts, chatbot, er_diagram, er_analytics, sql_analytics, lab_analytics, labs, users, whitelist, assessments, student_assessments, erd_prompts, app_settings, course_info, login_activity, student_report, lad
 # Import models to register them with SQLAlchemy
@@ -179,6 +181,26 @@ async def stamp_received_at(request: Request, call_next):
     inside the handler) as the query start, so the queue wait is credited back to the
     student's deadline instead of being silently lost."""
     request.state.received_at = datetime.now(timezone.utc)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def restrict_limited_users(request: Request, call_next):
+    """Confine specific accounts (see config.RESTRICTED_USER_EMAILS) to a
+    fixed set of feature endpoints, regardless of their DB role."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        payload = decode_token(auth_header[7:])
+        email = (payload or {}).get("sub", "").lower()
+        if email in settings.RESTRICTED_USER_EMAILS:
+            path = request.url.path
+            if request.method != "OPTIONS" and not any(
+                path.startswith(p) for p in settings.RESTRICTED_USER_ALLOWED_PATH_PREFIXES
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "This account is restricted to SQL Questions and SQL Lab."},
+                )
     return await call_next(request)
 
 # Include routers

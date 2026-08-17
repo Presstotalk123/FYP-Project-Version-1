@@ -94,14 +94,26 @@ export function LabWorkspace({
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [taskProgress, setTaskProgress] = useState<Record<number, LabTaskProgress>>({});
 
-  // Progressive cooldown to throttle rapid Run clicks. Thresholds scale with the
-  // number of tasks in the lab; persisted per lab across navigation/reload.
+  // Cooldown to throttle rapid Run clicks. Thresholds scale with the number of tasks in
+  // the lab; persisted per lab across navigation/reload. Assessments keep the progressive
+  // T×3 free → 10s → 20s tiers; outside assessments the first T×10 runs are free, then a
+  // flat 5s applies.
   const taskCount = Math.max(1, tasks.length); // guard the pre-load window (tasks starts [])
-  const { isCoolingDown: cooldownActive, registerRunComplete } = useRunCooldown({
-    freeLimit: taskCount * 3, // first T×3 runs → no cooldown
-    tier1Limit: taskCount * 3 + taskCount * 2, // next T×2 → 10s; rest → 20s
-    storageKey: `run-cooldown:lab:${labId}`,
-  });
+  const { isCoolingDown: cooldownActive, registerRunComplete } = useRunCooldown(
+    inAssessment
+      ? {
+          freeLimit: taskCount * 3, // first T×3 runs → no cooldown
+          tier1Limit: taskCount * 3 + taskCount * 2, // next T×2 → 10s; rest → 20s
+          storageKey: `run-cooldown:lab:${labId}`,
+        }
+      : {
+          freeLimit: taskCount * 10, // first T×10 runs → no cooldown
+          tier1Limit: taskCount * 10, // collapse to a single flat tier past the free runs
+          tier1Cooldown: 5,
+          tier2Cooldown: 5,
+          storageKey: `run-cooldown:lab:${labId}`,
+        },
+  );
   // Instructors reviewing a submission shouldn't be throttled.
   const isCoolingDown = cooldownActive && !reviewMode;
 

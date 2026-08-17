@@ -27,7 +27,7 @@ export default function AssessmentSqlQuestionPage() {
 
   return (
     <ProtectedRoute requiredRole={UserRole.STUDENT}>
-      <SqlWorkspace questionId={resourceId} backUrl={backUrl} weight={weight} />
+      <SqlWorkspace questionId={resourceId} backUrl={backUrl} weight={weight} inAssessment />
     </ProtectedRoute>
   );
 }

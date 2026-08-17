@@ -32,9 +32,11 @@ interface SqlWorkspaceProps {
   backUrl?: string;
   /** Assessment weightage (%) for this question; omitted outside assessments. */
   weight?: number;
+  /** True when rendered inside an assessment; drives the cooldown tuning. */
+  inAssessment?: boolean;
 }
 
-export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps) {
+export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false }: SqlWorkspaceProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -66,11 +68,20 @@ export function SqlWorkspace({ questionId, backUrl, weight }: SqlWorkspaceProps)
     ? ((questionQuery.error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load question')
     : null;
 
-  // Progressive cooldown to throttle rapid Run clicks. Scoped per question and
-  // persisted across navigation/reload via sessionStorage.
-  const { isCoolingDown, registerRunComplete } = useRunCooldown({
-    storageKey: `run-cooldown:sql:${questionId}`,
-  });
+  // Cooldown to throttle rapid Run clicks. Scoped per question and persisted across
+  // navigation/reload via sessionStorage. Assessments keep the progressive 3 → 10s → 20s
+  // tiers; outside assessments the first 10 runs are free, then a flat 5s applies.
+  const { isCoolingDown, registerRunComplete } = useRunCooldown(
+    inAssessment
+      ? { storageKey: `run-cooldown:sql:${questionId}` }
+      : {
+          freeLimit: 10,
+          tier1Limit: 10,
+          tier1Cooldown: 5,
+          tier2Cooldown: 5,
+          storageKey: `run-cooldown:sql:${questionId}`,
+        },
+  );
 
   // Resizable panel state
   const [leftPercent, setLeftPercent] = useState(30);

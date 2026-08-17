@@ -128,3 +128,26 @@ class ERDiagramQuestionProgressItem(BaseModel):
     label the student was shown on the attempt page."""
     question_id: int
     completed: bool
+
+
+class ErDraftResponse(BaseModel):
+    """`exists: false` rather than a 404 — "no draft yet" is a normal state,
+    matching the shape GET /er-diagram/conversation already returns."""
+
+    exists: bool
+    revision: int | None = None
+    updated_at: datetime | None = None
+    # Omitted when `unchanged` is true, so the common case (same student, same
+    # device, reopening a question) does not ship up to 500 KB it already has.
+    xml: str | None = None
+    unchanged: bool = False
+
+
+class ErDraftSaveRequest(BaseModel):
+    question_id: int
+    xml: str
+
+
+class ErDraftSaveResponse(BaseModel):
+    revision: int
+    updated_at: datetime

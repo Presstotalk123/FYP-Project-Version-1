@@ -31,6 +31,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ERDiagramWorkspaceQuestion } from "@/components/ERDiagramWorkspace";
+import type { DraftSaveState } from "@/hooks/use-er-draft";
 import { TUTOR_NAME } from "@/components/ChatPanel";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 import { IconBear } from "@/components/workspace/IconBear";
@@ -54,6 +55,7 @@ type DrawioFocusLayoutProps = {
   isDirty: boolean;
   /** Epoch ms of the last auto-save, or null if nothing is stored yet. */
   lastSavedAt: number | null;
+  saveState: DraftSaveState;
 };
 
 type RightPanel = "chat" | "rubric" | null;
@@ -81,6 +83,35 @@ const PANEL_COLLAPSE_WIDTH = 150;
 // Portalled components render outside this tree, so they carry the class too.
 const BRAND_THEME_CLASS = drawioTheme.drawioTheme;
 
+/**
+ * A switch, not a nested ternary, so `lastSavedAt` can only be consulted
+ * inside the `"synced"` branch. A ternary chain that falls through to
+ * `lastSavedAt ? "Saved …" : "Not auto-saved yet"` as its default reads
+ * "saved" for `"idle"` too — `recordChange` sets `lastSavedAt` on every
+ * local write, before any network request exists — which is exactly the
+ * falsehood this feature exists to remove. Keeping the two states apart
+ * structurally (rather than via a condition someone could later loosen)
+ * is the point.
+ */
+function autosaveStatusText(saveState: DraftSaveState, lastSavedAt: number | null): string {
+  switch (saveState) {
+    case "saving":
+      return "Saving…";
+    case "local-only":
+      return "Saved on this device only";
+    case "too-large":
+      return "Too large to sync — saved on this device";
+    case "storage-full":
+      return "Device storage full — not saved";
+    case "synced":
+      return lastSavedAt
+        ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`
+        : "Not auto-saved yet";
+    case "idle":
+      return "Not auto-saved yet";
+  }
+}
+
 export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocusLayoutProps>(
   function DrawioFocusLayout(
     {
@@ -99,6 +130,7 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
       showRubricToggle,
       isDirty,
       lastSavedAt,
+      saveState,
     },
     ref,
   ) {
@@ -346,10 +378,19 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           </Text>
         </Box>
 
-        <Text size="xs" c="dimmed" mr="sm" data-testid="autosave-status">
-          {lastSavedAt
-            ? `Auto-saved ${new Date(lastSavedAt).toLocaleTimeString()}`
-            : "Not auto-saved yet"}
+        <Text
+          size="xs"
+          c={
+            saveState === "local-only" ||
+            saveState === "too-large" ||
+            saveState === "storage-full"
+              ? "yellow.7"
+              : "dimmed"
+          }
+          mr="sm"
+          data-testid="autosave-status"
+        >
+          {autosaveStatusText(saveState, lastSavedAt)}
         </Text>
 
         {scorePercent !== null ? (
@@ -542,9 +583,17 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
       >
         <Stack gap="md">
           <Text size="sm">
-            You have unsaved changes on the canvas. They are auto-saved in this browser and will
-            be restored the next time you open this question, but a different browser or device
-            will not have them. Save a `.drawio` file to keep a copy you can take anywhere.
+            {/* Positive check for "synced" — not a default — so "idle" and
+                "saving" (a write attempted but not yet confirmed) fall on the
+                cautious branch rather than being folded into "saved to your
+                account" by omission. "storage-full" gets its own branch for
+                the same reason: the generic fallback claims the browser has
+                it, which is exactly false in that state. */}
+            {saveState === "synced"
+              ? "You have unsaved changes on the canvas. They are saved to your account and will be restored the next time you open this question, on any device."
+              : saveState === "storage-full"
+                ? "You have unsaved changes on the canvas. Your browser's storage is full, so they are not saved anywhere right now — not on this device, and not to your account. Download a `.drawio` file before you leave, or free up space and keep drawing to let autosave catch up."
+                : "You have unsaved changes on the canvas. They are saved in this browser and will be restored the next time you open this question here, but they have not reached your account, so a different browser or device will not have them. Save a `.drawio` file to keep a copy you can take anywhere."}
           </Text>
           {hasSubmittedAttempt ? null : (
             <Text size="xs" c="dimmed">

@@ -38,6 +38,7 @@ import {
   summarizeRubricStatuses,
 } from "@/utils/er-rubric-results";
 import { erDiagramService } from "@/services/er-diagram.service";
+import { useErDraft } from "@/hooks/use-er-draft";
 import type {
   ERRubricJson,
   ERSubmissionRequest,
@@ -129,6 +130,37 @@ const parseSubmissionPayload = (
   return extractSubmissionPayload(structuredOutput) || extractSubmissionPayload(parseJsonObject(text));
 };
 
+// A draft push must never run concurrently with the grading stream (see
+// confirmSubmitWithDescription), but it must also never be allowed to block
+// one indefinitely. Losing a few seconds of draft sync is fully recoverable —
+// the local copy still holds the work, and the next autosave retries — while
+// losing the graded attempt to a stalled network call is not. A flush that
+// genuinely completes fast (the common case) is unaffected: this only bites
+// a pathological wait.
+//
+// This is deliberately shorter than er-diagram.service.ts's
+// DRAFT_SAVE_TIMEOUT_MS (8s), not equal to it: giving up waiting on a slow
+// draft PUT does not cancel the in-flight request itself, so with an 8s
+// request timeout a draft write can still be outstanding for up to
+// (DRAFT_SAVE_TIMEOUT_MS - FLUSH_BEFORE_SUBMIT_TIMEOUT_MS) ≈ 5s AFTER the SSE
+// grading stream has already opened — technically overlapping it. That is
+// acceptable, not a reintroduction of the bug this guards against: the
+// grading endpoint commits and releases its pooled DB connection *before*
+// the stream starts (see CLAUDE.md's ERD subsystem notes), so the real
+// concern the invariant protects against — a write competing for a pooled
+// connection for the stream's full 30-90s — never happens. The overlap here
+// costs at most one extra connection for a few seconds at the very start,
+// not for the life of the stream. (Shortening the request timeout to close
+// this gap instead would be the wrong trade — 8s is the right forgiveness
+// for a 500KB payload over a slow connection on the ordinary autosave path,
+// which vastly outnumbers submit-time flushes.)
+//
+// The two constants are coupled — changing either one changes the size of
+// this overlap — so reconsider both together, not just the one being edited.
+const FLUSH_BEFORE_SUBMIT_TIMEOUT_MS = 3_000;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | null): number | null => {
   if (!structuredOutput || !isObject(structuredOutput.score)) {
     return null;
@@ -144,65 +176,6 @@ const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | n
     }
   }
   return null;
-};
-
-type StoredDraft = { xml: string; savedAt: number };
-
-/**
- * Auto-saved canvas drafts live in localStorage, not sessionStorage, so a
- * closed tab or a crashed browser no longer costs the student their diagram.
- *
- * The key is scoped to the user because localStorage outlives the session:
- * without that, the next person to use a shared lab machine would be handed
- * the previous student's work.
- */
-const draftStorageKey = (userId: number | null, questionId: number): string =>
-  `er-draft-u${userId ?? "anon"}-bank-${questionId}`;
-
-/** Key used before drafts moved to localStorage; still read once, then retired. */
-const legacyDraftStorageKey = (questionId: number): string => `er-draft-bank-${questionId}`;
-
-const readDraft = (userId: number | null, questionId: number): StoredDraft | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(draftStorageKey(userId, questionId));
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<StoredDraft>;
-      if (typeof parsed?.xml === "string" && parsed.xml.trim()) {
-        return { xml: parsed.xml, savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0 };
-      }
-      return null;
-    }
-    const legacy = window.sessionStorage.getItem(legacyDraftStorageKey(questionId));
-    return legacy?.trim() ? { xml: legacy, savedAt: 0 } : null;
-  } catch {
-    return null;
-  }
-};
-
-/** Returns the save timestamp, or null when storage refused (e.g. quota). */
-const writeDraft = (userId: number | null, questionId: number, xml: string): number | null => {
-  if (typeof window === "undefined" || !xml.trim()) return null;
-  const savedAt = Date.now();
-  try {
-    window.localStorage.setItem(
-      draftStorageKey(userId, questionId),
-      JSON.stringify({ xml, savedAt } satisfies StoredDraft),
-    );
-    return savedAt;
-  } catch {
-    return null;
-  }
-};
-
-const clearDraft = (userId: number | null, questionId: number): void => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(draftStorageKey(userId, questionId));
-    window.sessionStorage.removeItem(legacyDraftStorageKey(questionId));
-  } catch {
-    // ignore storage failures
-  }
 };
 
 export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps) {
@@ -225,8 +198,15 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   const [isDirty, setIsDirty] = useState(false);
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const [initialDrawioXml, setInitialDrawioXml] = useState("");
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const draft = useErDraft({
+    userId,
+    questionId: question.id,
+    // A conflict can resolve after draw.io has already initialized (its
+    // `initialXml` prop only paints the canvas on the very first load
+    // message); route adopted XML through the imperative handle too so it
+    // reaches an already-mounted board.
+    onAdoptXml: (xml) => drawioRef.current?.loadXml(xml),
+  });
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
   const [descText, setDescText] = useState("");
@@ -276,17 +256,6 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     // whose identity must not re-run the one-shot transcript restore.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question.id]);
-  // Restore the auto-saved canvas once we know who is asking. The draw.io board
-  // only mounts after the student picks it, so a late-resolving user is fine:
-  // DrawioBoard re-reads `initialXml` whenever the prop changes.
-  useEffect(() => {
-    if (userId === null) return;
-    const draft = readDraft(userId, question.id);
-    if (!draft) return;
-    setInitialDrawioXml(draft.xml);
-    setLastSavedAt(draft.savedAt || null);
-  }, [userId, question.id]);
-
   const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id"> => ({
     question_id: question.id,
   });
@@ -399,10 +368,8 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
       }
       setHasSubmittedAttempt(true);
       progress.markAttempted();
-      // The attempt is recorded server-side now, so the local draft has served
-      // its purpose.
-      clearDraft(userId, question.id);
-      setLastSavedAt(null);
+      // The diagram stays the student's to keep working on — a submit is not an
+      // eviction. It was already pushed up before the stream opened.
       setIsDirty(false);
       // Reveal the tutor's feedback now that the result is in. Deliberately
       // here and not when Submit is clicked: this only runs on the success
@@ -417,16 +384,11 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     }
   };
 
-  const persistDraft = (xml: string) => {
-    const savedAt = writeDraft(userId, question.id, xml);
-    if (savedAt) setLastSavedAt(savedAt);
-  };
-
   // Fired by draw.io on every change, now that the load message enables it.
   // Silent: no prompt, no download — the student never sees this happen.
   const handleAutosave = (xml: string) => {
     lastAutosavedXmlRef.current = xml;
-    persistDraft(xml);
+    draft.recordChange(xml);
     setIsDirty(true);
   };
 
@@ -458,7 +420,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     }
     try {
       downloadDrawioFile(xml);
-      persistDraft(xml);
+      draft.recordChange(xml);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save diagram to file.";
       notifications.show({ color: "red", title: "Save failed", message });
@@ -503,26 +465,26 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
         if (!confirmed) return;
       }
       drawioRef.current?.loadXml(xml);
-      persistDraft(xml);
+      draft.recordChange(xml);
       setIsDirty(true);
     };
     reader.readAsText(file);
   };
 
-  // The only way into the editor, so the only place the draft needs reading.
-  // Read it here rather than once per page visit: the student can leave focus
-  // mode and come back without a reload, and the draft autosaved in between has
-  // to be the one that returns. Batched with setSubmissionMode so DrawioBoard
-  // mounts with the value already in place, rather than depending on an effect
-  // landing before draw.io boots.
   const enterDrawioMode = () => {
-    const draft = readDraft(userId, question.id);
-    setInitialDrawioXml(draft?.xml ?? "");
-    if (draft) setLastSavedAt(draft.savedAt || null);
+    // `DrawioBoard` only lives inside the `focusMode` branch below, so this
+    // mounts a brand new one, seeded from `initialXml={draft.initialXml}` at
+    // whatever value that prop holds on the render that follows. Re-seed it
+    // from the live canvas ref in the same tick (React batches these) so a
+    // student who left and came back gets their last drawn content, not
+    // whatever was true when the draft first reconciled at the original
+    // mount.
+    draft.syncInitialXml();
     setSubmissionMode("drawio");
   };
 
   const handleExitFocusMode = () => {
+    void draft.flushNow();
     setSubmissionMode(null);
   };
 
@@ -571,6 +533,25 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     const description = descText.trim();
     setPendingSubmitImage(null);
     setPendingSubmitXml(null);
+    // Disable the Submit control for the whole prepare-and-grade window, not
+    // just once runSubmitStream's own setSubmitLoading(true) below runs — the
+    // flush this triggers can take a few seconds (bounded, but not instant),
+    // and leaving the button live until the stream actually opens let a
+    // second click re-export the diagram and re-open this modal, triggering a
+    // second graded run.
+    setSubmitLoading(true);
+    setSubmitError(null);
+    // Push the exact XML being graded before the stream opens — a draft write
+    // must never run concurrently with the 30-90s SSE grading connection.
+    // Bounded: a flush that is still outstanding past a few seconds is
+    // abandoned rather than awaited forever — the local copy still holds the
+    // work either way, and losing a little draft sync is fully recoverable
+    // where losing the graded attempt, while the assessment clock runs, is
+    // not.
+    if (xml?.trim()) {
+      draft.recordChange(xml);
+      await Promise.race([draft.flushNow(), sleep(FLUSH_BEFORE_SUBMIT_TIMEOUT_MS)]);
+    }
     await runSubmitStream({
       ...buildSubmissionRef(),
       mode: "Submit",
@@ -786,6 +767,32 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     </Modal>
   );
 
+  const conflictModal: ReactNode = (
+    <Modal
+      opened={draft.conflict !== null}
+      onClose={() => {}}
+      withCloseButton={false}
+      closeOnClickOutside={false}
+      closeOnEscape={false}
+      title="Two versions of this diagram"
+      centered
+    >
+      <Stack gap="md">
+        <Text size="sm">
+          This device has changes that never reached your account, and a newer version was
+          saved from somewhere else. Keeping one does not delete the other from the device
+          it is on.
+        </Text>
+        <Group justify="flex-end" gap="sm">
+          <Button variant="default" onClick={() => draft.resolve("local")}>
+            Keep this device&apos;s changes
+          </Button>
+          <Button onClick={() => draft.resolve("server")}>Load the newer version</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+
   if (focusMode) {
     return (
       <>
@@ -799,7 +806,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
             onExportError={(message) => setSubmitError(message)}
             submitting={submitLoading || chatSending}
             hideInternalSubmit
-            initialXml={initialDrawioXml}
+            initialXml={draft.initialXml}
             onAutosave={handleAutosave}
             onSaveRequest={saveXmlToFile}
             onExitRequest={() => focusLayoutRef.current?.requestExit()}
@@ -817,9 +824,11 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
         hasSubmittedAttempt={hasSubmittedAttempt}
         showRubricToggle={showRubricTab}
         isDirty={isDirty}
-        lastSavedAt={lastSavedAt}
+        lastSavedAt={draft.lastSavedAt}
+        saveState={draft.saveState}
       />
       {descriptionModal}
+      {conflictModal}
       </>
     );
   }
@@ -1078,6 +1087,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
         </Box>
       </Stack>
       {descriptionModal}
+      {conflictModal}
     </Container>
   );
 }

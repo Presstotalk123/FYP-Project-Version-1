@@ -95,6 +95,9 @@ export function LabEditorPanel({
             scrollBeyondLastLine: false,
             automaticLayout: true,
             fixedOverflowWidgets: true,
+            quickSuggestions: false,
+            suggestOnTriggerCharacters: false,
+            wordBasedSuggestions: 'off',
           }}
         />
       </Box>

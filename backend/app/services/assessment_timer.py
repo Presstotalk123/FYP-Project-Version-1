@@ -46,10 +46,25 @@ def finalize_session(db: Session, session: AssessmentSession) -> None:
     """End & submit a session, preserving the student's work (no attempt/lab deletion).
 
     Shared by manual submit and lazy expiration so both produce the identical end state.
+    The weighted score is computed once, here, and persisted on the session so no reader
+    ever recomputes it. Imports are lazy to avoid a circular import with assessment_scoring
+    (mirrors the lazy assessment_gateway import in enforce_not_expired below).
     """
+    from app.models.assessment import Assessment
+    from app.services import assessment_scoring
+
     session.is_active = 0
     session.attempt_complete = 1  # single-attempt: lock out any future retake
     session.submitted_at = _now()
+
+    assessment = (
+        db.query(Assessment).filter(Assessment.id == session.assessment_id).first()
+    )
+    if assessment is not None:
+        # None when the assessment carries no weightage — matches the NULL column default.
+        session.weighted_score = assessment_scoring.compute_weighted_score(
+            db, assessment, session.user_id
+        )
     db.commit()
 
 

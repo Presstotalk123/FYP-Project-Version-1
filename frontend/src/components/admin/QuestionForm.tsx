@@ -12,6 +12,7 @@ import { API_ENDPOINTS } from '@/config/api.config';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 import { ladService } from '@/services/lad.service';
 import { Concept } from '@/types/lad.types';
+import { detectConcepts } from '@/utils/sqlConcepts';
 
 interface QuestionFormProps {
   question?: QuestionDetail;
@@ -92,6 +93,31 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
 
   const setConceptWeight = (conceptId: number, weight: number) => {
     setConceptTags((prev) => ({ ...prev, [conceptId]: weight }));
+  };
+
+  // Suggest concept tags from the answer query (best-effort keyword heuristics —
+  // see utils/sqlConcepts). Additive only: fills in concepts not already selected,
+  // with a default salience weight, and never overwrites the author's own picks.
+  const suggestConceptsFromQuery = () => {
+    const slugToId: Record<string, number> = {};
+    for (const c of concepts) slugToId[c.slug] = c.id;
+
+    const additions: Record<number, number> = {};
+    for (const { slug, weight } of detectConcepts(correctAnswerQuery)) {
+      const id = slugToId[slug];
+      if (id != null && !(id in conceptTags)) additions[id] = weight;
+    }
+
+    const added = Object.keys(additions).length;
+    if (added > 0) setConceptTags((prev) => ({ ...prev, ...additions }));
+    notifications.show({
+      title: added > 0 ? `Added ${added} concept${added === 1 ? '' : 's'}` : 'No new concepts',
+      message:
+        added > 0
+          ? 'Review the suggested tags and weights before saving.'
+          : 'The answer query matched no new concepts (already tagged, or none detected).',
+      color: added > 0 ? 'green' : 'gray',
+    });
   };
 
   const persistConceptTags = async (questionId: number) => {
@@ -427,11 +453,24 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
       {/* Concept tags (Learning Analytics) */}
       {concepts.length > 0 && (
         <div style={{ display: 'grid', gap: 8 }}>
-          <span style={labelStyle}>SQL Concepts</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span style={labelStyle}>SQL Concepts</span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={suggestConceptsFromQuery}
+              disabled={!correctAnswerQuery.trim()}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+            >
+              ✨ Suggest from answer query
+            </button>
+          </div>
           <p style={helpStyle}>
             Tag the SQL concepts this question exercises. These drive per-concept mastery
             tracking and the student learning dashboard. Weights (default 1.0) let one
-            concept count more than another for a question.
+            concept count more than another for a question. Use <strong>Suggest from answer
+            query</strong> to auto-detect concepts and weights from the correct answer —
+            it only adds concepts you haven&apos;t already picked, so review before saving.
           </p>
           <div
             style={{

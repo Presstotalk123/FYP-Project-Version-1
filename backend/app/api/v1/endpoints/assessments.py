@@ -578,6 +578,18 @@ def stop_assessment(
 
     assessment.is_running = 0  # blocks new joins / hides items on reload (unchanged)
     assessment.updated_at = datetime.utcnow()
+    # Capture who we're about to force-finalize (before the bulk update flips is_active), so
+    # we can persist their weighted_score below. Sessions already inactive were finalized
+    # through finalize_session and already carry a score.
+    just_finalized_ids = [
+        row[0]
+        for row in db.query(AssessmentSession.id)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.is_active == 1,
+        )
+        .all()
+    ]
     # Force-end & submit everyone still active, regardless of their remaining time. Sets the
     # same end-state as finalize_session (is_active=0, attempt_complete=1, submitted_at). The
     # is_active==1 filter makes this idempotent and covers untimed attempts (end_time NULL) too.
@@ -593,6 +605,19 @@ def stop_assessment(
     bump_version(db, Ns.ASSESSMENT_ANALYTICS)
     db.commit()
     db.refresh(assessment)
+
+    # The bulk update() above bypasses finalize_session, so no per-session weighted_score
+    # was computed. Persist it now in one batched roster computation (the same queries
+    # warm_analytics_cache runs next), instead of N live compute_weighted_score calls.
+    if just_finalized_ids:
+        roster = assessment_scoring.compute_roster_analytics(db, assessment, class_group=None)
+        for s in (
+            db.query(AssessmentSession)
+            .filter(AssessmentSession.id.in_(just_finalized_ids))
+            .all()
+        ):
+            s.weighted_score = roster.per_student_scores.get(s.user_id)
+        db.commit()
 
     # Results are frozen the moment the assessment stops, so compute + persist the
     # cohort and per-class-group analytics right now instead of leaving them to be
@@ -963,8 +988,13 @@ def get_student_component_scores(
 
         component_scores.append(score)
 
+    # Prefer the persisted score once the session is finalized (authoritative, byte-for-byte
+    # matching what the student/report views show); fall back to the live recompute for an
+    # in-progress attempt, where weighted_score is still NULL and staff need current state.
     total_weighted_score = (
-        round(earned_weight / total_weight * 100, 1) if total_weight > 0 else None
+        session.weighted_score
+        if session is not None and session.attempt_complete
+        else (round(earned_weight / total_weight * 100, 1) if total_weight > 0 else None)
     )
 
     return StudentComponentScoresResponse(

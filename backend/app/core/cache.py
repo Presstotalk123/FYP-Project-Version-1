@@ -75,6 +75,10 @@ class Ns:
     # after_flush invalidation hook: the LAD reads it with a date-stamped key so it
     # refreshes once a day, not on every concept_mastery write (see lad_service).
     CONCEPT_MASTERY_AGGREGATE = "concept_mastery_aggregate"
+    # Cohort-level research export summary. Like CONCEPT_MASTERY_AGGREGATE, it has NO
+    # after_flush hook — it spans a half-dozen high-write tables, so it's read with a
+    # date-stamped key that refreshes once a day instead (see research_export).
+    RESEARCH_EXPORT = "research_export"
 
 
 # Static namespaces that get a seed row on startup. `assessment_body:{id}` rows are
@@ -92,6 +96,7 @@ ALL_NAMESPACES: tuple[str, ...] = (
     Ns.COURSE_INFO,
     Ns.WHITELIST,
     Ns.CONCEPT_MASTERY_AGGREGATE,
+    Ns.RESEARCH_EXPORT,
 )
 
 

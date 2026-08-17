@@ -131,6 +131,9 @@ def reset_student_attempt(db: Session, assessment: Assessment, student_id: int) 
         db.query(AssessmentItemVisit).filter(
             AssessmentItemVisit.session_id.in_(session_ids)
         ).delete(synchronize_session=False)
+        # Sessions are deleted outright (not soft-reset), so the persisted weighted_score
+        # column goes with the row — no explicit nulling needed. A re-joined attempt is
+        # finalized fresh via finalize_session, which recomputes and re-persists the score.
         db.query(AssessmentSession).filter(
             AssessmentSession.id.in_(session_ids)
         ).delete(synchronize_session=False)

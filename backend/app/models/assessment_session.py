@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -26,3 +26,7 @@ class AssessmentSession(Base):
     # hard_deadline, so query-time credit (which only pushes end_time) can never extend past
     # the group's window end.
     hard_deadline = Column(DateTime(timezone=True), nullable=True)
+    # Weighted total (0-100), computed once at finalization by
+    # assessment_scoring.compute_weighted_score and never recomputed after. NULL until the
+    # session is finalized, or if the assessment carries no weightage.
+    weighted_score = Column(Float, nullable=True)

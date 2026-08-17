@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     GOOGLE_CLIENT_ID: str = ""
 
+    # HMAC-SHA256 salt for anonymizing student ids in the research CSV export
+    # (app/api/v1/endpoints/research_export.py). Required — the raw-csv endpoint
+    # refuses to run (503) without it, so a forgotten env var can't ship a weakly
+    # anonymized export. No reversible mapping is stored anywhere; rotating this salt
+    # permanently changes every anon_id.
+    RESEARCH_EXPORT_SALT: str = ""
+
     # Microsoft SSO (Azure Entra ID / Microsoft Identity Platform)
     # Use "common" for the tenant to allow any Microsoft account (work/school
     # or personal). MICROSOFT_CLIENT_ID is the Azure App registration's

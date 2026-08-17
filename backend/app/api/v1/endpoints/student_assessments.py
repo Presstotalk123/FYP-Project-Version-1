@@ -167,8 +167,9 @@ def list_student_assessments(
             is_live = bool(a.is_running)
             results_released = not a.is_running
 
+        # Persisted at finalization (see assessment_timer.finalize_session); no live recompute.
         weighted_score = (
-            assessment_scoring.compute_weighted_score(db, a, current_user.id)
+            completed.weighted_score
             if attempt_complete and results_released
             else None
         )
@@ -206,15 +207,15 @@ def get_student_assessment(
     )
     is_open = resolved.is_open if assessment.gateway_enabled else bool(assessment.is_running)
 
-    attempt_complete = _get_completed_session(assessment_id, current_user.id, db) is not None
+    completed_session = _get_completed_session(assessment_id, current_user.id, db)
+    attempt_complete = completed_session is not None
 
     # If not open for this student, return only metadata with no items. Once the assessment
     # is closed/stopped, a student who submitted may see their overall score (released).
     if not is_open:
+        # Persisted at finalization (see assessment_timer.finalize_session); no live recompute.
         weighted_score = (
-            assessment_scoring.compute_weighted_score(db, assessment, current_user.id)
-            if attempt_complete
-            else None
+            completed_session.weighted_score if attempt_complete else None
         )
         return StudentAssessmentDetail(
             id=assessment.id,

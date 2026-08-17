@@ -110,7 +110,8 @@ def _assessment_block(
             )
         )
 
-    total = assessment_scoring.compute_weighted_score(db, assessment, student_id)
+    # Persisted at finalization (see assessment_timer.finalize_session); no live recompute.
+    total = session.weighted_score
     # Cohort comparison reads the shared, cached cohort analytics (compute-once) rather
     # than recomputing every student's weighted total for each block.
     cohort_analytics = assessment_scoring.get_or_compute_analytics(db, assessment)

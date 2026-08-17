@@ -9,12 +9,21 @@ import {
   ERSubmissionResponse,
   ERSubmissionStreamEvent,
   ErdTutorConversationResponse,
+  ErDraftResponse,
+  ErDraftSaveResponse,
   GenerateRubricRequest,
   GenerateRubricResponse,
   SaveERQuestionRequest,
 } from "@/types/er-diagram.types";
 
 const submissionUrl = `${API_BASE_URL}${API_ENDPOINTS.ER_DIAGRAM.SUBMISSION}`;
+
+// api.service.ts's axios instance has no default timeout (SSE-adjacent calls
+// need to stay unbounded), so a hung draft save otherwise never settles. A
+// per-request bound here — not a global default — keeps that scoped to this
+// one endpoint; the payload is capped at 500 KB and this is a single upsert,
+// so anything still outstanding past this is stuck, not merely slow.
+const DRAFT_SAVE_TIMEOUT_MS = 8_000;
 
 const parseErrorBody = async (response: Response): Promise<string> => {
   const text = await response.text();
@@ -212,6 +221,24 @@ export const erDiagramService = {
       { params: ref },
     );
     return response.data;
+  },
+
+  async getDraft(questionId: number, knownRevision?: number | null): Promise<ErDraftResponse> {
+    const params: Record<string, number> = { question_id: questionId };
+    if (typeof knownRevision === "number") {
+      params.known_revision = knownRevision;
+    }
+    const { data } = await api.get<ErDraftResponse>(API_ENDPOINTS.ER_DIAGRAM.DRAFT, { params });
+    return data;
+  },
+
+  async saveDraft(questionId: number, xml: string): Promise<ErDraftSaveResponse> {
+    const { data } = await api.put<ErDraftSaveResponse>(
+      API_ENDPOINTS.ER_DIAGRAM.DRAFT,
+      { question_id: questionId, xml },
+      { timeout: DRAFT_SAVE_TIMEOUT_MS },
+    );
+    return data;
   },
 
   async *submitStream(payload: ERSubmissionRequest): AsyncGenerator<ERSubmissionStreamEvent> {

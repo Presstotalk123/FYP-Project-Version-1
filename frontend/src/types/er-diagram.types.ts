@@ -212,3 +212,18 @@ export interface ErdTutorConversationResponse {
   last_submit_report?: ERSubmissionStructuredOutput | Record<string, unknown> | null;
   messages: ErdTutorTranscriptMessage[];
 }
+
+/** The student's in-progress canvas as the server holds it. */
+export interface ErDraftResponse {
+  exists: boolean;
+  revision?: number | null;
+  updated_at?: string | null;
+  /** Omitted when `unchanged` is true — the client already has this revision. */
+  xml?: string | null;
+  unchanged?: boolean;
+}
+
+export interface ErDraftSaveResponse {
+  revision: number;
+  updated_at: string;
+}

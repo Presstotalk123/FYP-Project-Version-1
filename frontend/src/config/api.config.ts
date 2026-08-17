@@ -47,6 +47,7 @@ export const API_ENDPOINTS = {
     QUESTION_UNPUBLISH: (id: number) => `/er-diagram/questions/${id}/unpublish`,
     SUBMISSION: '/er-diagram/submission',
     CONVERSATION: '/er-diagram/conversation',
+    DRAFT: '/er-diagram/draft',
   },
   ER_ANALYTICS: {
     QUESTION: (id: number) => `/er-diagram/questions/${id}/analytics`,

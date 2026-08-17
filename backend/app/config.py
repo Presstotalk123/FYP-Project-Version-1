@@ -33,6 +33,20 @@ class Settings(BaseSettings):
     PRESENCE_BEAT_SECONDS: int = 600
     PRESENCE_WINDOW_SECONDS: int = 1500
 
+    # Max characters of draw.io XML accepted by BOTH the ERD submission endpoint
+    # and the draft upsert. Raising it here is only half the change: the browser
+    # enforces the same cap from MAX_XML_CHARS, a plain constant in
+    # frontend/src/hooks/use-er-draft.ts. Raise both in one change and rebuild
+    # the frontend, or the two disagree — a server that accepts 800k while the
+    # client still refuses at 500k shows students "too large to sync" for
+    # diagrams it would happily store.
+    #
+    # The client side is deliberately NOT an env var: a static export bakes
+    # NEXT_PUBLIC_* in at build time, so it could only be changed by a pipeline
+    # change and a redeploy. A cap that is runtime-settable on one side and
+    # build-time on the other is a knob that can only be turned halfway.
+    ER_MAX_XML_CHARS: int = 500_000
+
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -52,6 +66,7 @@ class Settings(BaseSettings):
     # Application (client) ID; ID tokens are validated against it as the audience.
     MICROSOFT_CLIENT_ID: str = ""
     MICROSOFT_TENANT_ID: str = "common"
+
 
     # Question databases path
     QUESTION_DB_PATH: str = "./question_databases/"

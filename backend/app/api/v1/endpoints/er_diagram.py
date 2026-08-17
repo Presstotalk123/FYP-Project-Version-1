@@ -29,6 +29,9 @@ from app.schemas.er_diagram import (
     ERDiagramQuestionListItem,
     ERDiagramQuestionCountResponse,
     ERDiagramQuestionProgressItem,
+    ErDraftResponse,
+    ErDraftSaveRequest,
+    ErDraftSaveResponse,
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
@@ -46,6 +49,7 @@ from app.services.er_grading import (
     _upload_file_to_dify,
     stream_er_submission_grading,
 )
+from app.services import er_drafts
 from app.services.erd_rubric import runner as erd_rubric_runner
 from app.utils.er_storage import get_er_storage_provider
 
@@ -73,7 +77,48 @@ def _er_question_accessible_via_assessment(question_id: int, user_id: int, db: S
         .first()
     )
     return result is not None
-MAX_ER_XML_CHARS = 500_000
+
+
+def _require_er_question_access(db: Session, *, question_id: int, current_user: User) -> None:
+    """Authorization gate for the draft endpoints — raises 404 exactly where
+    `get_er_question` (~line 1215) would refuse to serve the question itself.
+
+    Selects only (is_published, creator role), not the full question row: this
+    doubles as the existence check on the hot autosave write path, so callers
+    should not do a second, heavier lookup afterward.
+
+    The publish gate applies only to staff-created bank questions; student-
+    authored questions are never gated (mirrors get_er_question). A student
+    reaches a gated (unpublished, staff-created) question — which includes
+    assessment clones, whose is_published is 0 by construction — only as an
+    active participant in a running assessment containing it. Staff/admin are
+    never gated.
+    """
+    row = (
+        db.query(ERDiagramQuestion.is_published, User.role)
+        .join(User, ERDiagramQuestion.created_by == User.id)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    is_published, creator_role = row
+    role_value = creator_role.value if isinstance(creator_role, UserRole) else str(creator_role).strip().lower()
+
+    if (
+        current_user.role.value == "student"
+        and role_value in {"staff", "admin"}
+        and not is_published
+    ):
+        if not _er_question_accessible_via_assessment(question_id, current_user.id, db):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+
+# Sourced from settings so a deployment can raise it without a code change; see
+# the note on ER_MAX_XML_CHARS in config.py about keeping the client in step.
+# Read once at import, matching how the rest of this module treats settings.
+MAX_ER_XML_CHARS = settings.ER_MAX_XML_CHARS
 MAX_ER_DESC_CHARS = 5_000
 RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
 SHOW_RUBRIC_ON_ATTEMPT_KEY = "show_rubric_on_attempt"
@@ -1518,6 +1563,77 @@ def get_erd_tutor_conversation(
     if conv is None:
         return _EMPTY_CONVERSATION
     return _erd_conversation_payload(db, conv)
+
+
+@router.get("/draft", response_model=ErDraftResponse)
+def get_er_draft(
+    question_id: int,
+    known_revision: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch the caller's in-progress canvas for a question.
+
+    Always scoped to the caller — a user_id is never accepted from the client.
+    Pass `known_revision` to skip the XML when the client is already current.
+    """
+    _require_er_question_access(db, question_id=question_id, current_user=current_user)
+
+    if known_revision is not None:
+        # Revision-only lookup first: the common "reopening a question I already
+        # have" case must not pull the (up to 500 KB) xml column just to discard
+        # it once the comparison below finds nothing changed.
+        current = er_drafts.get_draft_revision(
+            db, user_id=current_user.id, question_id=question_id
+        )
+        if current is None:
+            return ErDraftResponse(exists=False)
+        revision, updated_at = current
+        if known_revision == revision:
+            return ErDraftResponse(
+                exists=True,
+                revision=revision,
+                updated_at=updated_at,
+                unchanged=True,
+            )
+        # known_revision is stale — fall through to fetch the real content below.
+
+    draft = er_drafts.get_draft(db, user_id=current_user.id, question_id=question_id)
+    if draft is None:
+        return ErDraftResponse(exists=False)
+
+    return ErDraftResponse(
+        exists=True,
+        revision=draft.revision,
+        updated_at=draft.updated_at,
+        xml=draft.xml,
+    )
+
+
+@router.put("/draft", response_model=ErDraftSaveResponse)
+def save_er_draft(
+    payload: ErDraftSaveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert the caller's canvas. Never echoes the XML back."""
+    if len(payload.xml) > MAX_ER_XML_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"xml exceeds maximum length of {MAX_ER_XML_CHARS} characters",
+        )
+
+    # Existence + authorization in one light query (not the full ORM row — this
+    # runs on every autosave). See _require_er_question_access.
+    _require_er_question_access(db, question_id=payload.question_id, current_user=current_user)
+
+    revision, updated_at = er_drafts.save_draft(
+        db,
+        user_id=current_user.id,
+        question_id=payload.question_id,
+        xml=payload.xml,
+    )
+    return ErDraftSaveResponse(revision=revision, updated_at=updated_at)
 
 
 @router.post("/submission")

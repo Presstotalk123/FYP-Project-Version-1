@@ -13,6 +13,7 @@ import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptio
 import { ladService } from '@/services/lad.service';
 import { Concept } from '@/types/lad.types';
 import { detectConcepts } from '@/utils/sqlConcepts';
+import { mysqlToSqlite } from '@/utils/sqlDialect';
 
 interface QuestionFormProps {
   question?: QuestionDetail;
@@ -28,6 +29,31 @@ const editorOptions = {
   fontSize: 13,
   lineNumbers: 'on' as const,
   scrollBeyondLastLine: false,
+};
+
+// Rewrites the editor's MySQL/LeetCode-style script to SQLite in place. Only enabled when
+// there's something to convert. Best-effort (see mysqlToSqlite) — the author reviews after.
+function ConvertToSqliteButton({ value, onConvert }: { value: string; onConvert: (v: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="btn btn-secondary"
+      style={{ minHeight: 28, padding: '0 10px', fontSize: 12 }}
+      onClick={() => onConvert(mysqlToSqlite(value))}
+      disabled={!value.trim()}
+      title="Rewrite MySQL / LeetCode syntax (TRUNCATE, int, varchar…) to SQLite. Ctrl+Z to undo."
+    >
+      Convert to SQLite
+    </button>
+  );
+}
+
+// Label row that carries the Convert button on the right (used for the SQL setup editors).
+const labelRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
 };
 
 export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
@@ -281,9 +307,12 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
 
       {/* Schema SQL */}
       <div style={{ display: 'grid', gap: 6 }}>
-        <label style={labelStyle}>
-          Schema SQL <span style={{ color: 'var(--error)' }}>*</span>
-        </label>
+        <div style={labelRowStyle}>
+          <label style={labelStyle}>
+            Schema SQL <span style={{ color: 'var(--error)' }}>*</span>
+          </label>
+          <ConvertToSqliteButton value={schemaSql} onConvert={setSchemaSql} />
+        </div>
         <div style={editorFrame}>
           <Editor
             height="200px"
@@ -298,9 +327,12 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
 
       {/* Sample Data SQL */}
       <div style={{ display: 'grid', gap: 6 }}>
-        <label style={labelStyle}>
-          Sample Data SQL <span style={{ color: 'var(--error)' }}>*</span>
-        </label>
+        <div style={labelRowStyle}>
+          <label style={labelStyle}>
+            Sample Data SQL <span style={{ color: 'var(--error)' }}>*</span>
+          </label>
+          <ConvertToSqliteButton value={sampleDataSql} onConvert={setSampleDataSql} />
+        </div>
         <div style={editorFrame}>
           <Editor
             height="200px"

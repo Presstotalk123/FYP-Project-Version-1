@@ -47,6 +47,9 @@ CONCEPTS = [
     ("window_functions", "Window functions", "advanced", "OVER(...) analytic functions."),
     ("cte", "Common table expressions", "advanced", "WITH clauses / named subqueries."),
     ("case_expressions", "CASE expressions", "advanced", "Conditional expressions with CASE."),
+    # database objects
+    ("triggers", "Triggers", "database_objects",
+     "CREATE TRIGGER — procedural code that runs automatically on INSERT/UPDATE/DELETE."),
 ]
 
 # (concept_slug, prerequisite_slug)

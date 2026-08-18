@@ -3,8 +3,9 @@
 // Given a question's correct answer query, detect which SQL concepts (matching the
 // `sql_concepts` taxonomy slugs) it exercises, each with a default "salience" weight.
 // This is a heuristic keyword scanner, not a parser: it covers the reliably
-// keyword-detectable concepts and deliberately skips the ones that need structural
-// analysis (self join, correlated subquery, scalar subquery) — those stay manual.
+// keyword-detectable concepts. Scalar and correlated subqueries are detected with a
+// best-effort structural heuristic (see isCorrelated); self join still needs structural
+// analysis a scanner can't do reliably, so it stays manual.
 // The author always reviews/adjusts the result before saving.
 
 export interface DetectedConcept {
@@ -33,6 +34,7 @@ export const CONCEPT_DEFAULT_WEIGHT: Record<string, number> = {
   intersect_except: 1.0,
   having_clause: 1.0,
   case_expressions: 1.0,
+  triggers: 1.0,
   // 0.7 — core intermediate
   inner_join: 0.7,
   group_by: 0.7,
@@ -55,6 +57,67 @@ function sanitize(sql: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, ' ') // block comments
     .replace(/'(?:[^']|'')*'/g, "''") // single-quoted string literals
     .replace(/"(?:[^"]|"")*"/g, '""'); // double-quoted identifiers/strings
+}
+
+// Slice out the inner text of each parenthesized subquery `( SELECT … )`, matching
+// parens by depth so nested subqueries are handled. Runs on sanitized SQL.
+function extractSubqueries(s: string): string[] {
+  const subs: string[] = [];
+  const re = /\(\s*SELECT\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    let depth = 0;
+    let i = m.index;
+    for (; i < s.length; i++) {
+      if (s[i] === '(') depth += 1;
+      else if (s[i] === ')') {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    subs.push(s.slice(m.index + 1, i)); // text between the ( and its matching )
+  }
+  return subs;
+}
+
+// Words that can follow FROM/JOIN when a table has no alias — guard so they aren't
+// mistaken for one.
+const NOT_AN_ALIAS =
+  /^(ON|WHERE|GROUP|ORDER|INNER|LEFT|RIGHT|FULL|CROSS|JOIN|USING|HAVING|LIMIT|UNION)$/i;
+
+// Collect the table aliases introduced by FROM/JOIN clauses in a fragment, upper-cased.
+function aliasesIn(fragment: string): Set<string> {
+  const aliases = new Set<string>();
+  const re = /\b(?:FROM|JOIN)\s+"?\w+"?\s+(?:AS\s+)?"?(\w+)"?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(fragment)) !== null) {
+    const alias = m[1].toUpperCase();
+    if (!NOT_AN_ALIAS.test(alias)) aliases.add(alias);
+  }
+  return aliases;
+}
+
+// A subquery is correlated when it references a table alias defined by the outer query.
+function isCorrelated(s: string): boolean {
+  const subs = extractSubqueries(s);
+  if (subs.length === 0) return false;
+
+  // Aliases defined inside any subquery vs. those defined only at the top level.
+  const subAliases = new Set<string>();
+  subs.forEach((sub) => aliasesIn(sub).forEach((a) => subAliases.add(a)));
+  const outerAliases = new Set(
+    [...aliasesIn(s)].filter((a) => !subAliases.has(a)),
+  );
+  if (outerAliases.size === 0) return false;
+
+  return subs.some((sub) => {
+    const localAliases = aliasesIn(sub);
+    const refs = sub.match(/\b(\w+)\s*\./g) || [];
+    return refs.some((r) => {
+      const alias = r.replace(/\s*\.$/, '').toUpperCase();
+      return outerAliases.has(alias) && !localAliases.has(alias);
+    });
+  });
 }
 
 /**
@@ -118,8 +181,17 @@ export function detectConcepts(sql: string): DetectedConcept[] {
   // Subqueries — only meaningful if there's a nested SELECT.
   const selectCount = (s.match(/\bSELECT\b/gi) || []).length;
   if (selectCount > 1) {
+    // e.g.  salary = ( SELECT MAX(salary) … ). Two-char operators are ordered before
+    // the single-char ones so they match first.
+    const compSubquery = /(<>|!=|<=|>=|=|<|>)\s*\(\s*SELECT\b/i;
+
     if (has(/\bFROM\s*\(\s*SELECT\b/i)) found.add('subquery_in_from');
-    if (has(/\b(IN|EXISTS|ANY|ALL|SOME)\s*\(\s*SELECT\b/i)) found.add('subquery_in_where');
+    if (has(/\b(IN|EXISTS|ANY|ALL|SOME)\s*\(\s*SELECT\b/i) || has(compSubquery)) {
+      found.add('subquery_in_where');
+    }
+    // A subquery compared against a value must return a single value → scalar.
+    if (has(compSubquery)) found.add('scalar_subquery');
+    if (isCorrelated(s)) found.add('correlated_subquery');
   }
 
   // Set operations
@@ -130,6 +202,9 @@ export function detectConcepts(sql: string): DetectedConcept[] {
   if (has(/\bOVER\s*\(/i)) found.add('window_functions');
   if (has(/\bWITH\b\s+\w+\s+AS\s*\(/i)) found.add('cte');
   if (has(/\bCASE\b/i)) found.add('case_expressions');
+
+  // Database objects — reliable DDL form only, so a bare word can't false-trigger.
+  if (has(/\bCREATE\s+(OR\s+REPLACE\s+)?TRIGGER\b/i)) found.add('triggers');
 
   return Array.from(found).map((slug) => ({
     slug,

@@ -9,6 +9,32 @@ const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 import { LabDetail } from '@/types/lab.types';
 import { labService } from '@/services/lab.service';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
+import { mysqlToSqlite } from '@/utils/sqlDialect';
+
+// Label row that carries the Convert button on the right (used for the SQL setup editors).
+const labelRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+};
+
+// Rewrites the editor's MySQL/LeetCode-style script to SQLite in place. Disabled when the
+// editor is read-only or empty. Best-effort (see mysqlToSqlite) — the author reviews after.
+function ConvertToSqliteButton({ value, onConvert, disabled }: { value: string; onConvert: (v: string) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="btn btn-secondary"
+      style={{ minHeight: 28, padding: '0 10px', fontSize: 12 }}
+      onClick={() => onConvert(mysqlToSqlite(value))}
+      disabled={disabled || !value.trim()}
+      title="Rewrite MySQL / LeetCode syntax (TRUNCATE, int, varchar…) to SQLite. Ctrl+Z to undo."
+    >
+      Convert to SQLite
+    </button>
+  );
+}
 
 interface LabFormProps {
   lab?: LabDetail;
@@ -172,9 +198,12 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
       ) : (
         <>
           <div style={{ display: 'grid', gap: 6 }}>
-            <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
-              Schema SQL (CREATE TABLE statements) <span style={{ color: 'var(--error)' }}>*</span>
-            </label>
+            <div style={labelRowStyle}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+                Schema SQL (CREATE TABLE statements) <span style={{ color: 'var(--error)' }}>*</span>
+              </label>
+              <ConvertToSqliteButton value={schemaSql} onConvert={setSchemaSql} disabled={isDisabled ?? false} />
+            </div>
             <div style={{ border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
               <Editor
                 height="200px"
@@ -194,9 +223,12 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
           </div>
 
           <div style={{ display: 'grid', gap: 6 }}>
-            <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
-              Sample Data SQL (INSERT statements) <span style={{ color: 'var(--error)' }}>*</span>
-            </label>
+            <div style={labelRowStyle}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-charcoal)' }}>
+                Sample Data SQL (INSERT statements) <span style={{ color: 'var(--error)' }}>*</span>
+              </label>
+              <ConvertToSqliteButton value={sampleDataSql} onConvert={setSampleDataSql} disabled={isDisabled ?? false} />
+            </div>
             <div style={{ border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
               <Editor
                 height="200px"

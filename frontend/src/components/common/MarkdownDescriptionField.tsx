@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { DescriptionMarkdown } from './DescriptionMarkdown';
+import { fenceAsciiTables } from '@/utils/asciiTableFence';
 
 interface MarkdownDescriptionFieldProps {
   id: string;
@@ -46,6 +47,26 @@ export function MarkdownDescriptionField({
   minHeight = 100,
 }: MarkdownDescriptionFieldProps) {
   const [view, setView] = useState<'edit' | 'preview'>('edit');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = e.clipboardData.getData('text/plain');
+    if (!pasted) return;
+    const formatted = fenceAsciiTables(pasted);
+    if (formatted === pasted) return; // no ASCII table detected; let the browser paste natively
+
+    e.preventDefault();
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? value.length;
+    const newValue = value.slice(0, start) + formatted + value.slice(end);
+    onChange(newValue);
+
+    const newCursor = start + formatted.length;
+    requestAnimationFrame(() => {
+      el?.setSelectionRange(newCursor, newCursor);
+    });
+  };
 
   return (
     <div style={{ display: 'grid', gap: 6 }}>
@@ -74,11 +95,13 @@ export function MarkdownDescriptionField({
       {view === 'edit' ? (
         <textarea
           id={id}
+          ref={textareaRef}
           className="da-input"
           style={{ width: '100%', minHeight, resize: 'vertical', fontFamily: 'var(--font-geist-mono)', fontSize: 13 }}
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={handlePaste}
           disabled={disabled}
           required={required}
         />
@@ -101,7 +124,7 @@ export function MarkdownDescriptionField({
       )}
 
       <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-        Supports Markdown (**bold**, lists, tables). Wrap ASCII tables in triple backticks (```) to keep their alignment.
+        Supports Markdown (**bold**, lists, tables). ASCII tables (like LeetCode's) are auto-wrapped in triple backticks (```) when pasted to keep their alignment.
       </p>
     </div>
   );

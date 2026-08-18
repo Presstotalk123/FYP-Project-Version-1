@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -1638,8 +1638,9 @@ def save_er_draft(
 
 @router.post("/submission")
 async def submit_er_diagram(
+    request: Request,
     question_id: Optional[int] = Form(None),
-    mode: ERSubmissionMode = Form(...),
+    mode: Optional[str] = Form(None),
     student_query: Optional[str] = Form(None),
     submission_xml_text: Optional[str] = Form(None),
     submission_description: Optional[str] = Form(None),
@@ -1647,6 +1648,59 @@ async def submit_er_diagram(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # ── Malformed-upload guard + diagnostics ──────────────────────────────
+    # This endpoint's one required field is `mode`. When it is missing the
+    # multipart body FastAPI received was empty, truncated, or not the form the
+    # browser builds — the raw "mode: field required" 422 some students hit on
+    # image submit while draw.io (an identical request shape) still works. The
+    # cause sits on the client's device — an in-app/embedded browser, a
+    # content-inspecting proxy / AV / MDM filter, or a page-rewriting extension
+    # reshaping the upload — so it cannot be fixed server-side. What we can do is
+    # stop failing opaquely: return an actionable message, and log the client and
+    # exactly which parts did arrive so the next occurrence is self-diagnosing
+    # from our own logs (no browser DevTools or Azure diagnostics needed).
+    normalized_mode = (mode or "").strip()
+    if normalized_mode not in ("Query", "Submit"):
+        logger.warning(
+            "er_submission_malformed_body user_id=%s question_id=%s mode=%r "
+            "content_type=%r content_length=%s user_agent=%r via=%r xff=%r "
+            "fields_present=%s erd_img=%s",
+            getattr(current_user, "id", None),
+            question_id,
+            mode,
+            request.headers.get("content-type"),
+            request.headers.get("content-length"),
+            request.headers.get("user-agent"),
+            request.headers.get("via"),
+            request.headers.get("x-forwarded-for"),
+            {
+                "question_id": question_id is not None,
+                "student_query": bool((student_query or "").strip()),
+                "submission_xml_text": bool((submission_xml_text or "").strip()),
+                "submission_description": bool((submission_description or "").strip()),
+                "erd_img": erd_img is not None and bool(getattr(erd_img, "filename", "")),
+            },
+            None if erd_img is None else {
+                "filename": getattr(erd_img, "filename", None),
+                "content_type": getattr(erd_img, "content_type", None),
+                "size": getattr(erd_img, "size", None),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "We couldn't read your submission \u2014 the upload didn't arrive "
+                "complete. This is usually caused by your browser, a browser extension, "
+                "or a network/security filter on your device, not by your diagram. "
+                "Please try submitting with the draw.io editor instead, or use a "
+                "different browser or an incognito/private window. If it keeps "
+                "happening, let your instructor know."
+            ),
+        )
+    # Past the guard `mode` is exactly "Query" or "Submit"; canonicalise so the
+    # downstream exact-match comparisons (e.g. the analytics image save) are safe.
+    mode = normalized_mode
+
     if question_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

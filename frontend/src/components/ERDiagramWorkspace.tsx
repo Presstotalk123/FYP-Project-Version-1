@@ -39,6 +39,7 @@ import {
 } from "@/utils/er-rubric-results";
 import { erDiagramService } from "@/services/er-diagram.service";
 import { useErDraft } from "@/hooks/use-er-draft";
+import { useErdGuideDismissed } from "@/hooks/use-erd-guide";
 import type {
   ERRubricJson,
   ERSubmissionRequest,
@@ -207,6 +208,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     // reaches an already-mounted board.
     onAdoptXml: (xml) => drawioRef.current?.loadXml(xml),
   });
+  const guide = useErdGuideDismissed(userId);
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
   const [descText, setDescText] = useState("");
@@ -826,6 +828,8 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
         isDirty={isDirty}
         lastSavedAt={draft.lastSavedAt}
         saveState={draft.saveState}
+        guideDismissed={guide.dismissed}
+        onDismissGuideForever={guide.dismissForever}
       />
       {descriptionModal}
       {conflictModal}

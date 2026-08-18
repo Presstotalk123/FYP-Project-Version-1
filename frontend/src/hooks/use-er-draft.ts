@@ -358,7 +358,15 @@ export function useErDraft({
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => void flush(), IDLE_MS);
     if (!ceilingTimerRef.current) {
-      ceilingTimerRef.current = setTimeout(() => void flush(), MAX_WAIT_MS);
+      // Jittered +/-20%. The idle timer desynchronises naturally (students
+      // pause at different moments), but the ceiling does not: a cohort
+      // entering an assessment together arms it together and would fire in
+      // lockstep every MAX_WAIT_MS, stacking a whole class's writes onto the
+      // same instants, on top of already-peaky assessment-start traffic.
+      // Spreading them costs nothing and still guarantees a sync within the
+      // ceiling.
+      const ceiling = MAX_WAIT_MS * (0.8 + Math.random() * 0.4);
+      ceilingTimerRef.current = setTimeout(() => void flush(), ceiling);
     }
   }, [flush]);
 
@@ -375,7 +383,21 @@ export function useErDraft({
       // degrade the rest of the session — a genuinely new edit earns a
       // fresh set of attempts, so a transient outage doesn't strand every
       // later autosave at "local-only" after its first failure.
-      retryIndexRef.current = 0;
+      //
+      // But only when no attempt is in flight. Resetting mid-ladder let a
+      // student drawing through an outage restart the counter faster than
+      // the shortest 2s rung could advance it, so the ladder never
+      // exhausted: the amber "saved on this device only" warning never
+      // appeared (the chip read "Saving…" indefinitely while nothing
+      // saved), and the retry rate rose to ~1 failing request every 2s
+      // instead of the designed 1 per 20s — hammering an endpoint already
+      // in trouble. Measured at 17 requests in 48s before this guard.
+      // Nothing is lost by waiting: the attempt loop re-reads localXmlRef
+      // on each pass, so a retry already carries the newest content; only
+      // the counter stops restarting.
+      if (!inFlightRef.current) {
+        retryIndexRef.current = 0;
+      }
       localXmlRef.current = xml;
       // A stale "synced" claim is exactly the falsehood the chip and exit
       // modal must not tell: the instant new content diverges from what the

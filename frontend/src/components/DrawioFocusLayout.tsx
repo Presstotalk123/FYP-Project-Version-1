@@ -26,6 +26,7 @@ import {
   IconDeviceFloppy,
   IconFileImport,
   IconFolder,
+  IconHelpCircle,
   IconNotebook,
   IconReportAnalytics,
   IconX,
@@ -35,6 +36,7 @@ import type { DraftSaveState } from "@/hooks/use-er-draft";
 import { TUTOR_NAME } from "@/components/ChatPanel";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 import { IconBear } from "@/components/workspace/IconBear";
+import { ErdGuideModal } from "@/components/ErdGuideModal";
 import drawioTheme from "@/components/DrawioTheme.module.css";
 
 type DrawioFocusLayoutProps = {
@@ -56,6 +58,12 @@ type DrawioFocusLayoutProps = {
   /** Epoch ms of the last auto-save, or null if nothing is stored yet. */
   lastSavedAt: number | null;
   saveState: DraftSaveState;
+  /**
+   * Whether the student has chosen "Don't remind me again" for the guide.
+   * Until then the guide opens on its own each time focus mode is entered.
+   */
+  guideDismissed: boolean;
+  onDismissGuideForever: () => void;
 };
 
 type RightPanel = "chat" | "rubric" | null;
@@ -131,6 +139,8 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
       isDirty,
       lastSavedAt,
       saveState,
+      guideDismissed,
+      onDismissGuideForever,
     },
     ref,
   ) {
@@ -141,6 +151,10 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [savingBeforeExit, setSavingBeforeExit] = useState(false);
+  // Initial value only: this layout mounts fresh on every entry into focus
+  // mode, so "open unless dismissed" is evaluated exactly then. Later changes
+  // to `guideDismissed` come from the guide's own button, which closes it too.
+  const [guideOpen, setGuideOpen] = useState(!guideDismissed);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const startResizing = useCallback((side: Exclude<ResizingSide, null>) => (e: React.MouseEvent) => {
@@ -258,6 +272,11 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
     setRightPanel((current) => (current === next ? null : next));
   };
 
+  const handleDismissGuideForever = () => {
+    onDismissGuideForever();
+    setGuideOpen(false);
+  };
+
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -362,6 +381,19 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
         </Group>
 
         <Box style={{ flex: 1 }} />
+
+        <Tooltip label="How to draw and submit" withArrow className={BRAND_THEME_CLASS}>
+          <ActionIcon
+            variant={guideOpen ? "light" : "subtle"}
+            size="lg"
+            aria-label="How to draw and submit your ER diagram"
+            onClick={() => setGuideOpen((open) => !open)}
+            mr={4}
+            data-testid="erd-guide-toggle"
+          >
+            <IconHelpCircle size={20} />
+          </ActionIcon>
+        </Tooltip>
 
         <Box
           style={{
@@ -564,6 +596,13 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
           </Box>
         </Box>
       </Box>
+
+      <ErdGuideModal
+        opened={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        canDismissForever={!guideDismissed}
+        onDismissForever={handleDismissGuideForever}
+      />
 
       <input
         ref={fileInputRef}

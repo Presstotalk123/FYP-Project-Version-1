@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from typing import List
+from typing import Dict, List
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.user import UserResponse, UserRoleUpdate, UserAddRequest, UserAddResponse, UserProfileUpdate
 from app.core.security import hash_password
-from app.dependencies import require_staff_role, require_admin_role
+from app.dependencies import get_current_user, require_staff_role, require_admin_role
+from app.services import user_preferences
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -101,3 +103,39 @@ def update_user_profile(
     db.commit()
     db.refresh(user)
     return user
+
+
+# ---- the current user's own UI preferences ----------------------------------
+# Declared before the /{user_id}/... routes only for readability; the paths do
+# not overlap ("me/preferences" is two segments, those are "{user_id}/role" and
+# "{user_id}/profile"). Any logged-in user, own row only — nothing here can
+# read or write another user's preferences.
+
+
+class PreferenceValue(BaseModel):
+    value: str = Field(max_length=user_preferences.MAX_VALUE_LENGTH)
+
+
+@router.get("/me/preferences", response_model=Dict[str, str])
+def get_my_preferences(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Every preference the current user has set, keyed by name. Missing keys
+    mean "unset" — the frontend applies its own default."""
+    return user_preferences.get_all(db, user_id=current_user.id)
+
+
+@router.put("/me/preferences/{key}", status_code=status.HTTP_204_NO_CONTENT)
+def set_my_preference(
+    key: str,
+    body: PreferenceValue,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        user_preferences.set_value(db, user_id=current_user.id, key=key, value=body.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+

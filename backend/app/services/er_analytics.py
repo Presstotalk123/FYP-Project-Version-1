@@ -302,9 +302,9 @@ def question_analytics(
                 s["best_percent"] = r.score_percent
         s["last_attempt_at"] = r.created_at.isoformat() if r.created_at else None
     user_meta = {
-        uid: {"email": email, "class_group": group}
-        for uid, email, group in (
-            db.query(User.id, User.email, User.class_group)
+        uid: {"email": email, "name": name, "class_group": group}
+        for uid, email, name, group in (
+            db.query(User.id, User.email, User.name, User.class_group)
             .filter(User.id.in_(per_student.keys()))
             .all()
         )
@@ -313,6 +313,7 @@ def question_analytics(
         {
             **s,
             "email": user_meta.get(uid, {}).get("email", ""),
+            "name": user_meta.get(uid, {}).get("name"),
             "class_group": user_meta.get(uid, {}).get("class_group"),
         }
         for uid, s in sorted(per_student.items())

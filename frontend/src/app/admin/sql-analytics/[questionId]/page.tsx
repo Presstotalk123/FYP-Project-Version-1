@@ -128,7 +128,7 @@ export default function SqlQuestionAnalyticsPage() {
               <table className="da-table">
                 <thead>
                   <tr>
-                    <th>Student</th><th>Class</th><th>Attempts</th><th>Queries to correct</th>
+                    <th>Student</th><th>Name</th><th>Class</th><th>Attempts</th><th>Queries to correct</th>
                     <th>Solved</th><th>Used chatbot</th><th>Last attempt</th>
                   </tr>
                 </thead>
@@ -136,6 +136,7 @@ export default function SqlQuestionAnalyticsPage() {
                   {data.students.map((s) => (
                     <tr key={s.user_id} onClick={() => openDetail(s.user_id)} style={{ cursor: 'pointer' }}>
                       <td>{s.email}</td>
+                      <td>{s.name || '—'}</td>
                       <td>{s.class_group ?? '—'}</td>
                       <td>{s.attempts_count}</td>
                       <td>{num(s.queries_to_correct)}</td>
@@ -145,7 +146,7 @@ export default function SqlQuestionAnalyticsPage() {
                     </tr>
                   ))}
                   {data.students.length === 0 && (
-                    <tr><td colSpan={7}>No students have attempted this question yet.</td></tr>
+                    <tr><td colSpan={8}>No students have attempted this question yet.</td></tr>
                   )}
                 </tbody>
               </table>

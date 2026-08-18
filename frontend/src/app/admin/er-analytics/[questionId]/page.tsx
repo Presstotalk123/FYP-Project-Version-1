@@ -343,12 +343,13 @@ export default function ErQuestionAnalyticsPage() {
             <div className="table-wrap">
               <table className="da-table">
                 <thead>
-                  <tr><th>Student</th><th>Class</th><th>Attempts</th><th>Best</th><th>Latest</th><th>Last attempt</th><th></th></tr>
+                  <tr><th>Student</th><th>Name</th><th>Class</th><th>Attempts</th><th>Best</th><th>Latest</th><th>Last attempt</th><th></th></tr>
                 </thead>
                 <tbody>
                   {data.students.map((s) => (
                     <tr key={s.user_id} onClick={() => openJourney(s.user_id)} style={{ cursor: 'pointer' }}>
                       <td>{s.email}</td>
+                      <td>{s.name || '—'}</td>
                       <td>{s.class_group ?? '—'}</td>
                       <td>{s.attempts}</td>
                       <td>{pct(s.best_percent)}</td>

@@ -76,9 +76,9 @@ def question_analytics(
     chatbot_ids = _chatbot_user_ids(db, question_id)
 
     user_meta = {
-        uid: {"email": email, "class_group": group}
-        for uid, email, group in (
-            db.query(User.id, User.email, User.class_group)
+        uid: {"email": email, "name": name, "class_group": group}
+        for uid, email, name, group in (
+            db.query(User.id, User.email, User.name, User.class_group)
             .filter(User.id.in_(user_ids)).all()
         )
     } if user_ids else {}
@@ -94,6 +94,7 @@ def question_analytics(
         students.append({
             "user_id": p.user_id,
             "email": meta.get("email", ""),
+            "name": meta.get("name"),
             "class_group": meta.get("class_group"),
             "attempts_count": p.attempts_count,
             "completed": completed,

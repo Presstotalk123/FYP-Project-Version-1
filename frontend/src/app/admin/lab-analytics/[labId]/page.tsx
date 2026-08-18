@@ -129,12 +129,13 @@ export default function LabAnalyticsPage() {
             <div className="table-wrap">
               <table className="da-table">
                 <thead>
-                  <tr><th>Student</th><th>Class</th><th>Tasks correct</th><th>Used chatbot</th><th>Last submission</th></tr>
+                  <tr><th>Student</th><th>Name</th><th>Class</th><th>Tasks correct</th><th>Used chatbot</th><th>Last submission</th></tr>
                 </thead>
                 <tbody>
                   {data.students.map((s) => (
                     <tr key={s.user_id} onClick={() => openDetail(s.user_id)} style={{ cursor: 'pointer' }}>
                       <td>{s.email}</td>
+                      <td>{s.name || '—'}</td>
                       <td>{s.class_group ?? '—'}</td>
                       <td>{s.tasks_correct} / {data.total_tasks}</td>
                       <td>{s.used_chatbot ? 'Yes' : 'No'}</td>
@@ -142,7 +143,7 @@ export default function LabAnalyticsPage() {
                     </tr>
                   ))}
                   {data.students.length === 0 && (
-                    <tr><td colSpan={5}>No students have attempted this lab yet.</td></tr>
+                    <tr><td colSpan={6}>No students have attempted this lab yet.</td></tr>
                   )}
                 </tbody>
               </table>

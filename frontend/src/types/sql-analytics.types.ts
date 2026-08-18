@@ -1,6 +1,8 @@
 export interface SqlStudentRollup {
   user_id: number;
   email: string;
+  /** Display name from the user record; null when the student never set one. */
+  name: string | null;
   class_group: string | null;
   attempts_count: number;
   completed: boolean;

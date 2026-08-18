@@ -14,6 +14,8 @@ export interface CheckRate {
 export interface StudentRollup {
   user_id: number;
   email: string;
+  /** Display name from the user record; null when the student never set one. */
+  name: string | null;
   class_group: string | null;
   attempts: number;
   best_percent: number | null;

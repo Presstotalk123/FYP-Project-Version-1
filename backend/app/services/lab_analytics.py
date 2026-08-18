@@ -112,9 +112,9 @@ def lab_analytics(
         chatbot_ids = chatbot_ids & allowed_ids
 
     user_meta = {
-        uid: {"email": email, "class_group": group}
-        for uid, email, group in (
-            db.query(User.id, User.email, User.class_group)
+        uid: {"email": email, "name": name, "class_group": group}
+        for uid, email, name, group in (
+            db.query(User.id, User.email, User.name, User.class_group)
             .filter(User.id.in_(attempted_user_ids)).all()
         )
     } if attempted_user_ids else {}
@@ -126,6 +126,7 @@ def lab_analytics(
         students.append({
             "user_id": uid,
             "email": meta.get("email", ""),
+            "name": meta.get("name"),
             "class_group": meta.get("class_group"),
             "tasks_correct": len(tasks_correct_by_user.get(uid, set())),
             "used_chatbot": uid in chatbot_ids,

@@ -12,6 +12,8 @@ export interface LabTaskStat {
 export interface LabStudentRollup {
   user_id: number;
   email: string;
+  /** Display name from the user record; null when the student never set one. */
+  name: string | null;
   class_group: string | null;
   tasks_correct: number;
   used_chatbot: boolean;

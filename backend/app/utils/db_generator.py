@@ -64,12 +64,12 @@ def validate_sql_statements(sql: str, statement_type: str = "general") -> None:
             if keyword in sql_upper:
                 raise SQLValidationError(f"Dangerous operation detected: {keyword}")
 
-    # For queries, only allow SELECT
+    # For queries, only allow read-only statements (SELECT, CTEs, EXPLAIN)
     if statement_type == "query":
         # Remove comments and whitespace
         cleaned_sql = sql.strip()
-        if not cleaned_sql.upper().startswith("SELECT"):
-            raise SQLValidationError("Only SELECT queries are allowed for answer validation")
+        if not cleaned_sql.upper().startswith(("SELECT", "WITH", "EXPLAIN")):
+            raise SQLValidationError("Only SELECT/WITH (CTE)/EXPLAIN queries are allowed for answer validation")
 
 
 def create_sqlite_from_sql(

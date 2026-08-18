@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import threading
 import time
@@ -21,6 +22,32 @@ class QueryExecutionError(Exception):
     pass
 
 
+
+# Leading keywords that begin a read-only statement.
+_READ_ONLY_LEAD_KEYWORDS = {"SELECT", "WITH", "EXPLAIN", "VALUES"}
+
+# PRAGMAs that only report information and never change database/connection
+# behavior. Any other pragma (e.g. journal_mode, writable_schema) is blocked.
+_READ_ONLY_PRAGMAS = {
+    "table_info", "table_list", "table_xinfo",
+    "index_list", "index_info", "index_xinfo",
+    "foreign_key_list", "database_list",
+    "schema_version", "compile_options",
+}
+
+# Keywords that must never appear in a submitted query, checked on word
+# boundaries so identifiers like `updated_at` don't false-positive.
+_DANGEROUS_KEYWORDS = [
+    "DROP", "DELETE", "INSERT", "UPDATE", "ALTER",
+    "CREATE", "TRUNCATE", "REPLACE", "ATTACH", "DETACH",
+    "VACUUM", "GRANT", "REVOKE",
+]
+_DANGEROUS_KEYWORDS_PATTERN = re.compile(
+    r"\b(?:" + "|".join(_DANGEROUS_KEYWORDS) + r")\b"
+)
+_PRAGMA_NAME_PATTERN = re.compile(r"^PRAGMA\s+([a-zA-Z_]+)", re.IGNORECASE)
+
+
 class QueryExecutor:
     """
     Execute SQL queries with safety checks and timeout.
@@ -41,7 +68,14 @@ class QueryExecutor:
     def _is_safe_query(self, query: str) -> bool:
         """
         Check if a query is safe to execute.
-        Only SELECT queries are allowed.
+
+        Any read-only statement is allowed: SELECT, WITH ... SELECT (CTEs),
+        EXPLAIN, VALUES, and a whitelist of introspection-only PRAGMAs
+        (e.g. PRAGMA table_info). Write/DDL statements and anything that
+        could escape the read-only connection (ATTACH/DETACH) are blocked.
+        The underlying SQLite connection is also opened read-only
+        (see execute_in_thread), so this check is defense-in-depth rather
+        than the sole safeguard.
 
         Args:
             query: SQL query string
@@ -52,23 +86,31 @@ class QueryExecutor:
         if not query or not query.strip():
             return False
 
-        # Remove leading/trailing whitespace and convert to uppercase
-        query_upper = query.strip().upper()
+        cleaned = query.strip()
 
-        # Must start with SELECT
-        if not query_upper.startswith("SELECT"):
+        # Allow a single trailing semicolon, but reject stacked statements
+        # (e.g. "SELECT 1; DROP TABLE x;").
+        if cleaned.endswith(";"):
+            cleaned = cleaned[:-1].strip()
+        if ";" in cleaned:
             return False
 
-        # Block dangerous keywords
-        dangerous_keywords = [
-            "DROP", "DELETE", "INSERT", "UPDATE", "ALTER",
-            "CREATE", "TRUNCATE", "REPLACE", "PRAGMA",
-            "ATTACH", "DETACH"
-        ]
+        cleaned_upper = cleaned.upper()
 
-        for keyword in dangerous_keywords:
-            if keyword in query_upper:
+        # First whitespace-delimited token determines the statement type.
+        first_token = cleaned_upper.split(None, 1)[0] if cleaned_upper else ""
+
+        if first_token == "PRAGMA":
+            match = _PRAGMA_NAME_PATTERN.match(cleaned)
+            if not match or match.group(1).lower() not in _READ_ONLY_PRAGMAS:
                 return False
+        elif first_token not in _READ_ONLY_LEAD_KEYWORDS:
+            return False
+
+        # Block dangerous keywords anywhere in the statement, on word
+        # boundaries so identifiers like `updated_at` aren't false positives.
+        if _DANGEROUS_KEYWORDS_PATTERN.search(cleaned_upper):
+            return False
 
         return True
 
@@ -93,8 +135,10 @@ class QueryExecutor:
         # Validate query safety
         if not self._is_safe_query(query):
             raise UnsafeQueryError(
-                "Only SELECT queries are allowed. "
-                "Queries must not contain DROP, DELETE, INSERT, UPDATE, ALTER, CREATE, etc."
+                "Only read-only statements are allowed (SELECT, WITH/CTEs, EXPLAIN, "
+                "VALUES, or read-only PRAGMA table/index introspection). "
+                "Queries must not contain DROP, DELETE, INSERT, UPDATE, ALTER, CREATE, etc., "
+                "and must be a single statement."
             )
 
         result_container = {'columns': [], 'results': [], 'error': None, 'done': False}

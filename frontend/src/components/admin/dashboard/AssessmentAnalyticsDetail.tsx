@@ -94,12 +94,22 @@ function QuestionStudentList({
               {query.data.students.length} student{query.data.students.length === 1 ? '' : 's'} · weakest first
             </div>
             <table className="da-table" style={{ background: 'transparent' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '28%' }}>Student</th>
+                  <th style={{ width: '30%' }}>Email</th>
+                  <th style={{ width: '12%' }}>Class</th>
+                  <th style={{ width: '12%' }}>Score</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
               <tbody>
                 {query.data.students.map((row) => (
                   <tr key={row.email}>
-                    <td style={{ width: '45%' }}>{row.name || row.email}</td>
-                    <td style={{ width: '15%' }}>{row.class_group ?? '—'}</td>
-                    <td style={{ width: '15%' }}>{renderCell(row)}</td>
+                    <td>{row.name || '—'}</td>
+                    <td>{row.email}</td>
+                    <td>{row.class_group ?? '—'}</td>
+                    <td>{renderCell(row)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>
                       {STATUS_LABEL[row.status] || row.detail || ''}
                     </td>

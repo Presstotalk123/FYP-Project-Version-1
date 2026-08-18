@@ -37,6 +37,7 @@ import { TUTOR_NAME } from "@/components/ChatPanel";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 import { IconBear } from "@/components/workspace/IconBear";
 import { ErdGuideModal } from "@/components/ErdGuideModal";
+import { AssessmentTimer } from "@/components/assessment/AssessmentTimer";
 import drawioTheme from "@/components/DrawioTheme.module.css";
 
 type DrawioFocusLayoutProps = {
@@ -381,6 +382,8 @@ export const DrawioFocusLayout = forwardRef<DrawioFocusLayoutHandle, DrawioFocus
         </Group>
 
         <Box style={{ flex: 1 }} />
+
+        <AssessmentTimer />
 
         <Tooltip label="How to draw and submit" withArrow className={BRAND_THEME_CLASS}>
           <ActionIcon

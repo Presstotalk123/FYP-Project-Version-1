@@ -25,6 +25,7 @@ import { ChatPanel, TUTOR_NAME, type ChatHistoryMessage } from "@/components/Cha
 import { DescriptionMarkdown } from "@/components/common/DescriptionMarkdown";
 import { BalooAvatar } from "@/components/workspace/AiTutorAvatar";
 import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge";
+import { AssessmentTimer } from "@/components/assessment/AssessmentTimer";
 import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
 import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -846,6 +847,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
             <Text c="dimmed" mt={4}>
               Difficulty: {question.difficulty}
             </Text>
+            <AssessmentTimer />
             <QuestionWeightBadge weight={weight} />
           </Group>
           {/* Named "Save and Exit" like SqlWorkspace's, and like it this only

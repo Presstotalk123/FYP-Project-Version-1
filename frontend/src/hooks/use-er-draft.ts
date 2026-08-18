@@ -25,9 +25,18 @@ import { API_BASE_URL, API_ENDPOINTS } from "@/config/api.config";
 /** Must equal the backend's ER_MAX_XML_CHARS (config.py). */
 const MAX_XML_CHARS = 500_000;
 /** Quiet period before a flush. Long enough to absorb a drawing burst. */
-const IDLE_MS = 3_000;
+const IDLE_MS = 30_000;
 /** Ceiling so a student who never pauses still syncs. */
-const MAX_WAIT_MS = 20_000;
+const MAX_WAIT_MS = 60_000;
+/**
+ * An automatic (timer-driven) save waits for this many distinct canvas changes
+ * since the server last acknowledged our content — a hard floor: the IDLE_MS /
+ * MAX_WAIT_MS timers do not even arm until it is reached. It gates ONLY the
+ * automatic path; the safety-net flushes (tab hidden, pagehide, online, unmount)
+ * bypass it so no work is stranded on exit. localStorage still writes every
+ * change regardless. See recordChange (arms) and flush's success branch (reset).
+ */
+const MIN_CHANGES_BEFORE_SAVE = 5;
 /** Browser's hard keepalive body cap is 64 KB; stay under it. */
 const KEEPALIVE_MAX_BYTES = 60_000;
 const RETRY_BACKOFF_MS = [2_000, 6_000, 15_000];
@@ -196,6 +205,10 @@ export function useErDraft({
   const serverRevisionRef = useRef<number | null>(null);
   // Latest canvas state, whether or not it has reached the server.
   const localXmlRef = useRef<string>("");
+  // Distinct canvas changes since the server last acknowledged our content.
+  // Gates the AUTOMATIC save only (see MIN_CHANGES_BEFORE_SAVE); reset to 0 the
+  // moment a sync succeeds, in flush's success branch.
+  const changesSinceSyncRef = useRef(0);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ceilingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Backoff sleep for a retry, kept separate from idle/ceiling: those two are
@@ -293,6 +306,11 @@ export function useErDraft({
           syncedXmlRef.current = attemptXml;
           syncedRevisionRef.current = result.revision;
           retryIndexRef.current = 0;
+          // The pending batch is now on the server: the next automatic save
+          // starts counting toward MIN_CHANGES_BEFORE_SAVE from scratch. Any
+          // edit that landed mid-request already re-incremented this via
+          // recordChange (and armed a fresh timer if it re-crossed the floor).
+          changesSinceSyncRef.current = 0;
           // Persist relative to the LIVE content, not the payload just sent:
           // an edit that landed mid-request must not be clobbered back to
           // the older, now-superseded xml and marked clean. Only mark clean
@@ -399,6 +417,7 @@ export function useErDraft({
         retryIndexRef.current = 0;
       }
       localXmlRef.current = xml;
+      changesSinceSyncRef.current += 1;
       // A stale "synced" claim is exactly the falsehood the chip and exit
       // modal must not tell: the instant new content diverges from what the
       // server last acknowledged, demote back to "saving" (queued) rather
@@ -408,7 +427,14 @@ export function useErDraft({
       // this very write fails.
       setSaveState((current) => (current === "synced" ? "saving" : current));
       persistLocal(xml, true);
-      schedule();
+      // Hard floor: the automatic flush timers only arm once enough changes
+      // have accumulated. Below the floor the edit lives in localStorage and
+      // waits — a safety-net flush (exit/visibility/online) can still push it.
+      // Changes past the floor keep re-arming the idle timer, so the flush
+      // still lands IDLE_MS after the LAST edit, not the Nth.
+      if (changesSinceSyncRef.current >= MIN_CHANGES_BEFORE_SAVE) {
+        schedule();
+      }
     },
     [persistLocal, schedule],
   );

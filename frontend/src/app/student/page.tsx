@@ -59,6 +59,11 @@ const difficultyClass: Record<string, string> = {
 // on the next mount of this page so it never affects unrelated visits.
 const SCROLL_STORAGE_KEY = 'student-problems-scroll';
 
+// Difficulty + category filters, persisted per-tab so returning from a lab keeps
+// the student's place in the filtered list. Unlike the scroll key this is NOT
+// one-shot — it survives repeated round-trips for the whole session.
+const FILTER_STORAGE_KEY = 'student-problems-filters';
+
 const capitalize = (value: string): string =>
   value.charAt(0).toUpperCase() + value.slice(1);
 
@@ -265,6 +270,42 @@ export default function StudentDashboard() {
       });
     });
   }, [loading]);
+
+  // Restore the difficulty + category filters once on mount (done in an effect,
+  // not a lazy initializer, to avoid an SSR/client hydration mismatch). The ref
+  // gates the persist effect below so the default first render can't clobber a
+  // saved value before this runs. Values are validated against their known
+  // unions so stale storage can't put the UI in an invalid state.
+  const filtersHydratedRef = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(FILTER_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.category === 'all' || saved.category === 'sql' || saved.category === 'erd') {
+          setCategory(saved.category);
+        }
+        if (['all', 'easy', 'medium', 'hard'].includes(saved.difficulty)) {
+          setDifficulty(saved.difficulty);
+        }
+      }
+    } catch {
+      // best-effort only — never let bad storage break the page
+    }
+    filtersHydratedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydratedRef.current) return;
+    try {
+      window.sessionStorage.setItem(
+        FILTER_STORAGE_KEY,
+        JSON.stringify({ category, difficulty }),
+      );
+    } catch {
+      // best-effort only
+    }
+  }, [category, difficulty]);
 
   const handleQuestionClick = (item: PooledQuestion) => {
     try {

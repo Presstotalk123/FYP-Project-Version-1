@@ -25,9 +25,9 @@ import { API_BASE_URL, API_ENDPOINTS } from "@/config/api.config";
 /** Must equal the backend's ER_MAX_XML_CHARS (config.py). */
 const MAX_XML_CHARS = 500_000;
 /** Quiet period before a flush. Long enough to absorb a drawing burst. */
-const IDLE_MS = 30_000;
+const IDLE_MS = 300_000;
 /** Ceiling so a student who never pauses still syncs. */
-const MAX_WAIT_MS = 60_000;
+const MAX_WAIT_MS = 600_000;
 /**
  * An automatic (timer-driven) save waits for this many distinct canvas changes
  * since the server last acknowledged our content — a hard floor: the IDLE_MS /
@@ -36,7 +36,7 @@ const MAX_WAIT_MS = 60_000;
  * bypass it so no work is stranded on exit. localStorage still writes every
  * change regardless. See recordChange (arms) and flush's success branch (reset).
  */
-const MIN_CHANGES_BEFORE_SAVE = 5;
+const MIN_CHANGES_BEFORE_SAVE = 10;
 /** Browser's hard keepalive body cap is 64 KB; stay under it. */
 const KEEPALIVE_MAX_BYTES = 60_000;
 const RETRY_BACKOFF_MS = [2_000, 6_000, 15_000];

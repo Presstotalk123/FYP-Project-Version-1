@@ -272,11 +272,9 @@ export default function StudentDashboard() {
   }, [loading]);
 
   // Restore the difficulty + category filters once on mount (done in an effect,
-  // not a lazy initializer, to avoid an SSR/client hydration mismatch). The ref
-  // gates the persist effect below so the default first render can't clobber a
-  // saved value before this runs. Values are validated against their known
-  // unions so stale storage can't put the UI in an invalid state.
-  const filtersHydratedRef = useRef(false);
+  // not a lazy initializer, to avoid an SSR/client hydration mismatch). Values
+  // are validated against their known unions so stale storage can't put the UI
+  // in an invalid state.
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(FILTER_STORAGE_KEY);
@@ -292,11 +290,17 @@ export default function StudentDashboard() {
     } catch {
       // best-effort only — never let bad storage break the page
     }
-    filtersHydratedRef.current = true;
   }, []);
 
+  // Persist on change. Skip the very first render so the default `all`/`all`
+  // state can't overwrite a saved value before the restore effect's update
+  // lands — only real changes (restored values or user picks) get written.
+  const skipInitialPersist = useRef(true);
   useEffect(() => {
-    if (!filtersHydratedRef.current) return;
+    if (skipInitialPersist.current) {
+      skipInitialPersist.current = false;
+      return;
+    }
     try {
       window.sessionStorage.setItem(
         FILTER_STORAGE_KEY,

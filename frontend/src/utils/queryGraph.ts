@@ -255,7 +255,7 @@ function colorFor(key: string): string {
 
 /* ───────────────────────────── scope builder ─────────────────────────── */
 
-const MAX_DEPTH = 3;
+const MAX_DEPTH = 6;
 
 interface BuildCtx {
   schema: SchemaInfo;
@@ -264,6 +264,8 @@ interface BuildCtx {
   groups: GraphGroup[];
   notes: string[];
   subCounter: { n: number };
+  /** Lowercased CTE name → its cluster's output node id (populated before the root scope). */
+  cteOut: Map<string, string>;
 }
 
 /** A resolved relation within one scope. */
@@ -292,10 +294,21 @@ function buildScope(
   const fromList: any[] = Array.isArray(select.from) ? select.from : [];
   const rels: Rel[] = [];
   const refToId = new Map<string, string>();
+  // Output nodes of FROM entries that live in another cluster (CTE refs): this
+  // scope owns no node for them, but may use one as its own output / unqualified target.
+  const externalOuts: string[] = [];
 
-  // ── resolve FROM entries (real tables + derived-table subqueries) ──
+  // ── resolve FROM entries (CTE refs + real tables + derived-table subqueries) ──
   for (const f of fromList) {
-    if (f && f.table) {
+    if (f && f.table && ctx.cteOut.has(f.table.toLowerCase())) {
+      // A reference to a WITH … CTE: reuse the CTE cluster's output node rather
+      // than drawing a duplicate table. Predicates against it link into that cluster.
+      const outId = ctx.cteOut.get(f.table.toLowerCase())!;
+      const key = (f.as ?? f.table).toLowerCase();
+      refToId.set(key, outId);
+      refToId.set(f.table.toLowerCase(), outId);
+      externalOuts.push(outId);
+    } else if (f && f.table) {
       const key = f.as ? f.as : f.table;
       const id = `${scopeId}::${key}`;
       rels.push({ id, table: f.table, alias: f.as ?? null });
@@ -308,7 +321,7 @@ function buildScope(
         ctx.groups.push({
           id: subId,
           parentGroupId: groupId,
-          label: f.as ? `${f.as} (derived)` : 'derived table',
+          label: f.as ? `${f.as} (derived table)` : 'derived table',
         });
         const outId = buildScope(sub, subId, subId, ctx, localResolve, depth + 1);
         if (f.as && outId) refToId.set(f.as.toLowerCase(), outId);
@@ -325,6 +338,8 @@ function buildScope(
       return refToId.get(tableRef.toLowerCase()) ?? parentResolve(tableRef);
     }
     if (rels.length === 1) return rels[0].id; // unqualified & unambiguous
+    // Only source is a single CTE ref → attribute unqualified columns to it.
+    if (rels.length === 0 && externalOuts.length === 1) return externalOuts[0];
     return parentResolve(null);
   }
 
@@ -364,7 +379,7 @@ function buildScope(
             projected.get(id!)!.add(name.toLowerCase());
             referenced.get(id!)!.add(name);
           }
-        } else if (!e.table) {
+        } else if (!e.table && !id) {
           ctx.notes.push(`Couldn’t place unqualified column "${name}".`);
         }
       } else if (e && e.type === 'aggr_func') {
@@ -407,7 +422,9 @@ function buildScope(
       return true;
     }
     const subId = `s${++ctx.subCounter.n}`;
-    ctx.groups.push({ id: subId, parentGroupId: groupId, label });
+    // Cluster label is rendered verbatim; append "subquery" unless it's already that word.
+    const groupLabel = label.toLowerCase() === 'subquery' ? 'subquery' : `${label} subquery`;
+    ctx.groups.push({ id: subId, parentGroupId: groupId, label: groupLabel });
     const childOut = buildScope(subAst, subId, subId, ctx, localResolve, depth + 1);
     const source = outerId ?? rels[0]?.id ?? null;
     if (source && childOut) {
@@ -576,10 +593,89 @@ function buildScope(
     if (anchor) ctx.edges.push({ from: anchor, to: aggId, label: '', kind: 'join' });
   }
 
-  // ── output node = owner of the first projected column, else first relation ──
+  // ── output node = owner of the first projected column, else first relation,
+  //    else a single CTE-ref output this scope passes through. ──
   const outputRel =
     rels.find((r) => projected.get(r.id)!.size > 0 || projectAll.has(r.id)) ?? rels[0];
-  return outputRel ? outputRel.id : null;
+  return outputRel ? outputRel.id : (externalOuts[0] ?? null);
+}
+
+/* ─────────────────────── UNION / set-op branch chain ─────────────────── */
+
+/** CTE name (node-sql-parser gives an object, occasionally a bare string). */
+function cteName(entry: any): string | null {
+  const raw = entry?.name?.value ?? entry?.name;
+  return typeof raw === 'string' ? raw : null;
+}
+
+/** True if any FROM in this select (across branches) names `table` — used for recursion detection. */
+function referencesTable(select: any, table: string): boolean {
+  const target = table.toLowerCase();
+  for (let cur = select; cur; cur = cur._next ?? null) {
+    const from: any[] = Array.isArray(cur.from) ? cur.from : [];
+    if (from.some((f) => typeof f?.table === 'string' && f.table.toLowerCase() === target)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Build a query that may be a chain of set operations (`A UNION B EXCEPT C …`).
+ * node-sql-parser links branches through `_next`, with each node's `set_op`
+ * naming the operator that joins it to the next. A single branch is just an
+ * ordinary scope. Multiple branches each become their own "Query N" cluster,
+ * wired output-to-output with `setop` edges. Returns the first branch's output.
+ */
+function buildBranchChain(
+  head: any,
+  baseId: string,
+  parentGroup: string | null,
+  ctx: BuildCtx,
+  resolve: Resolver,
+  depth: number,
+): string | null {
+  const branches: { ast: any; setOp: string | null }[] = [];
+  for (let cur = head; cur; cur = cur._next ?? null) {
+    branches.push({ ast: cur, setOp: cur.set_op ?? null });
+  }
+
+  if (branches.length <= 1) {
+    return buildScope(head, baseId, parentGroup, ctx, resolve, depth);
+  }
+
+  const outs: (string | null)[] = branches.map((b, i) => {
+    const branchId = `${baseId}_u${i + 1}`;
+    ctx.groups.push({ id: branchId, parentGroupId: parentGroup, label: `Query ${i + 1}` });
+    return buildScope(b.ast, branchId, branchId, ctx, resolve, depth + 1);
+  });
+
+  for (let i = 0; i < branches.length - 1; i++) {
+    const from = outs[i];
+    const to = outs[i + 1];
+    if (from && to) {
+      ctx.edges.push({
+        from,
+        to,
+        label: (branches[i].setOp ?? 'union').toUpperCase(),
+        kind: 'setop',
+      });
+    }
+  }
+
+  return outs.find((o) => o) ?? null;
+}
+
+/** Remove clusters holding neither a node nor a surviving child cluster (repeated to a fixpoint). */
+function pruneEmptyGroups(groups: GraphGroup[], nodes: GraphNode[]): GraphGroup[] {
+  const nodeGroupIds = new Set(nodes.map((n) => n.groupId).filter(Boolean));
+  let kept = groups;
+  for (;;) {
+    const parentIds = new Set(kept.map((g) => g.parentGroupId).filter(Boolean));
+    const next = kept.filter((g) => nodeGroupIds.has(g.id) || parentIds.has(g.id));
+    if (next.length === kept.length) return next;
+    kept = next;
+  }
 }
 
 /* ───────────────────────────── public entry ──────────────────────────── */
@@ -602,16 +698,6 @@ export function buildQueryGraph(sql: string, schemaSql?: string | null): QueryGr
   if (!ast || ast.type !== 'select') {
     return { error: 'Only SELECT queries can be diagrammed.' };
   }
-  if (ast.with) {
-    return { error: 'CTEs (WITH …) aren’t supported yet.' };
-  }
-  if (ast.set_op || ast._next) {
-    return { error: 'UNION / set operations aren’t supported yet.' };
-  }
-  const fromList: any[] = Array.isArray(ast.from) ? ast.from : [];
-  if (fromList.length === 0) {
-    return { error: 'This query has no tables to diagram.' };
-  }
 
   const ctx: BuildCtx = {
     schema,
@@ -620,18 +706,41 @@ export function buildQueryGraph(sql: string, schemaSql?: string | null): QueryGr
     groups: [],
     notes: [],
     subCounter: { n: 0 },
+    cteOut: new Map(),
   };
 
-  buildScope(ast, 'root', null, ctx, () => null, 0);
+  // ── CTE pre-pass: build each WITH … as its own top-level cluster, in order,
+  //    so a later CTE can reference an earlier one via ctx.cteOut. ──
+  const cteList: any[] = Array.isArray(ast.with) ? ast.with : [];
+  for (const entry of cteList) {
+    const name = cteName(entry);
+    const body = entry?.stmt?.ast;
+    if (!name || !body) continue;
+    // A self-reference (recursive CTE) can't resolve to its own cluster yet;
+    // it falls through to a plain table node. Flag it so the diagram isn't misread.
+    if (referencesTable(body, name)) {
+      ctx.notes.push(`Recursive CTE "${name}" — its self-reference is shown as a table.`);
+    }
+    const cteId = `cte_${name.toLowerCase()}`;
+    ctx.groups.push({ id: cteId, parentGroupId: null, label: `${name} (CTE)` });
+    const outId = buildBranchChain(body, cteId, cteId, ctx, () => null, 1);
+    if (outId) ctx.cteOut.set(name.toLowerCase(), outId);
+  }
+
+  buildBranchChain(ast, 'root', null, ctx, () => null, 0);
 
   if (ctx.nodes.length === 0) {
     return { error: 'This query couldn’t be diagrammed.' };
   }
 
+  // Drop clusters that ended up empty (e.g. a CTE that only passes another CTE
+  // through), keeping any that still hold nodes or surviving child clusters.
+  const groups = pruneEmptyGroups(ctx.groups, ctx.nodes);
+
   const graph: QueryGraph = {
     nodes: ctx.nodes,
     edges: ctx.edges,
-    groups: ctx.groups,
+    groups,
     notes: Array.from(new Set(ctx.notes)),
   };
   return graph;

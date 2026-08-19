@@ -13,6 +13,9 @@ export interface Question {
   created_at: string;
   updated_at: string;
   is_published: boolean;
+  // LeetCode problem number for imported questions (drives DATABASE_README_EN.md
+  // ordering); null/undefined for hand-authored questions.
+  leetcode_id?: number | null;
 }
 
 export interface QuestionDetail extends Question {

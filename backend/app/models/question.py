@@ -69,3 +69,7 @@ class Question(Base):
     # than a master bank question. Clones are excluded from bank listings/pickers and
     # give each published assessment its own isolated progress/attempt history.
     owner_assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)
+
+    # LeetCode problem number for questions imported from the LeetCode bank
+    # (DATABASE_README_EN.md ordering). NULL for hand-authored / non-LeetCode questions.
+    leetcode_id = Column(Integer, nullable=True, index=True)

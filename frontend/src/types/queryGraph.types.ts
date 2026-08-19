@@ -49,7 +49,13 @@ export interface GraphNode {
   agg?: { aggregates: string[]; having: string | null };
 }
 
-/** An edge — either a join (solid) or a subquery link (dashed). */
+/**
+ * An edge in the diagram:
+ * - `join`     — a join predicate (solid line).
+ * - `subquery` — a link into a nested subquery/CTE cluster (dashed line).
+ * - `setop`    — a UNION / INTERSECT / EXCEPT connector between branch outputs
+ *                (solid, thicker line with an uppercased label).
+ */
 export interface GraphEdge {
   /** Source node id. */
   from: string;
@@ -57,7 +63,7 @@ export interface GraphEdge {
   to: string;
   /** Human-readable label, e.g. "purchase.cID = customer.cID" or "NOT IN". */
   label: string;
-  kind: 'join' | 'subquery';
+  kind: 'join' | 'subquery' | 'setop';
   /** Column on the `from` node the edge should anchor to (for row-aligned routing). */
   fromColumn?: string;
   /** Column on the `to` node the edge should anchor to. */
@@ -70,7 +76,10 @@ export interface GraphGroup {
   id: string;
   /** Parent scope id, or null when nested directly under the root query. */
   parentGroupId: string | null;
-  /** Label shown on the cluster, e.g. "NOT IN" / "EXISTS" / "subquery". */
+  /**
+   * Full label rendered verbatim on the cluster, e.g. "EXISTS subquery",
+   * "derived table", "orders (CTE)", "Query 1".
+   */
   label: string;
 }
 

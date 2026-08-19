@@ -18,13 +18,14 @@ import { erDiagramService } from '@/services/er-diagram.service';
 import { settingsService } from '@/services/settings.service';
 import { loginActivityService } from '@/services/loginActivity.service';
 import { queryKeys } from '@/services/query-keys';
+import { byReadmeOrder } from '@/utils/questionOrder';
 import { useERAbility } from '@/hooks/use-er-ability';
 import { toERQuestionSubject } from '@/permissions/er-ability';
 
 // The pooled-questions shape mirrors /admin/problems: every source is mapped
-// into one uid-namespaced row list, sorted by creation date, and category /
-// search / difficulty all filter client-side across the pool. Labs and
-// assessments deliberately stay on their own pages.
+// into one uid-namespaced row list, sorted in DATABASE_README_EN.md order (see
+// byReadmeOrder), and category / search / difficulty all filter client-side
+// across the pool. Labs and assessments deliberately stay on their own pages.
 type StudentProblemType = 'sql-question' | 'erd-question';
 type CategoryFilter = 'all' | 'sql' | 'erd';
 
@@ -38,6 +39,9 @@ interface PooledQuestion {
   created_by?: number;
   createdByRole?: string;
   created_at: string;
+  // SQL questions imported from LeetCode carry a problem number; ERD questions leave it
+  // undefined and sort in the non-LeetCode group (see byReadmeOrder).
+  leetcode_id?: number | null;
   completed?: boolean;
   attempts_count?: number;
   /** ERD only. SQL counts its attempts; ERD records no per-attempt tally, so all
@@ -182,6 +186,7 @@ export default function StudentDashboard() {
           problemType: 'sql-question' as StudentProblemType,
           difficulty: q.difficulty.toLowerCase(),
           created_at: q.created_at,
+          leetcode_id: q.leetcode_id,
           completed: prog?.completed || false,
           attempts_count: prog?.attempts_count || 0,
         };
@@ -201,7 +206,7 @@ export default function StudentDashboard() {
           attempted: prog !== undefined,
         };
       }),
-    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    ].sort(byReadmeOrder);
   }, [questionsQuery.data, erdQuery.data, progressQuery.data, erdProgressQuery.data]);
 
   // Counts reflect the unfiltered pool, like the Problems sidebar.

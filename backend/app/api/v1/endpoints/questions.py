@@ -182,6 +182,7 @@ def create_question(
             check_query=question_data.check_query if is_advanced else None,
             hide_correctness=1 if question_data.hide_correctness else 0,
             order_sensitive=order_sensitive_flag,
+            leetcode_id=question_data.leetcode_id,
             db_file_path=db_filename,
             correct_answer_hash=correct_hash,
             created_by=current_user.id
@@ -220,7 +221,7 @@ def list_questions(
     difficulty: Optional[Difficulty] = Query(None, description="Filter by difficulty"),
     search: Optional[str] = Query(None, description="Search in title and description"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=100, description="Maximum number of records to return"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -267,9 +268,22 @@ def list_questions(
                 (Question.description.ilike(search_term))
             )
 
-        # Order by creation date (newest first) and apply pagination.
+        # Order to match DATABASE_README_EN.md: hand-authored / non-LeetCode questions
+        # (leetcode_id IS NULL) come first, newest-first; then LeetCode-imported questions
+        # in ascending problem-number order. Booleans sort False < True, so `isnot(None)`
+        # puts the NULL group ahead; leetcode_id asc orders the LC group; created_at desc
+        # is the tiebreak that orders the (all-NULL) top group newest-first.
         # Serialize now, while the session is open, so nothing session-bound is cached.
-        questions = query.order_by(Question.created_at.desc()).offset(skip).limit(limit).all()
+        questions = (
+            query.order_by(
+                Question.leetcode_id.isnot(None),
+                Question.leetcode_id.asc(),
+                Question.created_at.desc(),
+            )
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
         return [QuestionListItem.model_validate(q) for q in questions]
 
     return cache_read(

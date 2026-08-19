@@ -16,6 +16,7 @@ import { questionService } from '@/services/question.service';
 import { labService } from '@/services/lab.service';
 import { erDiagramService } from '@/services/er-diagram.service';
 import { queryKeys } from '@/services/query-keys';
+import { byReadmeOrder } from '@/utils/questionOrder';
 
 type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question';
 type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph';
@@ -30,6 +31,9 @@ interface Problem {
   createdByRole?: string;
   isPublished?: boolean;
   created_at: string;
+  // Only SQL questions carry a LeetCode number; labs/ERD leave it undefined and sort
+  // in the non-LeetCode group. Drives the README ordering (see byReadmeOrder).
+  leetcode_id?: number | null;
   editUrl: string;
 }
 
@@ -153,6 +157,7 @@ export default function ProblemsPage() {
           created_by: q.created_by,
           isPublished: q.is_published,
           created_at: q.created_at,
+          leetcode_id: q.leetcode_id,
           editUrl: `/admin/questions/${q.id}`,
         })),
         ...labs
@@ -189,7 +194,7 @@ export default function ProblemsPage() {
           created_at: e.created_at,
           editUrl: `/er-diagram/${e.id}/edit`,
         })),
-      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      ].sort(byReadmeOrder);
   }, [questionsQuery.data, labsQuery.data, erdQuery.data]);
 
   const togglePublish = async (problem: Problem) => {

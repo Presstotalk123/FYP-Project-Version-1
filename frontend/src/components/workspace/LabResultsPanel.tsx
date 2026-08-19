@@ -67,6 +67,9 @@ interface LabResultsPanelProps {
   isReviewing?: boolean;
   labId?: number;
   sessionId?: number | null;
+  /** Which tab is active — lifted up so the editor can tell when Bagheera can see it. */
+  activeTab: string;
+  onTabChange: (id: string) => void;
 }
 
 export function LabResultsPanel({
@@ -90,8 +93,9 @@ export function LabResultsPanel({
   isReviewing = false,
   labId,
   sessionId,
+  activeTab,
+  onTabChange,
 }: LabResultsPanelProps) {
-  const [activeTab, setActiveTab] = useState('results');
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   const [isAssigning, setIsAssigning] = useState(false);
@@ -158,8 +162,8 @@ export function LabResultsPanel({
 
   // If the AI Tutor tab gets hidden while it's the active tab, fall back to Results.
   useEffect(() => {
-    if (aiTutorDisabled && activeTab === 'ai-tutor') setActiveTab('results');
-  }, [aiTutorDisabled, activeTab]);
+    if (aiTutorDisabled && activeTab === 'ai-tutor') onTabChange('results');
+  }, [aiTutorDisabled, activeTab, onTabChange]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -169,7 +173,7 @@ export function LabResultsPanel({
           <button
             key={tab.id}
             className={`tab${activeTab === tab.id ? ' active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => onTabChange(tab.id)}
           >
             {tab.label}
           </button>

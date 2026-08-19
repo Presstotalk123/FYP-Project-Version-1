@@ -56,6 +56,11 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
   const limitReached =
     limitHit || (maxQueries != null && attemptsUsed != null && attemptsUsed >= maxQueries);
 
+  // Lifted out of ResultsPanel so the editor can tell when the Bagheera chat tab
+  // is open — it renders a "watching" ring around itself in that case.
+  const [activeTab, setActiveTab] = useState('results');
+  const isBagheeraActive = activeTab === 'chat';
+
   // Static question content — cached (see providers.tsx) so revisiting this
   // question (e.g. switching between assessment items) renders it instantly.
   const questionQuery = useQuery({
@@ -379,6 +384,7 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
               limitReached={limitReached}
               maxQueries={maxQueries}
               attemptsUsed={attemptsUsed}
+              isBagheeraActive={isBagheeraActive}
             />
           </Box>
 
@@ -437,6 +443,8 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
               questionId={questionId}
               question={question}
               currentQuery={query}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
             />
           </Box>
         </Box>

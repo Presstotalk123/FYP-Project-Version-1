@@ -116,6 +116,9 @@ def import_questions(dry_run: bool) -> None:
             "advanced_sql_testing": False,
             "order_sensitive": entry["order_sensitive"],
             "hide_correctness": False,
+            # entry["id"] is the LeetCode problem number — persist it so the bank keeps
+            # DATABASE_README_EN.md ordering without a separate backfill for new imports.
+            "leetcode_id": int(entry["id"]),
         }
 
         if dry_run:

@@ -15,7 +15,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const INPUT_PATH = path.join(REPO_ROOT, 'leetcode_questions.json');
+// Input defaults to the repo-root leetcode_questions.json, but an optional CLI arg lets
+// this run against any other scraped dataset (e.g. uncovered_leetcode_questions.json)
+// resolved relative to the current working directory.
+const INPUT_PATH = process.argv[2]
+  ? path.resolve(process.cwd(), process.argv[2])
+  : path.join(REPO_ROOT, 'leetcode_questions.json');
 const OUTPUT_PATH = path.join(__dirname, 'leetcode_questions.converted.json');
 
 const { mysqlToSqlite } = await import('../src/utils/sqlDialect.ts');
@@ -32,6 +37,8 @@ const KNOWN_BAD = {
   '2230': 'answer is a parameterized MySQL CREATE PROCEDURE (no parameterized-query support)',
   '177': 'answer is a parameterized MySQL CREATE FUNCTION (no parameterized-query support)',
   '196': 'answer is a bare DELETE statement; needs hand-authored Advanced SQL Testing setup',
+  '2252': 'answer is a parameterized MySQL CREATE PROCEDURE (no parameterized-query support)',
+  '2253': 'answer is a parameterized MySQL CREATE PROCEDURE (no parameterized-query support)',
 };
 
 // --- top-level statement splitter (quote/backtick/comment aware) --------------------
@@ -93,6 +100,66 @@ function splitStatements(sql) {
   return statements.filter((s) => s.length > 0);
 }
 
+/** Strip MySQL `#`-to-end-of-line comments, which SQLite does not understand and which
+ * this dataset's answers carry as a leading `# Write your MySQL query statement below`
+ * boilerplate line. Left in place, that `#` line makes the answer start with `#` instead
+ * of SELECT/WITH, so both backend validators reject it. mysqlToSqlite masks dash-dash
+ * and block comments but NOT `#`, so this runs first. Quote/identifier/comment aware: a
+ * `#` inside a string literal (hashtag data like '#HappyDay', CONCAT('#', ...)), a quoted
+ * identifier, or a dash-dash / block comment is NOT a comment and is left untouched. */
+function stripHashComments(sql) {
+  if (!sql) return sql;
+  let out = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const c = sql[i];
+    if (c === "'" || c === '"' || c === '`') {
+      const quote = c;
+      out += c;
+      i += 1;
+      while (i < n) {
+        out += sql[i];
+        if (sql[i] === quote) {
+          if (sql[i + 1] === quote) {
+            // doubled quote = escaped quote, keep consuming
+            out += sql[i + 1];
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (c === '-' && sql[i + 1] === '-') {
+      const end = sql.indexOf('\n', i);
+      const stop = end === -1 ? n : end;
+      out += sql.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      const stop = end === -1 ? n : end + 2;
+      out += sql.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === '#') {
+      const end = sql.indexOf('\n', i);
+      if (end === -1) break; // trailing comment to EOF: drop the rest
+      i = end; // keep the newline; loop appends it next iteration
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 /** Split a LeetCode-style `sql_schema` blob into (schema, seed) statement lists:
  * CREATE TABLE -> schema, INSERT -> seed, TRUNCATE TABLE -> dropped (tables are always
  * freshly created, so pre-truncating is a no-op here). Anything else is logged and kept
@@ -128,9 +195,62 @@ function splitSchemaAndSeed(sqlSchema, questionId) {
 // unaffected. Each rule below targets one confirmed, mechanical MySQL->SQLite gap seen
 // in this dataset's dry run; anything not covered here is left to fail validation and
 // gets reported for manual fixing rather than silently guessed at.
+// Zero-pad date/datetime literals inside single-quoted strings ('2020-7-16' ->
+// '2020-07-16'; '2020-7-16 8:5:3' -> '2020-07-16 08:05:03'). Quote-aware (walks the SQL,
+// honoring '' escapes) so only literal content is touched — numbers/identifiers outside
+// quotes are never altered. Anchored on a 4-digit year; idempotent. Mirrors the Python
+// pad_dates in backend/scripts/pad_dates_via_api.py.
+function padIsoDates(sql) {
+  if (!sql) return sql;
+  const padToken = (_m, y, mo, d, sep, hh, mi, ss) => {
+    let out = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (sep !== undefined) {
+      out += `${sep}${String(hh).padStart(2, '0')}:${String(mi).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    }
+    return out;
+  };
+  const DATE_TOKEN = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b(?:([ T])(\d{1,2}):(\d{1,2}):(\d{1,2}))?/g;
+
+  let out = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const c = sql[i];
+    if (c === "'") {
+      let j = i + 1;
+      let buf = '';
+      let closed = false;
+      while (j < n) {
+        if (sql[j] === "'") {
+          if (sql[j + 1] === "'") { // doubled '' = escaped quote
+            buf += "''";
+            j += 2;
+            continue;
+          }
+          closed = true;
+          break;
+        }
+        buf += sql[j];
+        j += 1;
+      }
+      out += "'" + buf.replace(DATE_TOKEN, padToken) + (closed ? "'" : '');
+      i = closed ? j + 1 : n;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 function applyImportFixups(sql) {
   if (!sql) return sql;
   let out = sql;
+
+  // Zero-pad date literals ('2020-7-16' -> '2020-07-16'). MySQL accepts unpadded dates
+  // but SQLite's date/time functions (strftime/julianday/date) and lexical comparisons
+  // need ISO YYYY-MM-DD, so an unpadded seed date silently grades wrong.
+  out = padIsoDates(out);
 
   // ENUM('a','b',...) column type -> TEXT (SQLite has no ENUM; schema-only).
   out = out.replace(/\benum\s*\([^)]*\)/gi, 'TEXT');
@@ -243,10 +363,16 @@ const raw = JSON.parse(readFileSync(INPUT_PATH, 'utf8'));
 const converted = [];
 const skippedKnownBad = [];
 const skippedFetchFailed = [];
+const skippedEmptyAnswer = [];
 
 for (const q of raw) {
   if (q.fetch_status === 'failed') {
     skippedFetchFailed.push({ id: q.id, title: q.title });
+    continue;
+  }
+  if (!q.answer || !q.answer.trim()) {
+    // e.g. fetch_status="partial" rows scraped without an answer — nothing to import.
+    skippedEmptyAnswer.push({ id: q.id, title: q.title });
     continue;
   }
   if (KNOWN_BAD[q.id]) {
@@ -254,10 +380,15 @@ for (const q of raw) {
     continue;
   }
 
-  const { schema_sql, sample_data_sql } = splitSchemaAndSeed(q.sql_schema || '', q.id);
+  // Strip MySQL `#` comments before mysqlToSqlite (which doesn't handle them). Applied to
+  // the schema/seed too; their only `#`s live inside string literals, which the stripper
+  // preserves.
+  const { schema_sql, sample_data_sql } = splitSchemaAndSeed(
+    stripHashComments(q.sql_schema || ''), q.id
+  );
   const schemaSqlite = applyImportFixups(mysqlToSqlite(schema_sql));
   const seedSqlite = applyImportFixups(mysqlToSqlite(sample_data_sql));
-  const answerSqlite = applyImportFixups(mysqlToSqlite(q.answer || ''));
+  const answerSqlite = applyImportFixups(mysqlToSqlite(stripHashComments(q.answer || '')));
 
   const concepts = detectConcepts(answerSqlite);
   const orderSensitive = isOrderSensitive(q.question_markdown);
@@ -283,6 +414,8 @@ writeFileSync(OUTPUT_PATH, JSON.stringify(converted, null, 2), 'utf8');
 
 console.log(`Converted ${converted.length} questions -> ${path.relative(REPO_ROOT, OUTPUT_PATH)}`);
 console.log(`Skipped (fetch_status=failed): ${skippedFetchFailed.length}`);
+console.log(`Skipped (empty answer): ${skippedEmptyAnswer.length}`);
+for (const s of skippedEmptyAnswer) console.log(`  #${s.id} ${s.title}`);
 console.log(`Skipped (known-bad): ${skippedKnownBad.length}`);
 for (const s of skippedKnownBad) console.log(`  #${s.id} ${s.title} — ${s.reason}`);
 

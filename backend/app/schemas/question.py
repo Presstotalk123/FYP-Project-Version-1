@@ -23,6 +23,7 @@ class QuestionCreate(QuestionBase):
     check_query: Optional[str] = Field(None, description="Staff-only hidden SELECT that captures the resulting state to hash")
     hide_correctness: bool = Field(False, description="When on, students see a neutral 'Submitted' result instead of Correct/Incorrect")
     order_sensitive: bool = Field(False, description="When on, grading requires the student's rows in the same order as the correct query (enforces ORDER BY). Standard mode only.")
+    leetcode_id: Optional[int] = Field(None, description="LeetCode problem number for questions imported from the LeetCode bank; drives DATABASE_README_EN.md ordering. Omit for hand-authored questions.")
 
     @model_validator(mode="after")
     def _validate_advanced_fields(self):
@@ -61,6 +62,7 @@ class QuestionResponse(QuestionBase):
     hide_correctness: bool = False
     order_sensitive: bool = False
     is_published: bool = False
+    leetcode_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -85,6 +87,7 @@ class QuestionListItem(BaseModel):
     difficulty: Difficulty
     created_at: datetime
     is_published: bool = False
+    leetcode_id: Optional[int] = None
 
     class Config:
         from_attributes = True

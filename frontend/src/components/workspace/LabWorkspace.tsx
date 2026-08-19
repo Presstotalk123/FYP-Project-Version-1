@@ -134,6 +134,11 @@ export function LabWorkspace({
   const [centerPercent, setCenterPercent] = useState(40);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
 
+  // Lifted out of LabResultsPanel so the editor can tell when the Bagheera chat
+  // tab is open — it renders a "watching" ring around itself in that case.
+  const [activeTab, setActiveTab] = useState('results');
+  const isBagheeraActive = activeTab === 'ai-tutor';
+
   // Initialize lab and session on mount
   useEffect(() => {
     const controller = new AbortController();
@@ -994,6 +999,7 @@ export function LabWorkspace({
             executionTime={result?.execution_time_ms || null}
             labType={lab?.lab_type ?? 'sql'}
             isCoolingDown={isCoolingDown}
+            isBagheeraActive={isBagheeraActive}
           />
         </Box>
 
@@ -1066,6 +1072,8 @@ export function LabWorkspace({
             isReviewing={isLabReviewing}
             labId={labId}
             sessionId={sessionId}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
           />
         </Box>
       </Box>

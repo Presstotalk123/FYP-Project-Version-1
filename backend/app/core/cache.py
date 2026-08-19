@@ -109,8 +109,11 @@ def assessment_body_ns(assessment_id: int) -> str:
 
 # namespace -> LRU(key -> (version, payload)). Sized so a namespace can hold its list
 # variants plus many per-id detail entries (question/lab/ER detail, lab tasks) without
-# thrashing during an assessment.
-_LRU_MAXSIZE = 256
+# thrashing during an assessment. Detail is cached per (id, role), so a bank of N
+# questions needs up to 2N detail slots plus the list/count entries; 1024 comfortably
+# holds a several-hundred-question bank in both roles. Payloads are small serialized
+# models held per worker, so the memory cost of a larger cap is negligible.
+_LRU_MAXSIZE = 1024
 _store: dict[str, "OrderedDict[tuple, tuple[int, Any]]"] = {}
 # Per-(namespace, key) lock for single-flight; guarded by _lock while created.
 _key_locks: dict[tuple[str, tuple], threading.Lock] = {}

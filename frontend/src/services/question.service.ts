@@ -2,12 +2,13 @@ import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import { Question, QuestionDetail, QuestionCount, Difficulty } from '@/types/question.types';
 
-// The backend list endpoint caps `limit` at 100 (questions.py), so a single request
-// can never return more than 100 questions. Every caller of getQuestions() wants the
-// full bank (Problems list, student practice, assessment picker, dashboard), so we
-// page through here and return everything — mirroring the ER questions endpoint, which
-// already returns its whole list unpaginated.
-const PAGE_SIZE = 100;
+// The backend list endpoint caps `limit` at 500 (questions.py), so one request covers
+// the whole bank today in a single round trip. Every caller of getQuestions() wants the
+// full bank (Problems list, student practice, assessment picker, dashboard), so we still
+// page through here — the loop is the size-independent safety net that keeps returning
+// everything if the bank ever grows past PAGE_SIZE — mirroring the ER questions endpoint,
+// which already returns its whole list unpaginated.
+const PAGE_SIZE = 500;
 
 export const questionService = {
   async getQuestions(params?: {

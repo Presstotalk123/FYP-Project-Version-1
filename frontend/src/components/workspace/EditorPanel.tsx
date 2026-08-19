@@ -17,6 +17,11 @@ const IconTrash = () => (
     <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
   </svg>
 );
+const IconEye = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/>
+  </svg>
+);
 
 interface EditorPanelProps {
   query: string;
@@ -31,6 +36,8 @@ interface EditorPanelProps {
   limitReached?: boolean;
   maxQueries?: number | null;
   attemptsUsed?: number | null;
+  /** True while the "Ask Bagheera" chat tab is open — the AI tutor can see this query. */
+  isBagheeraActive?: boolean;
 }
 
 export function EditorPanel({
@@ -44,9 +51,13 @@ export function EditorPanel({
   limitReached = false,
   maxQueries = null,
   attemptsUsed = null,
+  isBagheeraActive = false,
 }: EditorPanelProps) {
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}>
+    <div
+      className={isBagheeraActive ? 'bagheera-watching' : undefined}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}
+    >
       {/* Toolbar */}
       <div style={{
         display: 'flex',
@@ -96,9 +107,20 @@ export function EditorPanel({
             </span>
           )}
         </div>
-        {executionTime !== null && (
-          <span className="badge neutral">{executionTime.toFixed(2)}ms</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isBagheeraActive && (
+            <span
+              className="badge"
+              style={{ background: '#eff6ff', color: 'var(--info)', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: 4 }}
+              title="Bagheera can see this query"
+            >
+              <IconEye /> Bagheera is watching
+            </span>
+          )}
+          {executionTime !== null && (
+            <span className="badge neutral">{executionTime.toFixed(2)}ms</span>
+          )}
+        </div>
       </div>
 
       {/* Editor */}

@@ -321,6 +321,12 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
           </svg>
           Subquery link
         </LegendItem>
+        <LegendItem>
+          <svg width="22" height="8" aria-hidden="true">
+            <line x1="0" y1="4" x2="22" y2="4" stroke="var(--border-strong)" strokeWidth="2.5" />
+          </svg>
+          Set operation
+        </LegendItem>
       </div>
 
       {/* Diagram (scrollable) */}
@@ -349,7 +355,7 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
                 fill="var(--brand-lilac)"
                 style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
               >
-                {pg.group.label} subquery
+                {pg.group.label}
               </text>
             </g>
           ))}
@@ -361,11 +367,11 @@ export function QueryGraph({ query, schemaSql }: QueryGraphProps) {
                 d={re.path}
                 fill="none"
                 stroke={re.color}
-                strokeWidth={1.5}
+                strokeWidth={re.edge.kind === 'setop' ? 2.5 : 1.5}
                 strokeDasharray={re.edge.kind === 'subquery' ? '6 4' : undefined}
               />
               {re.edge.label && (
-                <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} color={re.color} bold={re.edge.kind === 'subquery'} />
+                <EdgeLabel x={re.labelX} y={re.labelY} text={re.edge.label} color={re.color} bold={re.edge.kind !== 'join'} />
               )}
             </g>
           ))}

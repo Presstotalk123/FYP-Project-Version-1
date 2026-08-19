@@ -22,6 +22,7 @@
   --warning: #ca8a04;
   --error: #dc2626;
   --info: #2563eb;
+  --bagheera-ring: rgba(37, 99, 235, 0.65);
   --radius: 8px;
   --radius-lg: 12px;
   --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
@@ -730,6 +731,25 @@ a {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ── Bagheera "watching" ring — shown on the query editor while the Ask
+   Bagheera tab is open, so students know the AI tutor can see their query. ── */
+.bagheera-watching {
+  box-shadow: inset 0 0 0 2px var(--bagheera-ring);
+  transition: box-shadow 200ms ease;
+  animation: bagheera-pulse-in 550ms ease-out;
+}
+
+@keyframes bagheera-pulse-in {
+  from { box-shadow: inset 0 0 0 2px transparent, inset 0 0 24px 4px var(--bagheera-ring); }
+  to { box-shadow: inset 0 0 0 2px var(--bagheera-ring); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bagheera-watching {
+    animation: none;
+  }
 }
 
 /* ============================================================

@@ -27,6 +27,9 @@ interface ResultsPanelProps {
   questionId: number;
   question: QuestionDetail;
   currentQuery: string;
+  /** Which tab is active — lifted up so the editor can tell when Bagheera can see it. */
+  activeTab: string;
+  onTabChange: (id: string) => void;
 }
 
 export function ResultsPanel({
@@ -35,8 +38,9 @@ export function ResultsPanel({
   questionId,
   question,
   currentQuery,
+  activeTab,
+  onTabChange,
 }: ResultsPanelProps) {
-  const [activeTab, setActiveTab] = useState('results');
   const [reviewData, setReviewData] = useState<QueryReviewResponse | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
 
@@ -49,7 +53,7 @@ export function ResultsPanel({
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['results']));
 
   const selectTab = (id: string) => {
-    setActiveTab(id);
+    onTabChange(id);
     setVisitedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   };
 

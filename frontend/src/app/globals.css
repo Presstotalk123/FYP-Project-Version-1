@@ -734,16 +734,26 @@ a {
 }
 
 /* ── Bagheera "watching" ring — shown on the query editor while the Ask
-   Bagheera tab is open, so students know the AI tutor can see their query. ── */
+   Bagheera tab is open, so students know the AI tutor can see their query.
+   A real border is used (not box-shadow) because Monaco's canvas and the
+   toolbar sit flush against the panel's edges with no padding — an inset
+   box-shadow there gets painted over by that child content, so it never
+   shows. A border occupies its own space outside the content box, so
+   children can never cover it. */
+/* Note: no outward box-shadow here — the panels sit flush against ancestors
+   with `overflow: hidden` (the resizable 3-panel layout), so anything drawn
+   outside the border edge gets clipped and never renders. The border color
+   itself briefly flashes brighter on activation instead. */
 .bagheera-watching {
-  box-shadow: inset 0 0 0 2px var(--bagheera-ring);
-  transition: box-shadow 200ms ease;
+  border: 2px solid var(--bagheera-ring);
+  transition: border-color 200ms ease;
   animation: bagheera-pulse-in 550ms ease-out;
 }
 
 @keyframes bagheera-pulse-in {
-  from { box-shadow: inset 0 0 0 2px transparent, inset 0 0 24px 4px var(--bagheera-ring); }
-  to { box-shadow: inset 0 0 0 2px var(--bagheera-ring); }
+  from { border-color: rgba(37, 99, 235, 0.15); }
+  50% { border-color: #3b82f6; }
+  to { border-color: var(--bagheera-ring); }
 }
 
 @media (prefers-reduced-motion: reduce) {

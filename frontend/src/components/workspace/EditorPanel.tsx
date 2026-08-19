@@ -114,7 +114,7 @@ export function EditorPanel({
               style={{ background: '#eff6ff', color: 'var(--info)', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: 4 }}
               title="Bagheera can see this query"
             >
-              <IconEye /> Bagheera is watching
+              <IconEye /> Bagheera sees your query
             </span>
           )}
           {executionTime !== null && (

@@ -417,6 +417,8 @@ export default function AssessmentStudentsPage() {
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Email</Table.Th>
+                      <Table.Th>Name</Table.Th>
+                      <Table.Th>Class</Table.Th>
                       <Table.Th>Status</Table.Th>
                       <Table.Th>Score</Table.Th>
                       <Table.Th>Joined At</Table.Th>
@@ -429,6 +431,12 @@ export default function AssessmentStudentsPage() {
                       <Table.Tr key={student.user_id}>
                         <Table.Td>
                           <Text size="sm" fw={500}>{student.email}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{student.name || '—'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{student.class_group ?? '—'}</Text>
                         </Table.Td>
                         <Table.Td>
                           <Badge color={student.is_active ? 'blue' : 'green'} variant="light">

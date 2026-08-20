@@ -172,6 +172,8 @@ export interface ItemVisitResponse {
 export interface AssessmentStudentRow {
   user_id: number;
   email: string;
+  /** Display name from the user record; null when the student never set one. */
+  name?: string | null;
   // Optional lab/class group the student belongs to.
   class_group?: string | null;
   is_active: boolean;

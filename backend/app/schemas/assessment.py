@@ -182,6 +182,8 @@ class AssessmentResponse(BaseModel):
 class AssessmentStudentRow(BaseModel):
     user_id: int
     email: str
+    # Display name from the user record; None when the student never set one.
+    name: Optional[str] = None
     class_group: Optional[str] = None
     is_active: bool
     joined_at: datetime

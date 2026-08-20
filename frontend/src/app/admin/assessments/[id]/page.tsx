@@ -43,6 +43,9 @@ export default function EditAssessmentPage() {
             {assessment?.is_running && (
               <Badge color="blue" variant="light">Running — read-only</Badge>
             )}
+            {assessment?.is_published && !assessment?.is_running && (
+              <Badge color="yellow" variant="light">Published — questions frozen</Badge>
+            )}
           </Group>
 
           {loading && (

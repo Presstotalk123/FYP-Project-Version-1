@@ -159,6 +159,12 @@ interface Props {
 export function AssessmentForm({ mode, initial }: Props) {
   const router = useRouter();
 
+  // Once published, the question list is frozen: its items point to content clones, and
+  // sending an `items` payload would delete/recreate those rows and break the clones.
+  // So the content selector is read-only and `items` is omitted from the save payload;
+  // title/description/password/timing/gateway stay editable.
+  const itemsFrozen = mode === 'edit' && !!initial?.is_published;
+
   // Form state
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
@@ -356,7 +362,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       return;
     }
 
-    if (selectedItems.length > 0 && totalWeight !== 100) {
+    if (!itemsFrozen && selectedItems.length > 0 && totalWeight !== 100) {
       notifications.show({
         title: 'Validation',
         message: `Question weightage must total 100% (currently ${totalWeight}%)`,
@@ -406,7 +412,9 @@ export function AssessmentForm({ mode, initial }: Props) {
         const payload: AssessmentUpdate = {
           title: title.trim(),
           description: description.trim() || undefined,
-          items,
+          // Omit items when frozen so the backend skips _replace_items and leaves the
+          // published clones untouched.
+          items: itemsFrozen ? undefined : items,
           password: password.trim() || undefined,
           clear_password: clearPassword,
           time_limit_minutes: timeLimit === '' ? undefined : timeLimit,
@@ -546,7 +554,32 @@ export function AssessmentForm({ mode, initial }: Props) {
         loading={gatewayLoading}
       />
 
-      {/* Content selector */}
+      {/* Content selector — read-only once published (question list is frozen) */}
+      {itemsFrozen ? (
+        <Paper withBorder p="md" radius="md" shadow="xs">
+          <Title order={5} mb="sm">Questions</Title>
+          <Alert icon={<IconAlertCircle size={14} />} color="blue" mb="sm">
+            Questions are frozen after publishing and can&apos;t be changed. You can still edit
+            the title, description, password, and timing above.
+          </Alert>
+          <Stack gap="xs">
+            {selectedItems.map((item) => (
+              <Group key={item.uid} justify="space-between" wrap="nowrap">
+                <Text
+                  size="sm"
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {item.item_title}
+                </Text>
+                <Group gap="xs" wrap="nowrap">
+                  <Badge variant="light" size="sm">{item.item_type}</Badge>
+                  <Badge variant="light" size="sm" color="gray">{item.weight}%</Badge>
+                </Group>
+              </Group>
+            ))}
+          </Stack>
+        </Paper>
+      ) : (
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
         {/* Left — pool */}
         <Paper withBorder p="md" radius="md" shadow="xs">
@@ -683,6 +716,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           </DndContext>
         </Paper>
       </SimpleGrid>
+      )}
 
       {/* Actions */}
       <Group justify="flex-end">

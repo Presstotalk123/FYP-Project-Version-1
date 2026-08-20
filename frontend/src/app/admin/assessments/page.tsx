@@ -386,17 +386,24 @@ export default function AdminAssessmentsPage() {
                         >
                           <IconUsers />
                         </button>
-                        {/* Edit (removed once published — items are frozen) */}
-                        {!a.is_published && (
-                          <button
-                            className="icon-btn"
-                            title="Edit"
-                            onClick={() => router.push(`/admin/assessments/${a.id}`)}
-                            style={{ color: '#6366f1' }}
-                          >
-                            <IconEdit />
-                          </button>
-                        )}
+                        {/* Edit. Once published the question list is frozen, but title/
+                            description/password/timing/gateway stay editable — so keep the
+                            button (disabled while running, mirroring the passcode button). */}
+                        <button
+                          className="icon-btn"
+                          title={
+                            a.is_running
+                              ? 'Stop the assessment to edit it'
+                              : a.is_published
+                                ? 'Edit (questions are frozen)'
+                                : 'Edit'
+                          }
+                          onClick={() => router.push(`/admin/assessments/${a.id}`)}
+                          disabled={a.is_running}
+                          style={{ color: '#6366f1', opacity: a.is_running ? 0.4 : 1 }}
+                        >
+                          <IconEdit />
+                        </button>
                         {/* Delete */}
                         <button
                           className="icon-btn"
@@ -420,7 +427,7 @@ export default function AdminAssessmentsPage() {
           <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="publish-assessment-title">
             <div className="modal">
               <h3 id="publish-assessment-title">Publish Assessment</h3>
-              <p>Once published, this assessment <strong>can no longer be edited or unpublished</strong>. Its items are frozen for students. Make sure everything is final before continuing.</p>
+              <p>Once published, the <strong>question list is frozen</strong> for students and can no longer be changed, and the assessment can't be unpublished. You can still edit the title, description, password, and timing afterward. Make sure the questions are final before continuing.</p>
               <div className="button-row" style={{ justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={() => setPublishModalOpen(false)} disabled={publishing}>Cancel</button>
                 <button className="btn btn-brand" onClick={handleConfirmPublish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>

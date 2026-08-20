@@ -831,12 +831,12 @@ def update_gateway_config(
 def _student_roster(db: Session, assessment_id: int, class_group: Optional[str] = None):
     """Most-recent AssessmentSession per student who has joined this assessment.
 
-    Returns a list of (session, email, class_group) tuples, optionally restricted to a
-    single class_group. Shared by the student list and the item-analytics aggregate so
-    both agree on exactly who counts as "the roster".
+    Returns a list of (session, email, name, class_group) tuples, optionally restricted
+    to a single class_group. Shared by the student list and the item-analytics aggregate
+    so both agree on exactly who counts as "the roster".
     """
     query = (
-        db.query(AssessmentSession, User.email, User.class_group)
+        db.query(AssessmentSession, User.email, User.name, User.class_group)
         .join(User, AssessmentSession.user_id == User.id)
         .filter(AssessmentSession.assessment_id == assessment_id)
     )
@@ -846,9 +846,9 @@ def _student_roster(db: Session, assessment_id: int, class_group: Optional[str] 
 
     # Keep only the most recent session per student (descending joined_at guarantees first seen = latest)
     seen: dict = {}
-    for session, email, cg in rows:
+    for session, email, name, cg in rows:
         if session.user_id not in seen:
-            seen[session.user_id] = (session, email, cg)
+            seen[session.user_id] = (session, email, name, cg)
     return list(seen.values())
 
 
@@ -870,13 +870,14 @@ def list_assessment_students(
         AssessmentStudentRow(
             user_id=session.user_id,
             email=email,
+            name=name,
             class_group=class_group,
             is_active=bool(session.is_active),
             joined_at=session.joined_at,
             submitted_at=session.submitted_at,
             weighted_score=scores.get(session.user_id),
         )
-        for session, email, class_group in roster
+        for session, email, name, class_group in roster
     ]
 
     return AssessmentStudentsResponse(

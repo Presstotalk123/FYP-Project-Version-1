@@ -28,6 +28,7 @@ import { QuestionWeightBadge } from "@/components/assessment/QuestionWeightBadge
 import { AssessmentTimer } from "@/components/assessment/AssessmentTimer";
 import { QuestionNavigator } from "@/components/assessment/QuestionNavigator";
 import { useAssessmentProgress } from "@/contexts/AssessmentProgressContext";
+import { useAssessmentTimer } from "@/contexts/AssessmentTimerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
@@ -183,6 +184,9 @@ const getSubmissionPercent = (structuredOutput: ERSubmissionStructuredOutput | n
 export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps) {
   const router = useRouter();
   const progress = useAssessmentProgress();
+  // Assessment countdown control. A no-op outside an assessment (practice/standalone), where the
+  // provider isn't mounted and the context returns its safe default.
+  const timer = useAssessmentTimer();
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
   const [chatSending, setChatSending] = useState(false);
@@ -327,6 +331,10 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   const runSubmitStream = async (payload: ERSubmissionRequest): Promise<void> => {
     setSubmitLoading(true);
     setSubmitError(null);
+    // Freeze the assessment countdown while grading runs; the backend credits this time to the
+    // deadline (like a SQL Run). resume() with no argument re-fetches the authoritative, now-
+    // credited end_time — safe because the backend commits the credit before the stream closes.
+    timer.pause();
 
     try {
       let finalResult: ERSubmissionResponse | null = null;
@@ -384,6 +392,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
       setSubmitError(getErrorMessage(err));
     } finally {
       setSubmitLoading(false);
+      timer.resume();
     }
   };
 

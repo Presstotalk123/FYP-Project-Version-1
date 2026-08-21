@@ -1353,6 +1353,26 @@ def unpublish_er_question(
     return _to_response(_set_er_published(question_id, 0, db))
 
 
+async def _credit_after_stream(inner, db: Session, session, query_start):
+    """Yield the wrapped stream verbatim, then credit the elapsed grading time to end_time.
+
+    The engine-agnostic outer wrapper for the assessment timer: it layers over both the langgraph
+    ``_stream_with_erd_tutor_state`` wrapper and the raw Dify stream, so an in-assessment ER Submit
+    credits its grading latency regardless of ``ERD_TUTOR_ENGINE`` — mirroring ``credit_query_time``
+    on the SQL Run path. Crediting runs after the inner stream is exhausted and before this generator
+    returns, so the HTTP response closes only once the pushed-forward ``end_time`` is committed; the
+    client's stream-close is therefore a safe signal that a ``getSession`` re-fetch will read the
+    credited deadline. Accepts a sync or async source (matches ``_stream_with_erd_tutor_state``).
+    """
+    from app.services.assessment_timer import credit_query_time
+
+    source = inner if hasattr(inner, "__aiter__") else iterate_in_threadpool(inner)
+    async for chunk in source:
+        yield chunk
+    # Offload the blocking DB write so it never blocks the event loop.
+    await asyncio.to_thread(credit_query_time, db, session, query_start)
+
+
 async def _stream_with_erd_tutor_state(
     *,
     stream,
@@ -1764,6 +1784,17 @@ async def submit_er_diagram(
     )
     enforce_not_expired(db, _assessment_session)  # 403 + finalize if past effective deadline
 
+    # Grading credit: like a SQL Run, freeze the student's clock while the grade is computed and
+    # push end_time forward by the elapsed time afterwards (see credit_after_stream below), so the
+    # grading latency isn't charged against their assessment time. Only for an in-assessment Submit
+    # (the tutor Query chat is deliberately not credited). enforce_not_expired above runs first, so
+    # a request that arrives past the deadline is 403'd here and never reaches crediting. Start the
+    # clock at request arrival (received_at middleware) so threadpool queueing time is credited too.
+    from datetime import datetime, timezone
+    credit_query_start = None
+    if _assessment_session is not None and mode == "Submit":
+        credit_query_start = getattr(request.state, "received_at", None) or datetime.now(timezone.utc)
+
     # LangGraph engine: per-user standalone conversation so submits feed the
     # query tutor (canonical ERD + last report) and stage/hint carry across turns.
     erd_conversation = None
@@ -1867,6 +1898,11 @@ async def submit_er_diagram(
                 else None
             ),
         )
+    # Outermost: freeze/credit the assessment clock for an in-assessment Submit. Layers over both
+    # the langgraph wrapper above and the raw Dify stream, so grading latency is credited back to
+    # end_time regardless of engine. No-op when not an in-assessment Submit (credit_query_start None).
+    if credit_query_start is not None:
+        stream = _credit_after_stream(stream, db, _assessment_session, credit_query_start)
     return StreamingResponse(
         stream,
         media_type="text/event-stream",

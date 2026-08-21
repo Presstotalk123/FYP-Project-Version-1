@@ -24,7 +24,9 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models.er_submission import ErSubmission
+from app.core.cache import Ns, bump_version
 from app.models.erd_tutor_conversation import ErdTutorConversation
+from app.services import assessment_scoring
 from app.services.erd_tutor.scoring import _label
 
 SCORING_LEVELS = {"must", "should"}
@@ -116,6 +118,27 @@ def _sync_conversation(db: Session, submission: ErSubmission, grade: dict) -> bo
     report["checks"] = grade["checks"]
     conversation.last_submit_report = json.dumps(report, ensure_ascii=False)
     return True
+
+
+def _propagate_to_assessment(db: Session, submission: ErSubmission) -> None:
+    """Carry a corrected ER mark through to the assessment views.
+
+    `_sync_conversation` alone is not enough. The roster table reads a cached
+    per-student score, and the staff activity panel reads a total frozen at
+    finalization; neither is invalidated by a conversation or submission write
+    (see core/cache.py, which deliberately leaves ASSESSMENT_ANALYTICS alone while
+    an exam is running). Without both steps a corrected mark shows in ER analytics
+    and nowhere else.
+
+    Only called when the conversation was actually synced, because only then did
+    the student's standing change.
+    """
+    bump_version(db, Ns.ASSESSMENT_ANALYTICS)
+    assessment_scoring.refresh_frozen_weighted_score(
+        db,
+        er_question_id=submission.er_diagram_question_id,
+        user_id=submission.user_id,
+    )
 
 
 def _num(value, default=0.0) -> float:
@@ -286,6 +309,8 @@ def apply_override(
     submission.overridden_at = datetime.now(timezone.utc)
 
     mark_updated = _sync_conversation(db, submission, grade)
+    if mark_updated:
+        _propagate_to_assessment(db, submission)
     db.commit()
     return {"grade": grade, "assessment_mark_updated": mark_updated}
 
@@ -314,5 +339,7 @@ def revert_override(db: Session, submission: ErSubmission) -> dict[str, Any]:
     mark_updated = _sync_conversation(
         db, submission, {"score": score, "checks": original.get("checks") or []}
     )
+    if mark_updated:
+        _propagate_to_assessment(db, submission)
     db.commit()
     return {"grade": original, "assessment_mark_updated": mark_updated}

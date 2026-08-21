@@ -39,6 +39,7 @@ from app.services import (
     assessment_reset,
     assessment_scoring,
 )
+from app.models.er_diagram_draft import ErDiagramDraft
 from app.services.erd_tutor import persistence as erd_persistence
 from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
 from sqlalchemy import func
@@ -959,11 +960,34 @@ def get_student_component_scores(
         .all()
     )
 
+    # Two bulk lookups for the ER items, rather than a query per item. Both answer the
+    # same staff question: did this student build a diagram, and was it ever graded?
+    er_item_ids = [i.item_id for i in items if i.item_type == "er_question"]
+    er_drafts: dict = {}
+    er_graded: set = set()
+    if er_item_ids:
+        er_drafts = {
+            question_id: updated_at
+            for question_id, updated_at in db.query(
+                ErDiagramDraft.er_diagram_question_id, ErDiagramDraft.updated_at
+            ).filter(
+                ErDiagramDraft.user_id == student_id,
+                ErDiagramDraft.er_diagram_question_id.in_(er_item_ids),
+            ).all()
+        }
+        # The conversation's last score is the authoritative "was this graded" signal —
+        # er_submissions rows are best-effort and can be missing for a real grade.
+        raw_scores = erd_persistence.find_last_submit_scores_bulk(
+            db, user_ids=[student_id], er_diagram_question_ids=er_item_ids
+        )
+        er_graded = {qid for (_uid, qid), score in raw_scores.items() if score}
+
     component_scores: List[AssessmentItemComponentScore] = []
     total_weight = 0
     earned_weight = 0.0
 
     for item in items:
+        is_er = item.item_type == "er_question"
         title = _resolve_item_title(item, db)
         detail = assessment_scoring.item_score_detail(
             db, item, student_id, session_id=session.id if session else None
@@ -981,6 +1005,9 @@ def get_student_component_scores(
             tasks_correct=detail.tasks_correct,
             tasks_total=detail.tasks_total,
             visited=detail.visited,
+            has_saved_draft=(item.item_id in er_drafts) if is_er else None,
+            draft_updated_at=er_drafts.get(item.item_id) if is_er else None,
+            has_er_grade=(item.item_id in er_graded) if is_er else None,
             score_fraction=round(detail.fraction, 4),
             weighted_points=round(item.weight * detail.fraction, 2),
         )

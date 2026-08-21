@@ -218,6 +218,14 @@ class AssessmentItemComponentScore(BaseModel):
     tasks_correct: Optional[int] = None
     tasks_total: Optional[int] = None
     visited: Optional[bool] = None
+    # ER items only (None elsewhere). Separates "did nothing" from "built a diagram but
+    # never submitted": the assessment timer closes the session without submitting the
+    # open canvas, so a saved draft with no grade is the normal shape of a lost attempt.
+    has_saved_draft: Optional[bool] = None
+    draft_updated_at: Optional[datetime] = None
+    # ER items only. score_fraction cannot carry this — an ER item graded at 0% and one
+    # never graded both arrive as 0.0, and the staff badge must tell them apart.
+    has_er_grade: Optional[bool] = None
     # Weightage (%) staff assigned to this question.
     weight: int = 0
     # Correctness fraction 0.0-1.0 for this item (binary for SQL, proportional for labs/ER).

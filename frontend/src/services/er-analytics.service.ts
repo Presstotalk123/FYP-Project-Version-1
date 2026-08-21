@@ -80,3 +80,80 @@ export async function fetchSubmissionImage(submissionId: number): Promise<string
   });
   return URL.createObjectURL(r.data);
 }
+
+/** Where the diagram came from, echoed back so the UI can name it. */
+export type AddedSubmissionSource = "draft" | "xml" | "image";
+
+export interface StaffStudentDraft {
+  exists: boolean;
+  revision?: number;
+  updated_at?: string | null;
+  xml?: string;
+}
+
+/** A student's autosaved canvas, read as staff. The student-facing draft endpoint
+ *  is scoped to the caller, so this is the only way in. */
+export async function fetchStudentDraft(
+  questionId: number,
+  studentId: number,
+): Promise<StaffStudentDraft> {
+  const r = await api.get<StaffStudentDraft>(
+    API_ENDPOINTS.ER_ANALYTICS.STUDENT_DRAFT(questionId, studentId),
+  );
+  return r.data;
+}
+
+export interface AddStudentSubmissionParams {
+  questionId: number;
+  studentId: number;
+  reason: string;
+  regrade?: boolean;
+  /** Grade the student's own autosaved canvas. */
+  useSavedDraft?: boolean;
+  /** Contents of a .drawio or .xml file. */
+  xmlText?: string;
+  /** A PNG or JPG, read by the vision model. */
+  imageFile?: File;
+  /** A picture of the XML source, drawn by the browser. Stored, never graded, and
+   *  optional: the attempt is graded with or without it. */
+  renderedPng?: File | null;
+}
+
+export interface AddStudentSubmissionResult {
+  submission_id: number;
+  score: {
+    label?: string;
+    percent?: number;
+    earned_points?: number;
+    total_points?: number;
+  };
+  source: AddedSubmissionSource;
+  added_by: string;
+}
+
+/** Grading runs 30-90 s, far longer than the shared axios default, which would
+ * abort a perfectly healthy request part way through. */
+const GRADING_TIMEOUT_MS = 180_000;
+
+/**
+ * Create a graded submission for a student, from a diagram staff supply.
+ * Exactly one source must be given; the server rejects zero or two.
+ */
+export async function addStudentSubmission(
+  params: AddStudentSubmissionParams,
+): Promise<AddStudentSubmissionResult> {
+  const form = new FormData();
+  form.append("reason", params.reason);
+  form.append("regrade", String(params.regrade ?? false));
+  if (params.useSavedDraft) form.append("use_saved_draft", "true");
+  if (params.xmlText) form.append("submission_xml_text", params.xmlText);
+  if (params.imageFile) form.append("erd_img", params.imageFile);
+  if (params.renderedPng) form.append("rendered_png", params.renderedPng);
+
+  const r = await api.post<AddStudentSubmissionResult>(
+    API_ENDPOINTS.ER_ANALYTICS.ADD_STUDENT_SUBMISSION(params.questionId, params.studentId),
+    form,
+    { timeout: GRADING_TIMEOUT_MS },
+  );
+  return r.data;
+}

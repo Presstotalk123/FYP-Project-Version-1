@@ -1,10 +1,12 @@
 """Staff-only analytics over er_submissions. Same /er-diagram URL prefix as the
 main ERD router, kept in its own module so er_diagram.py stops growing."""
+import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -16,6 +18,8 @@ from app.dependencies import require_staff_role
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.er_submission import ErSubmission
 from app.models.user import User
+from app.services import er_staff_submission
+from app.utils.er_storage import get_er_storage_provider
 from app.services.er_analytics import (
     class_overview,
     list_class_groups,
@@ -29,6 +33,8 @@ from app.services.er_score_override import (
     revert_override,
     with_earned_points,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/er-diagram", tags=["er-analytics"])
 
@@ -271,3 +277,163 @@ def get_class_overview(
         key=("overview", context, class_group or ""),
         producer=lambda: class_overview(db, context, class_group),
     )
+
+
+@router.get("/questions/{question_id}/students/{student_id}/draft")
+def get_student_draft(
+    question_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """A student's autosaved canvas, for staff.
+
+    The student-facing GET /er-diagram/draft is scoped to the caller and never
+    accepts a user id, so staff need their own way in. Used before grading: the
+    dialog renders this XML to a PNG so the stored attempt carries a picture, and
+    it lets staff see the diagram before they commit to a mark.
+    """
+    try:
+        draft = er_staff_submission.load_draft(
+            db, user_id=student_id, question_id=question_id
+        )
+    except er_staff_submission.NoDiagram:
+        return {"exists": False}
+    return {
+        "exists": True,
+        "revision": draft.revision,
+        "updated_at": draft.updated_at.isoformat() if draft.updated_at else None,
+        "xml": draft.xml,
+    }
+
+
+@router.post("/questions/{question_id}/students/{student_id}/submission")
+async def add_student_submission(
+    question_id: int,
+    student_id: int,
+    reason: str = Form(""),
+    use_saved_draft: bool = Form(False),
+    submission_xml_text: Optional[str] = Form(None),
+    regrade: bool = Form(False),
+    erd_img: Optional[UploadFile] = File(None),
+    rendered_png: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    staff: User = Depends(require_staff_role),
+):
+    """Create a graded ER submission for a student, from a diagram staff supply.
+
+    Why this exists: the assessment timer closes the session without submitting the
+    open diagram, so a student who ran out of time has work but no grade. The
+    student's own submit path is the only other writer of these rows, so this goes
+    through the same service and writes the same fields. `added_by_staff_id` is what
+    separates the two afterwards.
+
+    Async, not sync: nearly all of the 30-90 s is spent awaiting the LLM over HTTP,
+    so a sync handler would pin a threadpool worker for the whole wait while doing
+    nothing. The service pushes its blocking writes to a worker thread.
+
+    One long response rather than a job, because staff run this for a handful of
+    students. A plain JSON handler is not cancelled by a client disconnect, so a
+    closed tab loses the response but not the grade.
+
+    `rendered_png` is a picture of the XML source, drawn by the browser before the
+    request. It is stored so the attempt has something to look at in analytics, and
+    is never graded — grading reads the XML, which is exact. It is not a source, so
+    it does not count toward the one-source rule below.
+    """
+    # Optional, and stored as NULL when blank. `added_by_staff_id` is what marks the
+    # row as staff-added; the reason is a note for whoever reads it later, not proof.
+    # The 500 cap is a storage guard, not a demand for detail.
+    clean_reason = (reason or "").strip() or None
+    if clean_reason is not None and len(clean_reason) > 500:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="The reason must be 500 characters or fewer.")
+
+    # Exactly one source, mirroring the student endpoint's rule for
+    # submission_xml_text XOR erd_img. Two sources would silently grade one of them.
+    has_upload = erd_img is not None and bool(getattr(erd_img, "filename", ""))
+    given = [bool(use_saved_draft), bool((submission_xml_text or "").strip()), has_upload]
+    if sum(1 for value in given if value) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Give exactly one source: the saved draft, XML text, or an image.",
+        )
+
+    student = db.query(User).filter(User.id == student_id).first()
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
+    question = (
+        db.query(ERDiagramQuestion)
+        .filter(ERDiagramQuestion.id == question_id,
+                ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    xml_text = None
+    image_bytes = None
+    image_key = None
+
+    if use_saved_draft:
+        source = "draft"
+        try:
+            xml_text = er_staff_submission.load_draft_xml(
+                db, user_id=student_id, question_id=question_id
+            )
+        except er_staff_submission.NoDiagram as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    elif has_upload:
+        source = "image"
+        image_bytes = await erd_img.read()
+        # Stored so ER Analytics can show the diagram. The XML sources hold no
+        # picture, so this is the only path that fills submitted_image_storage_key.
+        await erd_img.seek(0)
+        image_key, _url = await asyncio.to_thread(get_er_storage_provider().save, erd_img)
+    else:
+        source = "xml"
+        xml_text = submission_xml_text.strip()
+        if len(xml_text) > settings.ER_MAX_XML_CHARS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"xml exceeds maximum length of {settings.ER_MAX_XML_CHARS} characters",
+            )
+
+    # A browser-drawn picture of an XML source. Best effort by design: if storing it
+    # fails, the attempt is still graded and simply has no thumbnail, exactly as
+    # before this existed. Never overrides a real uploaded image.
+    if image_key is None and rendered_png is not None and getattr(rendered_png, "filename", ""):
+        try:
+            image_key, _url = await asyncio.to_thread(
+                get_er_storage_provider().save, rendered_png
+            )
+        except Exception:
+            logger.exception("add_student_submission: rendered_png not stored; grading continues")
+
+    try:
+        result = await er_staff_submission.grade_and_record(
+            db,
+            user_id=student_id,
+            question=question,
+            xml_text=xml_text,
+            image_bytes=image_bytes,
+            image_storage_key=image_key,
+            source=source,
+            staff_id=staff.id,
+            reason=clean_reason,
+            regrade=regrade,
+        )
+    except er_staff_submission.AlreadyGraded as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except er_staff_submission.NoDiagram as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except er_staff_submission.GradingFailed as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    return {
+        "submission_id": result.submission_id,
+        "score": result.score,
+        "source": result.source,
+        "added_by": staff.email,
+    }

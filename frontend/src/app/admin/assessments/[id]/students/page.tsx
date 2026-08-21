@@ -26,8 +26,10 @@ import {
   IconActivity,
   IconEye,
   IconRefresh,
+  IconPlus,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
+import { AddErSubmissionModal } from '@/components/admin/AddErSubmissionModal';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import {
@@ -57,6 +59,10 @@ export default function AssessmentStudentsPage() {
   const [itemAnalytics, setItemAnalytics] = useState<AssessmentItemAnalyticsResponse | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  // Bumped after a submission is added, so the per-question averages refetch. Without
+  // it they only reload on an assessment or class-group change, and would sit stale
+  // beside a student row that has already moved.
+  const [analyticsReloadKey, setAnalyticsReloadKey] = useState(0);
 
   // Activity drawer
   const [activityStudent, setActivityStudent] = useState<AssessmentStudentRow | null>(null);
@@ -67,6 +73,18 @@ export default function AssessmentStudentsPage() {
   // Reset-attempt confirmation
   const [resetStudent, setResetStudent] = useState<AssessmentStudentRow | null>(null);
   const [resetting, setResetting] = useState(false);
+
+  // "Add submission" target: which student, which ER question, and what the row
+  // already knows about their draft. Null closes the dialog.
+  const [addTarget, setAddTarget] = useState<{
+    studentId: number;
+    studentName: string;
+    questionId: number;
+    questionTitle: string;
+    hasSavedDraft: boolean;
+    draftUpdatedAt?: string | null;
+    hasExistingGrade: boolean;
+  } | null>(null);
 
   const fetchStudents = async () => {
     try {
@@ -107,7 +125,7 @@ export default function AssessmentStudentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [assessmentId, selectedClassGroup]);
+  }, [assessmentId, selectedClassGroup, analyticsReloadKey]);
 
   const handleResetConfirm = async () => {
     if (!resetStudent) return;
@@ -133,13 +151,13 @@ export default function AssessmentStudentsPage() {
     }
   };
 
-  const openActivityDrawer = async (student: AssessmentStudentRow) => {
-    setActivityStudent(student);
-    setScores(null);
+  // Shared by the drawer's first load and by the refresh after a submission is added,
+  // so both paths read the same endpoint and show the same shape of error.
+  const loadScores = async (studentId: number) => {
     setScoresError(null);
     setScoresLoading(true);
     try {
-      const result = await assessmentService.getStudentComponentScores(assessmentId, student.user_id);
+      const result = await assessmentService.getStudentComponentScores(assessmentId, studentId);
       setScores(result);
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
@@ -147,6 +165,12 @@ export default function AssessmentStudentsPage() {
     } finally {
       setScoresLoading(false);
     }
+  };
+
+  const openActivityDrawer = async (student: AssessmentStudentRow) => {
+    setActivityStudent(student);
+    setScores(null);
+    await loadScores(student.user_id);
   };
 
   const closeActivityDrawer = () => {
@@ -228,11 +252,51 @@ export default function AssessmentStudentsPage() {
     }
 
     if (item.item_type === 'er_question') {
+      // The assessment timer closes the session without submitting the open diagram,
+      // so a saved draft with no grade is the normal shape of a lost attempt — and a
+      // different situation from a student who never drew anything.
+      const graded = item.has_er_grade === true;
+      const draftOnly = !graded && item.has_saved_draft === true;
+      const erPercent = Math.round((item.score_fraction ?? 0) * 100);
       return (
         <Group gap="xs">
-          <Badge color={item.visited ? 'blue' : 'gray'} variant="light">
-            {item.visited ? 'Visited' : 'Not Visited'}
-          </Badge>
+          {graded ? (
+            // Coloured like every other score on this page, so a graded 0% cannot
+            // read as a pass just because it was graded.
+            <Badge color={scoreColor(erPercent)} variant="light">
+              Graded {erPercent}%
+            </Badge>
+          ) : draftOnly ? (
+            <Badge color="orange" variant="light">Draft saved, not submitted</Badge>
+          ) : (
+            <Badge color="gray" variant="light">
+              {item.visited ? 'Not attempted' : 'Not visited'}
+            </Badge>
+          )}
+          {/* Neutral in every state, on purpose. This row spends its colour on
+              meaning — green/yellow/red for the score, orange for a waiting draft,
+              teal for the page's ordinary actions — so a grey button competes with
+              none of it. The badge beside it is what says whether to act. */}
+          <Button
+            size="xs"
+            variant="light"
+            color="gray.7"
+            leftSection={<IconPlus size={12} />}
+            onClick={() =>
+              setAddTarget({
+                studentId,
+                studentName:
+                  activityStudent?.name || activityStudent?.email || `student ${studentId}`,
+                questionId: item.item_id,
+                questionTitle: item.item_title,
+                hasSavedDraft: item.has_saved_draft === true,
+                draftUpdatedAt: item.draft_updated_at,
+                hasExistingGrade: graded,
+              })
+            }
+          >
+            Add Submission
+          </Button>
           <Button
             size="xs"
             variant="light"
@@ -594,6 +658,22 @@ export default function AssessmentStudentsPage() {
             </Stack>
           )}
         </Drawer>
+
+        {addTarget && (
+          <AddErSubmissionModal
+            opened
+            onClose={() => setAddTarget(null)}
+            onGraded={() => {
+              // A new grade moves three things: this student's item score and total in
+              // the drawer, their row in the table, and the per-question averages at the
+              // top. All three are re-read rather than patched, so none can go stale.
+              void loadScores(addTarget.studentId);
+              void fetchStudents();
+              setAnalyticsReloadKey((k) => k + 1);
+            }}
+            {...addTarget}
+          />
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

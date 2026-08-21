@@ -48,3 +48,13 @@ class ErSubmission(Base):
     override_reason = Column(Text, nullable=True)
     overridden_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     overridden_at = Column(DateTime(timezone=True), nullable=True)
+
+    # A staff member created this row from a diagram the student never submitted —
+    # the assessment timer closes the session without submitting the open canvas, so
+    # a saved draft with no grade is the normal shape of a lost attempt.
+    #
+    # Not the same event as the override above: an added row can be corrected later,
+    # and both markers then apply. `added_by_staff_id IS NOT NULL` is the whole
+    # definition of "staff added this", which the UI badge and analytics read.
+    added_by_staff_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    added_reason = Column(Text, nullable=True)

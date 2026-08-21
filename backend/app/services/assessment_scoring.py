@@ -5,7 +5,7 @@ per-question `weight` set by staff. Each item type yields a correctness fraction
 
 - sql_question: 1.0 if the student has any correct attempt, else 0.0 (binary).
 - sql_lab / graph_lab: distinct correct tasks / total tasks.
-- er_question: the latest LLM-graded percent / 100 (from the ERD tutor conversation).
+- er_question: the best LLM-graded percent / 100 across the student's attempts.
 
 The weighted total is Σ(weight_i * fraction_i) normalised to 100 so it stays a percentage
 even if the stored weights don't sum to exactly 100. Returns None when the assessment has
@@ -73,21 +73,66 @@ def _label_from_score_json(last_submit_score: Optional[str]) -> Optional[str]:
     return data.get("label") if isinstance(data, dict) else None
 
 
-def er_percent(db: Session, question_id: int, student_id: int) -> Optional[float]:
-    """Latest LLM-graded percent (0-100) for a student's assessment ER question, or None.
+def er_best_scores_bulk(
+    db: Session, *, user_ids, question_ids
+) -> dict[tuple[int, int], tuple[Optional[float], Optional[str]]]:
+    """Best graded (percent, label) per (user, ER question) — the highest attempt.
 
-    Assessment ER questions go through the standalone ERD-tutor path, which keeps a single
-    conversation per (user, question) with the latest grade in `last_submit_score` JSON.
+    Best, not latest, so resubmitting can never cost a student marks. This matches
+    how the other item types already score: a SQL question credits any correct
+    attempt, and a lab credits every task ever solved.
+
+    Two sources, because neither is complete on its own. `er_submissions` holds one
+    row per graded attempt and is what a staff override writes back to, but it is
+    written only by the LangGraph engine inside a never-raise block, so a real grade
+    can have no row. The conversation always holds the latest grade but only that one.
+    Taking the maximum across both can never score below the latest-only rule, and
+    never misses a grade.
+
+    The label travels with the percent it came from, so a "pass" verdict always
+    describes the attempt that is actually being counted.
     """
-    conv = erd_persistence.find_conversation(
-        db,
-        user_id=student_id,
-        context_type="standalone",
-        er_diagram_question_id=question_id,
+    out: dict[tuple[int, int], tuple[Optional[float], Optional[str]]] = {}
+    if not user_ids or not question_ids:
+        return out
+
+    raw = erd_persistence.find_last_submit_scores_bulk(
+        db, user_ids=user_ids, er_diagram_question_ids=question_ids
     )
-    if not conv:
-        return None
-    return _percent_from_score_json(conv.last_submit_score)
+    for key, score_json in raw.items():
+        out[key] = (
+            _percent_from_score_json(score_json),
+            _label_from_score_json(score_json),
+        )
+
+    for uid, qid, percent, label in (
+        db.query(
+            ErSubmission.user_id,
+            ErSubmission.er_diagram_question_id,
+            ErSubmission.score_percent,
+            ErSubmission.score_label,
+        )
+        .filter(
+            ErSubmission.user_id.in_(list(user_ids)),
+            ErSubmission.er_diagram_question_id.in_(list(question_ids)),
+            ErSubmission.score_percent.isnot(None),
+        )
+        .all()
+    ):
+        best = out.get((uid, qid))
+        if best is None or best[0] is None or percent > best[0]:
+            out[(uid, qid)] = (percent, label)
+
+    return out
+
+
+def er_best_score(
+    db: Session, question_id: int, student_id: int
+) -> tuple[Optional[float], Optional[str]]:
+    """Single-student form of ``er_best_scores_bulk``."""
+    return er_best_scores_bulk(
+        db, user_ids=[student_id], question_ids=[question_id]
+    ).get((student_id, question_id), (None, None))
 
 
 @dataclass
@@ -168,7 +213,7 @@ def item_score_detail(
                 )
                 .first()
             ) is not None
-        pct = er_percent(db, item.item_id, student_id)
+        pct, _label = er_best_score(db, item.item_id, student_id)
         return ItemScoreDetail(
             fraction=(pct / 100.0) if pct is not None else 0.0,
             visited=visited,
@@ -409,15 +454,15 @@ def compute_roster_analytics(
             lab_attempts[(uid, lid)] += cnt
             lab_task_attempts[(uid, lid, tid)] = cnt
 
-    # --- ER questions: latest graded percent/verdict per (user, question) ---
+    # --- ER questions: best graded percent/verdict per (user, question) ---
+    # Best, not latest, and read through the same helper the per-student path uses,
+    # so the roster table and the activity panel can never disagree about a mark.
     er_percents: dict = {}  # (user_id, question_id) -> percent (0-100) or None
     er_labels: dict = {}    # (user_id, question_id) -> "pass" / "partial" / "fail" / None
     if student_ids and er_q_ids:
-        raw = erd_persistence.find_last_submit_scores_bulk(
-            db, user_ids=student_ids, er_diagram_question_ids=er_q_ids
-        )
-        er_percents = {key: _percent_from_score_json(s) for key, s in raw.items()}
-        er_labels = {key: _label_from_score_json(s) for key, s in raw.items()}
+        best = er_best_scores_bulk(db, user_ids=student_ids, question_ids=er_q_ids)
+        er_percents = {key: value[0] for key, value in best.items()}
+        er_labels = {key: value[1] for key, value in best.items()}
 
     # --- ER questions: graded submissions per (user, question) ---
     # er_submissions is written by the LangGraph engine only, so under

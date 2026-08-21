@@ -12,6 +12,7 @@ even if the stored weights don't sum to exactly 100. Returns None when the asses
 no weightage at all (legacy/unweighted), so callers can show "N/A" instead of a false 0.
 """
 import json
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -41,6 +42,8 @@ from app.schemas.assessment import (
 )
 from app.services import assessment_registration
 from app.services.erd_tutor import persistence as erd_persistence
+
+logger = logging.getLogger(__name__)
 
 
 def _percent_from_score_json(last_submit_score: Optional[str]) -> Optional[float]:
@@ -191,6 +194,54 @@ def compute_weighted_score(db: Session, assessment: Assessment, student_id: int)
         return None
     earned = sum(i.weight * item_score_fraction(db, i, student_id) for i in items)
     return round(earned / total_weight * 100, 1)
+
+
+def refresh_frozen_weighted_score(db: Session, *, er_question_id: int, user_id: int) -> None:
+    """Recompute a student's stored assessment total after their ER mark changes.
+
+    `AssessmentSession.weighted_score` is computed once at finalization and never
+    again, and the staff activity panel reads that frozen value for a completed
+    attempt (assessments.py::get_student_component_scores). Anything that changes an
+    ER grade afterwards — a staff-added submission, a score override — changes the
+    real total, so without this the panel keeps showing the old number while the
+    roster table, which recomputes, shows the new one.
+
+    Only assessment clones carry `owner_assessment_id`; a practice question has no
+    session to update and returns early. Never raises: a failure here costs a stale
+    total, and must not undo a mark that is already written. Callers commit.
+    """
+    try:
+        assessment_id = (
+            db.query(ERDiagramQuestion.owner_assessment_id)
+            .filter(ERDiagramQuestion.id == er_question_id)
+            .scalar()
+        )
+        if not assessment_id:
+            return
+
+        session = (
+            db.query(AssessmentSession)
+            .filter(
+                AssessmentSession.assessment_id == assessment_id,
+                AssessmentSession.user_id == user_id,
+            )
+            .first()
+        )
+        # An in-progress attempt is read from the live recompute, so its stored value
+        # is meant to stay NULL until finalization. Only the frozen one needs fixing.
+        if session is None or not session.attempt_complete:
+            return
+
+        assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
+        if assessment is None:
+            return
+        session.weighted_score = compute_weighted_score(db, assessment, user_id)
+    except Exception:
+        logger.exception(
+            "refresh_frozen_weighted_score failed for user=%s er_question=%s",
+            user_id,
+            er_question_id,
+        )
 
 
 def roster_user_ids(

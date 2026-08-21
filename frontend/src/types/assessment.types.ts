@@ -208,6 +208,14 @@ export interface AssessmentItemComponentScore {
   tasks_correct?: number | null;
   tasks_total?: number | null;
   visited?: boolean | null;
+  // ER items only (null elsewhere). Separates "did nothing" from "built a diagram but
+  // never submitted" — the assessment timer closes the session without submitting the
+  // open canvas, so a saved draft with no grade is the normal shape of a lost attempt.
+  has_saved_draft?: boolean | null;
+  draft_updated_at?: string | null;
+  // ER items only. score_fraction cannot carry this: an ER item graded at 0% and one
+  // never graded both arrive as 0, and the staff badge must tell them apart.
+  has_er_grade?: boolean | null;
   weight?: number;
   score_fraction?: number | null;
   weighted_points?: number | null;

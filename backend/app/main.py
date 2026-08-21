@@ -108,6 +108,8 @@ for _stmt in (
     "ALTER TABLE er_submissions ADD COLUMN override_reason TEXT",
     "ALTER TABLE er_submissions ADD COLUMN overridden_by INTEGER",
     "ALTER TABLE er_submissions ADD COLUMN overridden_at TIMESTAMP",
+    "ALTER TABLE er_submissions ADD COLUMN added_by_staff_id INTEGER",
+    "ALTER TABLE er_submissions ADD COLUMN added_reason TEXT",
     "ALTER TABLE platform_sessions ADD COLUMN left_at TIMESTAMP",
 ):
     with engine.connect() as _conn:

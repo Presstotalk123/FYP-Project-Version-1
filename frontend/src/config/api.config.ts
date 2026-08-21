@@ -59,6 +59,12 @@ export const API_ENDPOINTS = {
       `/er-diagram/submissions/${submissionId}/image`,
     OVERVIEW: '/er-diagram/analytics/overview',
     CLASS_GROUPS: '/er-diagram/analytics/class-groups',
+    /** A student's autosaved canvas, read as staff. */
+    STUDENT_DRAFT: (id: number, studentId: number) =>
+      `/er-diagram/questions/${id}/students/${studentId}/draft`,
+    /** Staff create a submission for a student who never submitted one. */
+    ADD_STUDENT_SUBMISSION: (id: number, studentId: number) =>
+      `/er-diagram/questions/${id}/students/${studentId}/submission`,
   },
   SQL_ANALYTICS: {
     QUESTION: (id: number) => `/questions/${id}/analytics`,

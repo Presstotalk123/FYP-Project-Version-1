@@ -146,7 +146,10 @@ const toWhiteBackgroundPngFile = (blob: Blob): Promise<File> =>
     image.src = imageUrl;
   });
 
-const toPngFile = async (rawExportData: string): Promise<File> => {
+/** Exported so a headless renderer can turn draw.io's export reply into the same
+ *  white-background PNG a student's submit produces. One implementation, so a
+ *  staff-added attempt and a student's own attempt look identical. */
+export const toPngFile = async (rawExportData: string): Promise<File> => {
   const pngBlob = toPngBlob(rawExportData);
   return toWhiteBackgroundPngFile(pngBlob);
 };

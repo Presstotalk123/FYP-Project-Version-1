@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
+import {
+  DRAWIO_RENDERER_URL,
+  OFFSCREEN_FRAME_STYLE,
+  useErXmlToPng,
+} from '@/components/admin/useErXmlToPng';
 import { UserRole } from '@/types/user.types';
 import {
   erAnalyticsService,
@@ -48,6 +53,9 @@ export default function ErQuestionAnalyticsPage() {
   const [journey, setJourney] = useState<StudentSubmissions | null>(null);
   const [attempt, setAttempt] = useState<SubmissionDetail | null>(null);
   const [attemptImage, setAttemptImage] = useState<string | null>(null);
+  // Draws a stored XML source into the same white-background PNG a student's submit
+  // produces, so an attempt with no stored picture still reaches the normal <img>.
+  const { frameRef: rendererFrameRef, render } = useErXmlToPng();
 
   // Score-override editing. `editing` gates it so a stray click can never change a
   // mark. `awards` is seeded from what the grader gave every scoring check, so it
@@ -119,7 +127,18 @@ export default function ErQuestionAnalyticsPage() {
     setAttemptImage(null);
     erAnalyticsService.submissionDetail(submissionId).then((d) => {
       setAttempt(d);
-      if (d.has_image) fetchSubmissionImage(d.id).then(setAttemptImage).catch(() => null);
+      if (d.has_image) {
+        fetchSubmissionImage(d.id).then(setAttemptImage).catch(() => null);
+        return;
+      }
+      // Attempts added before submissions carried a picture, and the rare one whose
+      // render failed, still hold their draw.io XML. Draw it here so every attempt
+      // reaches the same <img> and the same zoom, instead of a second kind of viewer.
+      if (d.submitted_xml) {
+        void render(d.submitted_xml).then((file) => {
+          if (file) setAttemptImage(URL.createObjectURL(file));
+        });
+      }
     });
   };
 
@@ -481,7 +500,17 @@ export default function ErQuestionAnalyticsPage() {
                       <img src={attemptImage} alt="Submitted ER diagram" style={{ maxWidth: '100%', border: '1px solid var(--border, #ddd)' }} />
                     </button>
                   ) : attempt.submitted_xml ? (
-                    <pre style={{ margin: 0 }}>{attempt.submitted_xml}</pre>
+                    // The picture is still being drawn from the XML (see openAttempt),
+                    // or draw.io did not answer. The source stays available either way.
+                    <>
+                      <p>Drawing the diagram…</p>
+                      <details>
+                        <summary style={{ cursor: 'pointer' }}>Show the diagram source</summary>
+                        <pre style={{ margin: '8px 0 0', maxHeight: 240, overflow: 'auto' }}>
+                          {attempt.submitted_xml}
+                        </pre>
+                      </details>
+                    </>
                   ) : (
                     <p>No diagram stored for this attempt.</p>
                   )}
@@ -649,6 +678,16 @@ export default function ErQuestionAnalyticsPage() {
             />
           </div>
         )}
+
+        {/* Off screen, but real pixels: draw.io exports a blank image from a hidden
+            or zero-sized frame. Kept mounted so the first attempt opened does not
+            wait for a cold iframe. */}
+        <iframe
+          ref={rendererFrameRef}
+          src={DRAWIO_RENDERER_URL}
+          title="Diagram renderer"
+          style={OFFSCREEN_FRAME_STYLE}
+        />
       </DashboardLayout>
     </ProtectedRoute>
   );

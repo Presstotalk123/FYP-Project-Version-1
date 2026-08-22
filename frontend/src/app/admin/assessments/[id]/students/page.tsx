@@ -86,6 +86,10 @@ export default function AssessmentStudentsPage() {
     hasExistingGrade: boolean;
   } | null>(null);
 
+  // End-and-refresh confirmation (shown only when students are still active).
+  const [recomputeOpen, setRecomputeOpen] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
+
   const fetchStudents = async () => {
     try {
       setLoading(true);
@@ -148,6 +152,30 @@ export default function AssessmentStudentsPage() {
       });
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleRecompute = async () => {
+    setRecomputing(true);
+    try {
+      const result = await assessmentService.recomputeScores(assessmentId);
+      setRecomputeOpen(false);
+      notifications.show({
+        color: 'green',
+        title: 'Scores refreshed',
+        message: `Rescored ${result.updated} student${result.updated === 1 ? '' : 's'} · ${result.submitted} auto-submitted · ${result.er_graded} diagram${result.er_graded === 1 ? '' : 's'} graded.`,
+      });
+      await fetchStudents();
+      setAnalyticsReloadKey((k) => k + 1); // re-pull the per-question averages
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      notifications.show({
+        color: 'red',
+        title: 'Refresh failed',
+        message: e.response?.data?.detail || 'Could not recompute scores.',
+      });
+    } finally {
+      setRecomputing(false);
     }
   };
 
@@ -344,18 +372,27 @@ export default function AssessmentStudentsPage() {
   const filteredStudents = data
     ? data.students.filter((s) => !selectedClassGroup || s.class_group === selectedClassGroup)
     : [];
+  // Students still mid-attempt — ending & refreshing will force-submit them, so warn first.
+  const activeCount = data ? data.students.filter((s) => s.is_active).length : 0;
 
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
       <DashboardLayout>
         <Stack gap="md">
-          <Group>
+          <Group justify="space-between">
             <Button
               variant="subtle"
               leftSection={<IconArrowLeft size={16} />}
               onClick={() => router.push('/admin/assessments')}
             >
               Back
+            </Button>
+            <Button
+              leftSection={<IconRefresh size={16} />}
+              loading={recomputing}
+              onClick={() => (activeCount > 0 ? setRecomputeOpen(true) : handleRecompute())}
+            >
+              End and refresh
             </Button>
           </Group>
 
@@ -572,6 +609,32 @@ export default function AssessmentStudentsPage() {
               </Button>
               <Button color="red" loading={resetting} onClick={handleResetConfirm}>
                 Reset attempt
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+
+        {/* End-and-refresh confirmation (only shown when students are still active) */}
+        <Modal
+          opened={recomputeOpen}
+          onClose={() => (recomputing ? null : setRecomputeOpen(false))}
+          title={<Text fw={600}>End and refresh?</Text>}
+          centered
+        >
+          <Stack gap="md">
+            <Text size="sm">
+              <b>{activeCount}</b> student{activeCount === 1 ? ' is' : 's are'} still in progress.
+              Ending now <b>force-submits {activeCount === 1 ? 'them' : 'them all'}</b> (including
+              anyone past their time limit), grades everyone&rsquo;s latest saved ER diagram, and
+              recomputes weighted scores. The assessment itself stays open. Grading diagrams can
+              take a minute or two.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="default" onClick={() => setRecomputeOpen(false)} disabled={recomputing}>
+                Cancel
+              </Button>
+              <Button color="red" loading={recomputing} onClick={handleRecompute}>
+                End and refresh
               </Button>
             </Group>
           </Stack>

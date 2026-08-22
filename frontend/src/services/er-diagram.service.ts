@@ -232,6 +232,30 @@ export const erDiagramService = {
     return data;
   },
 
+  /**
+   * End-of-assessment capture: grade any unsubmitted/changed ER work for the active
+   * assessment. Optionally carries the currently-open question's staged uploaded image
+   * (`image` + `imageQuestionId`) since uploads aren't persisted server-side as drafts.
+   * Returns the time-credited `end_time`. No explicit timeout — the axios instance is
+   * unbounded, and grading several diagrams can take a while.
+   */
+  async finalizePending(
+    assessmentId: number,
+    opts?: { imageQuestionId?: number; image?: File },
+  ): Promise<{ end_time: string | null }> {
+    const formData = new FormData();
+    formData.append("assessment_id", String(assessmentId));
+    if (opts?.imageQuestionId !== undefined && opts.image) {
+      formData.append("image_question_id", String(opts.imageQuestionId));
+      formData.append("erd_img", opts.image);
+    }
+    const { data } = await api.post<{ end_time: string | null }>(
+      API_ENDPOINTS.ER_DIAGRAM.FINALIZE_PENDING,
+      formData,
+    );
+    return data;
+  },
+
   async saveDraft(questionId: number, xml: string): Promise<ErDraftSaveResponse> {
     const { data } = await api.put<ErDraftSaveResponse>(
       API_ENDPOINTS.ER_DIAGRAM.DRAFT,

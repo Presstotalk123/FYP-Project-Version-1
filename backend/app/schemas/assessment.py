@@ -335,6 +335,14 @@ class AssessmentAnalyticsSummaryResponse(BaseModel):
     assessments: List[AssessmentAnalyticsSummaryRow]
 
 
+class RecomputeScoresResponse(BaseModel):
+    """Result of a staff-triggered 'Refresh scores' run over an assessment."""
+    updated: int                        # finalized sessions whose weighted_score was rewritten
+    submitted: int                      # active attempts force-finalized this call
+    er_graded: int                      # ER drafts freshly graded this call
+    avg_weighted_score: Optional[float] = None
+
+
 class ItemStudentRow(BaseModel):
     """One student's outcome on one assessment question."""
     email: str

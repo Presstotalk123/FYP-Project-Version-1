@@ -96,6 +96,15 @@ export const assessmentService = {
     await api.post(API_ENDPOINTS.ASSESSMENTS.RESET_STUDENT(assessmentId, studentId));
   },
 
+  async recomputeScores(
+    id: number,
+  ): Promise<{ updated: number; submitted: number; er_graded: number; avg_weighted_score: number | null }> {
+    // Grading pending ER diagrams runs sequential LLM calls, so this can take minutes —
+    // disable the client timeout for this one request.
+    const response = await api.post(API_ENDPOINTS.ASSESSMENTS.RECOMPUTE_SCORES(id), null, { timeout: 0 });
+    return response.data;
+  },
+
   // --- Timing Gateway ---
   async getGatewayConfig(id: number): Promise<GatewayConfigResponse> {
     const response = await api.get(API_ENDPOINTS.ASSESSMENTS.WINDOWS(id));

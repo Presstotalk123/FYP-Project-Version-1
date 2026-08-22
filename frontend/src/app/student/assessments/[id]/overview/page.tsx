@@ -18,7 +18,6 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconAlertCircle,
-  IconArrowLeft,
   IconCheck,
   IconCode,
   IconDatabase,
@@ -35,6 +34,8 @@ import { queryKeys } from '@/services/query-keys';
 import { AssessmentTimer } from '@/components/assessment/AssessmentTimer';
 import { QuestionWeightBadge } from '@/components/assessment/QuestionWeightBadge';
 import { itemWorkspaceUrl } from '@/utils/assessmentItemUrl';
+import { useWarnBeforeUnload } from '@/hooks/use-warn-before-unload';
+import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 
 function itemTypeLabel(type: AssessmentItemType): string {
   switch (type) {
@@ -75,6 +76,14 @@ export default function AssessmentOverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
 
+  // Warn on tab close / refresh while an assessment is in progress, same as the
+  // question workspaces (see useBlockBrowserBack there for the back/forward guard).
+  useWarnBeforeUnload(!!assessment);
+
+  // Manual submit runs the same save-then-finalize sequence as the timer's auto-submit,
+  // so pending ER work is captured before the attempt is scored.
+  const { finalizeWithSave } = useAssessmentTimer();
+
   useEffect(() => {
     fetchData();
   }, [assessmentId]);
@@ -107,18 +116,12 @@ export default function AssessmentOverviewPage() {
   };
 
   const handleSubmit = async () => {
-    try {
-      setSubmitting(true);
-      await studentAssessmentService.submit(assessmentId);
-      // Submitting changes this assessment's status — refresh the list on return.
-      queryClient.invalidateQueries({ queryKey: queryKeys.studentAssessments });
-      router.push('/student/assessments');
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      setError(e.response?.data?.detail || 'Failed to submit assessment');
-      setSubmitting(false);
-      closeConfirm();
-    }
+    setSubmitting(true);
+    // Submitting changes this assessment's status — refresh the list on return.
+    queryClient.invalidateQueries({ queryKey: queryKeys.studentAssessments });
+    // Captures pending ER work (drawn drafts + a staged uploaded image), finalizes, and
+    // navigates to /student/assessments. Resilient: it always navigates, even on error.
+    await finalizeWithSave();
   };
 
   const attemptedCount = assessment?.items.filter((i) => i.visited).length ?? 0;
@@ -129,17 +132,7 @@ export default function AssessmentOverviewPage() {
       <DashboardLayout>
         <Stack gap="md">
           <Group justify="space-between">
-            <Group>
-              <Button
-                variant="subtle"
-                leftSection={<IconArrowLeft size={16} />}
-                onClick={() => router.push(`/student/assessments/${assessmentId}`)}
-                size="sm"
-              >
-                Back
-              </Button>
-              {assessment && <Title order={2}>{assessment.title}</Title>}
-            </Group>
+            {assessment && <Title order={2}>{assessment.title}</Title>}
             <Group gap="sm">
               <AssessmentTimer />
               <Button

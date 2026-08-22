@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import iterate_in_threadpool
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.dependencies import get_current_user, require_staff_role
 from app.core.cache import cache_read, Ns
 from app.models.er_diagram_question import ERDiagramQuestion
@@ -55,6 +55,27 @@ from app.utils.er_storage import get_er_storage_provider
 
 router = APIRouter(prefix="/er-diagram", tags=["er-diagram"])
 logger = logging.getLogger(__name__)
+
+# ── Detached grading producers ────────────────────────────────────────────
+# A LangGraph Submit/Query grade runs to completion in a background producer
+# task that is decoupled from the HTTP response (see _stream_with_erd_tutor_state).
+# That is what lets a student refresh mid-grade without losing the graded attempt:
+# the client's SSE connection dying cancels only the consumer, never the producer.
+#
+# asyncio keeps only a *weak* reference to tasks created with create_task, so a
+# producer with no other live reference can be garbage-collected mid-grade. Hold a
+# strong reference here for the task's lifetime and drop it in the done-callback.
+_ERD_PRODUCER_TASKS: set[asyncio.Task] = set()
+
+# In-flight Submit grades keyed on (user_id, question_id). Because a producer
+# survives client disconnect, an anxious student who refreshes and *resubmits*
+# would otherwise start a second concurrent LLM grade that races the first on
+# last_submit_report and writes a duplicate ErSubmission row. While one is in
+# flight we refuse to start another for the same (user, question).
+_ERD_INFLIGHT_SUBMITS: set[tuple[int, int]] = set()
+
+# Sentinel pushed onto the producer→consumer queue to mark end-of-stream.
+_ERD_QUEUE_DONE = object()
 
 
 def _er_question_accessible_via_assessment(question_id: int, user_id: int, db: Session) -> bool:
@@ -1373,155 +1394,299 @@ async def _credit_after_stream(inner, db: Session, session, query_start):
     await asyncio.to_thread(credit_query_time, db, session, query_start)
 
 
-async def _stream_with_erd_tutor_state(
+def _persist_erd_state_fresh_session(
+    *,
+    conversation_id: int,
+    mode: str,
+    done_payload: Optional[dict[str, Any]],
+    student_query: Optional[str],
+    submission_description: Optional[str],
+    submission_context: Optional[dict],
+    credit: Optional[tuple[int, Any]],
+) -> None:
+    """Persist ERD-tutor state (+ optional assessment-timer credit) on a FRESH DB
+    session, re-fetching the conversation by id.
+
+    Runs in a threadpool (blocking SQLAlchemy) from the detached grading producer,
+    which may outlive the HTTP request — so it must NOT use the request-scoped
+    session (torn down when the request ends) and instead opens its own. The session
+    is opened here, at persist time, and closed immediately: it is never held across
+    the 30-90s grade, so it borrows a pooled connection only for these brief writes.
+
+    ``done_payload`` may be None (a grading error): conversation state is then left
+    untouched, but any assessment-timer credit is still applied — matching the
+    pre-refactor ``_credit_after_stream``, which credited the elapsed time back even
+    on a failed grade so a student is never charged for grading latency.
+    """
+    from app.services.erd_tutor import persistence as erd_persistence
+    from app.models.erd_tutor_conversation import ErdTutorConversation
+
+    db = SessionLocal()
+    try:
+        if done_payload is not None:
+            conversation = (
+                db.query(ErdTutorConversation)
+                .filter(ErdTutorConversation.id == conversation_id)
+                .first()
+            )
+            if conversation is None:
+                logger.warning(
+                    "erd_tutor: conversation %s missing at persist time", conversation_id
+                )
+            else:
+                structured = done_payload.get("structured_output") or {}
+                if mode == "Query":
+                    upd = structured.get("state_update") or {}
+                    next_stage = upd.get("next_ibl_stage") or conversation.ibl_stage
+                    next_hint = upd.get("next_hint_level")
+                    if not isinstance(next_hint, int):
+                        next_hint = conversation.hint_level
+                    erd_persistence.save_state(
+                        db,
+                        conversation,
+                        ibl_stage=next_stage,
+                        hint_level=next_hint,
+                        misconceptions=upd.get("misconceptions") or [],
+                        last_student_goal=str(upd.get("last_student_goal") or ""),
+                        last_query_summary=str(upd.get("query_summary") or ""),
+                    )
+                    if student_query:
+                        erd_persistence.append_message(
+                            db, conversation, role="user", mode="query", content=student_query,
+                        )
+                    erd_persistence.append_message(
+                        db,
+                        conversation,
+                        role="assistant",
+                        mode="query",
+                        content=str(done_payload.get("text") or ""),
+                    )
+                else:
+                    ibl = structured.get("ibl") or {}
+                    next_stage = ibl.get("next_stage") or conversation.ibl_stage
+                    next_hint = ibl.get("next_hint_level")
+                    if not isinstance(next_hint, int):
+                        next_hint = conversation.hint_level
+                    save_fields = dict(
+                        ibl_stage=next_stage,
+                        hint_level=next_hint,
+                        last_submit_report=structured,
+                        last_submit_score=structured.get("score") or {},
+                    )
+                    # Keep the canonical ERD for the query tutor. Only overwrite when
+                    # the pipeline actually extracted something, so a failed parse
+                    # doesn't clobber the last good model.
+                    canonical = done_payload.get("canonical_erd") or {}
+                    if canonical.get("entities") or canonical.get("relationships"):
+                        save_fields["current_erd_model"] = canonical
+                    erd_persistence.save_state(db, conversation, **save_fields)
+                    # Analytics row is recorded before the transcript appends so a
+                    # transcript failure can never lose the graded attempt.
+                    if submission_context is not None:
+                        from app.models.er_submission import ErSubmission
+
+                        def _flt(v):
+                            try:
+                                return float(v)
+                            except (TypeError, ValueError):
+                                return None
+
+                        score = structured.get("score") or {}
+                        checks = structured.get("checks")
+                        db.add(ErSubmission(
+                            user_id=submission_context["user_id"],
+                            er_diagram_question_id=submission_context["question_id"],
+                            score_earned=_flt(score.get("earned_points")),
+                            score_total=_flt(score.get("total_points")),
+                            score_percent=_flt(score.get("percent")),
+                            score_label=(str(score.get("label") or "").strip() or None),
+                            checks_json=(json.dumps(checks, ensure_ascii=False)
+                                         if isinstance(checks, list) else None),
+                            submitted_image_storage_key=submission_context.get("image_key"),
+                            submitted_xml=submission_context.get("xml_text"),
+                            submission_description=submission_context.get("description"),
+                            hint_level_at_submit=submission_context.get("hint_level"),
+                            ibl_stage_at_submit=submission_context.get("ibl_stage"),
+                        ))
+                        db.commit()
+                    if (submission_description or "").strip():
+                        erd_persistence.append_message(
+                            db,
+                            conversation,
+                            role="user",
+                            mode="submit",
+                            content=submission_description.strip(),
+                        )
+                    erd_persistence.append_message(
+                        db,
+                        conversation,
+                        role="submission",
+                        mode="submit",
+                        content=str(done_payload.get("text") or ""),
+                    )
+
+        # Credit the assessment clock on this same fresh session, regardless of
+        # whether the client is still connected (a mid-grade refresh must not cost
+        # the student their grading time) and regardless of grading success.
+        if credit is not None:
+            from app.services.assessment_timer import credit_query_time
+            from app.models.assessment_session import AssessmentSession
+
+            session_id, query_start = credit
+            sess = (
+                db.query(AssessmentSession)
+                .filter(AssessmentSession.id == session_id)
+                .first()
+            )
+            credit_query_time(db, sess, query_start)
+    finally:
+        db.close()
+
+
+async def _erd_grading_producer(
+    *,
+    source,
+    queue: "asyncio.Queue",
+    conversation_id: int,
+    mode: str,
+    student_query: Optional[str],
+    submission_description: Optional[str],
+    submission_context: Optional[dict],
+    credit: Optional[tuple[int, Any]],
+) -> None:
+    """Consume the LangGraph SSE ``source`` to completion, forwarding every chunk onto
+    ``queue`` for the HTTP consumer, then persist state + credit the timer.
+
+    Runs as a detached task, so a client disconnect (which cancels the consumer) does
+    NOT stop it — the grade still finishes and is saved. That is the whole point of
+    the refactor. Persistence runs *before* the end-of-stream sentinel so that, for a
+    client still connected, the SSE stream closes only once the graded result and the
+    pushed-forward deadline are committed (the frontend treats stream-close as the cue
+    to re-read the credited timer). The queue is unbounded, so forwarding never blocks
+    even when nobody is reading (a departed client).
+    """
+    buffer = ""
+    done_payload: Optional[dict[str, Any]] = None
+    try:
+        aiter_source = source if hasattr(source, "__aiter__") else iterate_in_threadpool(source)
+        async for chunk in aiter_source:
+            await queue.put(chunk)
+            buffer += chunk.decode("utf-8", "replace") if isinstance(chunk, (bytes, bytearray)) else chunk
+            while "\n\n" in buffer:
+                block, buffer = buffer.split("\n\n", 1)
+                event_name: Optional[str] = None
+                data_lines: list[str] = []
+                for line in block.splitlines():
+                    if line.startswith("event:"):
+                        event_name = line.split(":", 1)[1].strip()
+                    elif line.startswith("data:"):
+                        data_lines.append(line.split(":", 1)[1].strip())
+                if event_name == "done" and data_lines:
+                    try:
+                        done_payload = json.loads("\n".join(data_lines))
+                    except (json.JSONDecodeError, ValueError):
+                        done_payload = None
+    except Exception:
+        logger.exception("erd_tutor: grading stream failed for conversation %s", conversation_id)
+    finally:
+        # Persist (and credit) before signalling end-of-stream, then always release
+        # the consumer — even if persistence raised — so the client's stream closes.
+        if done_payload is not None or credit is not None:
+            try:
+                await asyncio.to_thread(
+                    _persist_erd_state_fresh_session,
+                    conversation_id=conversation_id,
+                    mode=mode,
+                    done_payload=done_payload,
+                    student_query=student_query,
+                    submission_description=submission_description,
+                    submission_context=submission_context,
+                    credit=credit,
+                )
+            except Exception:  # never let persistence wedge the stream close
+                logger.exception(
+                    "erd_tutor: failed to persist conversation state after %s", mode
+                )
+        await queue.put(_ERD_QUEUE_DONE)
+
+
+async def _erd_consume_queue(queue: "asyncio.Queue"):
+    """Yield SSE chunks the producer puts on ``queue`` until the sentinel. On client
+    disconnect this generator is cancelled and stops; the producer keeps running and
+    persists the grade regardless."""
+    while True:
+        item = await queue.get()
+        if item is _ERD_QUEUE_DONE:
+            return
+        yield item
+
+
+async def _erd_already_grading_stream(mode: str, question_id: int):
+    """Tiny SSE stream returned when a grade for this (user, question) is already in
+    flight — we refuse to start a second concurrent grade and tell the student to
+    wait (their first grade is still running detached and will be saved)."""
+    yield _sse_event("start", {"mode": mode, "question_id": question_id})
+    yield _sse_event(
+        "error",
+        {
+            "detail": (
+                "A grade for this question is already being computed. Please wait a "
+                "moment, then reload the page to see your result."
+            )
+        },
+    )
+
+
+def _stream_with_erd_tutor_state(
     *,
     stream,
-    db: Session,
-    conversation,
+    conversation_id: int,
     mode: str,
     student_query: Optional[str] = None,
     submission_description: Optional[str] = None,
     submission_context: Optional[dict] = None,
+    credit: Optional[tuple[int, Any]] = None,
+    inflight_key: Optional[tuple[int, int]] = None,
 ):
-    """Wrap a LangGraph submit/query stream and, on the ``done`` event, persist
-    the updated ERD-tutor conversation state + transcript messages.
+    """Decouple a LangGraph submit/query grade from the HTTP response.
 
-    This is only used when ``ERD_TUTOR_ENGINE == "langgraph"``. It is a no-op
-    overlay on the SSE bytes (every chunk is forwarded verbatim, exactly like
-    ``stream_with_lab_persistence``); the persistence happens as a side effect
-    after the terminal event is observed. The legacy Dify path never reaches
-    here, so its behavior is unchanged.
+    Spawns a detached producer task (``_erd_grading_producer``) that runs the grade to
+    completion and persists it on its own DB session, and returns a consumer async
+    generator that forwards the producer's SSE chunks to the client. Because producer
+    and consumer are separate tasks joined only by a queue, a client refresh cancels
+    the consumer but never the producer — so the graded attempt is saved either way.
 
-    The wrapped source is async (LangGraph runners), but a sync source is also
-    accepted defensively and pumped through the threadpool. The one-time
-    persistence writes are offloaded with ``asyncio.to_thread`` so they never
-    block the event loop.
+    Only used on ``ERD_TUTOR_ENGINE == "langgraph"``; the legacy Dify path never
+    reaches here. Spawns eagerly (it is called from the async endpoint, where a loop is
+    already running) so grading starts immediately and the in-flight guard is
+    registered synchronously, before any second submit can race it.
     """
-    from app.services.erd_tutor import persistence as erd_persistence
+    queue: asyncio.Queue = asyncio.Queue()
+    task = asyncio.create_task(
+        _erd_grading_producer(
+            source=stream,
+            queue=queue,
+            conversation_id=conversation_id,
+            mode=mode,
+            student_query=student_query,
+            submission_description=submission_description,
+            submission_context=submission_context,
+            credit=credit,
+        )
+    )
+    # Strong ref (asyncio only weakly references tasks) + in-flight registration,
+    # both dropped in the done-callback when the producer finishes.
+    _ERD_PRODUCER_TASKS.add(task)
+    if inflight_key is not None:
+        _ERD_INFLIGHT_SUBMITS.add(inflight_key)
 
-    source = stream if hasattr(stream, "__aiter__") else iterate_in_threadpool(stream)
-    buffer = ""
-    done_payload: Optional[dict[str, Any]] = None
-    async for chunk in source:
-        yield chunk
-        buffer += chunk.decode("utf-8", "replace") if isinstance(chunk, (bytes, bytearray)) else chunk
-        while "\n\n" in buffer:
-            block, buffer = buffer.split("\n\n", 1)
-            event_name: Optional[str] = None
-            data_lines: list[str] = []
-            for line in block.splitlines():
-                if line.startswith("event:"):
-                    event_name = line.split(":", 1)[1].strip()
-                elif line.startswith("data:"):
-                    data_lines.append(line.split(":", 1)[1].strip())
-            if event_name == "done" and data_lines:
-                try:
-                    done_payload = json.loads("\n".join(data_lines))
-                except (json.JSONDecodeError, ValueError):
-                    done_payload = None
+    def _cleanup(finished: asyncio.Task, key=inflight_key) -> None:
+        _ERD_PRODUCER_TASKS.discard(finished)
+        if key is not None:
+            _ERD_INFLIGHT_SUBMITS.discard(key)
 
-    if done_payload is None:
-        # error / partial stream — leave conversation state untouched.
-        return
-
-    structured = done_payload.get("structured_output") or {}
-
-    def _persist():
-        if mode == "Query":
-            upd = structured.get("state_update") or {}
-            next_stage = upd.get("next_ibl_stage") or conversation.ibl_stage
-            next_hint = upd.get("next_hint_level")
-            if not isinstance(next_hint, int):
-                next_hint = conversation.hint_level
-            erd_persistence.save_state(
-                db,
-                conversation,
-                ibl_stage=next_stage,
-                hint_level=next_hint,
-                misconceptions=upd.get("misconceptions") or [],
-                last_student_goal=str(upd.get("last_student_goal") or ""),
-                last_query_summary=str(upd.get("query_summary") or ""),
-            )
-            if student_query:
-                erd_persistence.append_message(
-                    db, conversation, role="user", mode="query", content=student_query,
-                )
-            erd_persistence.append_message(
-                db,
-                conversation,
-                role="assistant",
-                mode="query",
-                content=str(done_payload.get("text") or ""),
-            )
-        else:
-            ibl = structured.get("ibl") or {}
-            next_stage = ibl.get("next_stage") or conversation.ibl_stage
-            next_hint = ibl.get("next_hint_level")
-            if not isinstance(next_hint, int):
-                next_hint = conversation.hint_level
-            save_fields = dict(
-                ibl_stage=next_stage,
-                hint_level=next_hint,
-                last_submit_report=structured,
-                last_submit_score=structured.get("score") or {},
-            )
-            # Keep the canonical ERD for the query tutor. Only overwrite when the
-            # pipeline actually extracted something, so a failed parse doesn't
-            # clobber the last good model.
-            canonical = done_payload.get("canonical_erd") or {}
-            if canonical.get("entities") or canonical.get("relationships"):
-                save_fields["current_erd_model"] = canonical
-            erd_persistence.save_state(db, conversation, **save_fields)
-            # Analytics row is recorded before the transcript appends so a
-            # transcript failure can never lose the graded attempt.
-            if submission_context is not None:
-                from app.models.er_submission import ErSubmission
-
-                def _flt(v):
-                    try:
-                        return float(v)
-                    except (TypeError, ValueError):
-                        return None
-
-                score = structured.get("score") or {}
-                checks = structured.get("checks")
-                db.add(ErSubmission(
-                    user_id=submission_context["user_id"],
-                    er_diagram_question_id=submission_context["question_id"],
-                    score_earned=_flt(score.get("earned_points")),
-                    score_total=_flt(score.get("total_points")),
-                    score_percent=_flt(score.get("percent")),
-                    score_label=(str(score.get("label") or "").strip() or None),
-                    checks_json=(json.dumps(checks, ensure_ascii=False)
-                                 if isinstance(checks, list) else None),
-                    submitted_image_storage_key=submission_context.get("image_key"),
-                    submitted_xml=submission_context.get("xml_text"),
-                    submission_description=submission_context.get("description"),
-                    hint_level_at_submit=submission_context.get("hint_level"),
-                    ibl_stage_at_submit=submission_context.get("ibl_stage"),
-                ))
-                db.commit()
-            if (submission_description or "").strip():
-                erd_persistence.append_message(
-                    db,
-                    conversation,
-                    role="user",
-                    mode="submit",
-                    content=submission_description.strip(),
-                )
-            erd_persistence.append_message(
-                db,
-                conversation,
-                role="submission",
-                mode="submit",
-                content=str(done_payload.get("text") or ""),
-            )
-
-    try:
-        # Offload the blocking DB writes so they never block the event loop.
-        await asyncio.to_thread(_persist)
-    except Exception:  # never let persistence break the already-delivered stream
-        logger.exception("erd_tutor: failed to persist conversation state after %s", mode)
+    task.add_done_callback(_cleanup)
+    return _erd_consume_queue(queue)
 
 
 def _erd_conversation_payload(db: Session, conversation) -> dict[str, Any]:
@@ -1877,17 +2042,55 @@ async def submit_er_diagram(
         )
 
     if erd_conversation is not None:
+        # Capture every id the detached producer needs BEFORE committing: a commit
+        # expires these ORM objects, so touching an attribute afterwards would fire a
+        # refresh SELECT that re-checks-out a pooled connection and pins it for the
+        # rest of the request — exactly the connection-hold we are avoiding.
+        conversation_id = erd_conversation.id
+        assessment_session_id = _assessment_session.id if _assessment_session is not None else None
+        submitter_id = current_user.id
+        question_pk = question.id
+
+        # Release the request session's pooled connection before the 30-90s grade so
+        # it returns to the pool. get_or_create_conversation only commits when it
+        # *creates*; on the resubmit path it returns a bare SELECT with an open
+        # transaction that would otherwise pin one of the ~10 pooled connections for
+        # the entire grade. The producer persists on its own fresh session; this
+        # request touches the DB no further.
+        db.commit()
+
+        # De-dup: because the producer survives client disconnect, a student who
+        # refreshes and resubmits must not kick off a second concurrent grade for the
+        # same question. Checked here and registered synchronously inside the wrapper,
+        # so two near-simultaneous submits cannot both slip through.
+        inflight_key = (submitter_id, question_pk) if mode == "Submit" else None
+        if inflight_key is not None and inflight_key in _ERD_INFLIGHT_SUBMITS:
+            return StreamingResponse(
+                _erd_already_grading_stream(mode, question_pk),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
+        # Fold the assessment-timer credit into the producer's fresh session so a
+        # mid-grade refresh still credits the elapsed grading time. (The old
+        # _credit_after_stream outer wrapper ran only while the client stayed
+        # connected, so a refresh dropped the credit along with the grade.)
+        credit = (
+            (assessment_session_id, credit_query_start)
+            if credit_query_start is not None and assessment_session_id is not None
+            else None
+        )
+
         stream = _stream_with_erd_tutor_state(
             stream=stream,
-            db=db,
-            conversation=erd_conversation,
+            conversation_id=conversation_id,
             mode=mode,
             student_query=query_text or "",
             submission_description=desc_text or None,
             submission_context=(
                 {
-                    "user_id": current_user.id,
-                    "question_id": question.id,
+                    "user_id": submitter_id,
+                    "question_id": question_pk,
                     "image_key": submission_image_key,
                     "xml_text": (xml_text or None),
                     "description": (desc_text or None),
@@ -1897,10 +2100,18 @@ async def submit_er_diagram(
                 if mode == "Submit"
                 else None
             ),
+            credit=credit,
+            inflight_key=inflight_key,
         )
-    # Outermost: freeze/credit the assessment clock for an in-assessment Submit. Layers over both
-    # the langgraph wrapper above and the raw Dify stream, so grading latency is credited back to
-    # end_time regardless of engine. No-op when not an in-assessment Submit (credit_query_start None).
+        return StreamingResponse(
+            stream,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Legacy Dify path (ERD_TUTOR_ENGINE != "langgraph"): unchanged. The credit is
+    # applied by the outer _credit_after_stream wrapper, which drains the sync Dify
+    # stream and credits afterwards. No conversation persistence exists on this path.
     if credit_query_start is not None:
         stream = _credit_after_stream(stream, db, _assessment_session, credit_query_start)
     return StreamingResponse(
@@ -1908,6 +2119,304 @@ async def submit_er_diagram(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def _drain_erd_stream_for_done(source) -> Optional[dict[str, Any]]:
+    """Consume an ERD grading SSE ``source`` to completion and return the parsed
+    ``done`` payload (or None on a grading error / no done event).
+
+    The batch-finalize path grades to completion server-side without forwarding to
+    a client, so unlike ``_erd_grading_producer`` there is no consumer queue — this
+    just drains and extracts the result. The SSE block-parsing mirrors the producer.
+    """
+    buffer = ""
+    done_payload: Optional[dict[str, Any]] = None
+    aiter_source = source if hasattr(source, "__aiter__") else iterate_in_threadpool(source)
+    async for chunk in aiter_source:
+        buffer += chunk.decode("utf-8", "replace") if isinstance(chunk, (bytes, bytearray)) else chunk
+        while "\n\n" in buffer:
+            block, buffer = buffer.split("\n\n", 1)
+            event_name: Optional[str] = None
+            data_lines: list[str] = []
+            for line in block.splitlines():
+                if line.startswith("event:"):
+                    event_name = line.split(":", 1)[1].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line.split(":", 1)[1].strip())
+            if event_name == "done" and data_lines:
+                try:
+                    done_payload = json.loads("\n".join(data_lines))
+                except (json.JSONDecodeError, ValueError):
+                    done_payload = None
+    return done_payload
+
+
+async def _grade_pending_erd_question(
+    *,
+    db: Session,
+    user_id: int,
+    question_id: int,
+    image_bytes: Optional[bytes],
+    image_key: Optional[str],
+) -> bool:
+    """Grade one ER question's pending work as an end-of-assessment capture, reusing the
+    normal Submit grading + persistence. Returns True when a grade actually ran, False when
+    the pair was skipped (wrong engine, in-flight, no/empty/unchanged draft, missing question).
+
+    Grades the student's *staged uploaded image* when ``image_bytes`` is supplied,
+    otherwise the server-stored XML draft — and only when that draft changed since the
+    last graded submission (``draft.updated_at`` newer than the latest ``ErSubmission``),
+    so an unchanged diagram is never re-graded. LangGraph only: assessment ER scoring
+    (``er_percent``) reads the conversation's ``last_submit_score``, which the Dify path
+    never writes, so there is nothing to capture there.
+
+    Connection discipline mirrors ``submit_er_diagram``: all ORM reads happen before the
+    ``db.commit()`` that releases the pooled connection, so the 30-90s grade holds none;
+    persistence runs on its own fresh session (``_persist_erd_state_fresh_session``).
+    """
+    if settings.ERD_TUTOR_ENGINE != "langgraph":
+        return False
+    # A concurrent grade for this (user, question) is already running detached; it will
+    # persist on its own, so starting a second would only race it and duplicate a row.
+    if (user_id, question_id) in _ERD_INFLIGHT_SUBMITS:
+        return False
+
+    from app.models.er_submission import ErSubmission
+    from app.services.erd_tutor import persistence as erd_persistence
+
+    question = (
+        db.query(ERDiagramQuestion)
+        .filter(ERDiagramQuestion.id == question_id, ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if question is None:
+        return False
+
+    xml_text: Optional[str] = None
+    if image_bytes is None:
+        # Drawn answer: grade the flushed XML draft, but only if it changed since the
+        # student's last explicit Submit.
+        draft = er_drafts.get_draft(db, user_id=user_id, question_id=question_id)
+        if draft is None or not (draft.xml or "").strip():
+            return False
+        last = (
+            db.query(ErSubmission)
+            .filter(
+                ErSubmission.user_id == user_id,
+                ErSubmission.er_diagram_question_id == question_id,
+            )
+            .order_by(ErSubmission.created_at.desc())
+            .first()
+        )
+        if (
+            last is not None
+            and last.created_at is not None
+            and draft.updated_at is not None
+            and draft.updated_at <= last.created_at
+        ):
+            return False  # unchanged since last graded submission — skip
+        xml_text = draft.xml
+
+    # Capture every field the grade needs BEFORE the commit: a commit expires these ORM
+    # objects, so a later attribute access would fire a refresh SELECT that re-checks-out
+    # a pooled connection and pins it for the whole grade (the hold we are avoiding).
+    q_problem = question.problem_statement
+    q_difficulty = question.difficulty_label
+    q_rubric = question.rubric_json
+
+    conversation = erd_persistence.get_or_create_conversation(
+        db, user_id=user_id, context_type="standalone", er_diagram_question_id=question_id,
+    )
+    loaded = erd_persistence.loaded_state(conversation)
+    conversation_id = conversation.id
+    ibl_stage = loaded["ibl_stage"]
+    hint_level = loaded["hint_level"]
+    last_submit_report = loaded["last_submit_report"]
+
+    # Release the request session's pooled connection before the grade (get_or_create
+    # leaves an open transaction on the resubmit path). The producer/persistence use a
+    # fresh session; this request touches the DB no further until crediting.
+    db.commit()
+
+    stream = stream_er_submission_grading(
+        question_id=question_id,
+        problem_statement=q_problem,
+        difficulty_label=q_difficulty,
+        rubric_json=q_rubric,
+        submission_xml_text=(xml_text or None),
+        erd_img=None,
+        image_bytes=image_bytes,
+        ibl_stage=ibl_stage,
+        hint_level=hint_level,
+        last_submit_report=last_submit_report,
+        submission_description=None,
+    )
+
+    _ERD_INFLIGHT_SUBMITS.add((user_id, question_id))
+    try:
+        done_payload = await _drain_erd_stream_for_done(stream)
+        await asyncio.to_thread(
+            _persist_erd_state_fresh_session,
+            conversation_id=conversation_id,
+            mode="Submit",
+            done_payload=done_payload,
+            student_query="",
+            submission_description=None,
+            submission_context={
+                "user_id": user_id,
+                "question_id": question_id,
+                "image_key": image_key,
+                "xml_text": (xml_text or None),
+                "description": None,
+                "hint_level": hint_level,
+                "ibl_stage": ibl_stage,
+            },
+            credit=None,  # the batch credits elapsed time once, in the endpoint
+        )
+    finally:
+        _ERD_INFLIGHT_SUBMITS.discard((user_id, question_id))
+    return True
+
+
+async def grade_pending_er_for_assessment(
+    db: Session, assessment_id: int, user_ids: list[int]
+) -> int:
+    """Grade every roster student's latest stored draw.io draft for each ER item of this
+    assessment, from server state (image_bytes=None). Returns the number of (user, question)
+    pairs actually graded; unchanged/empty drafts (and non-langgraph engines) are skipped.
+
+    SEQUENTIAL by design: one grade is awaited at a time, so the LLM is never flooded and the
+    sync ``db`` Session is never used concurrently. The skip-unchanged / already-graded guard
+    inside ``_grade_pending_erd_question`` means untouched drafts make ZERO LLM calls, so only
+    the handful of new/changed drafts actually hit the model. Every ER item is graded per
+    student. A single pair failing is logged and does not abort the batch.
+    """
+    er_question_ids = [
+        item.item_id
+        for item in db.query(AssessmentItem)
+        .filter(
+            AssessmentItem.assessment_id == assessment_id,
+            AssessmentItem.item_type == "er_question",
+        )
+        .all()
+    ]
+    if not er_question_ids:
+        return 0
+
+    graded = 0
+    for uid in user_ids:
+        for qid in er_question_ids:
+            try:
+                if await _grade_pending_erd_question(
+                    db=db, user_id=uid, question_id=qid, image_bytes=None, image_key=None
+                ):
+                    graded += 1
+            except Exception:
+                logger.exception(
+                    "bulk ER grade failed for user %s question %s", uid, qid
+                )
+    return graded
+
+
+@router.post("/finalize-pending")
+async def finalize_pending_er(
+    request: Request,
+    assessment_id: int = Form(...),
+    image_question_id: Optional[int] = Form(None),
+    erd_img: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Grade any unsubmitted/changed ER work for the caller's active assessment, as an
+    end-of-assessment capture the frontend triggers right before finalizing.
+
+    Trusted finalize path: unlike ``/submission`` it does **not** call
+    ``enforce_not_expired``, so it still lands when fired at the buzzer. Grades each ER
+    question's changed XML draft (and, for the currently-open question, a staged uploaded
+    image passed as ``erd_img`` + ``image_question_id``), credits the elapsed grading time
+    once, and returns the pushed-forward ``end_time`` so the client can re-fold its timer
+    before the subsequent finalize computes the weighted score.
+    """
+    from datetime import datetime, timezone
+
+    from app.services.assessment_timer import (
+        credit_query_time,
+        get_active_assessment_session,
+    )
+
+    session = get_active_assessment_session(db, assessment_id, current_user.id)
+    if session is None:
+        return {"end_time": None}
+
+    credit_start = getattr(request.state, "received_at", None) or datetime.now(timezone.utc)
+
+    er_question_ids = [
+        item.item_id
+        for item in db.query(AssessmentItem)
+        .filter(
+            AssessmentItem.assessment_id == assessment_id,
+            AssessmentItem.item_type == "er_question",
+        )
+        .all()
+    ]
+
+    # Read the staged upload once (bytes for grading + a stored key for analytics). A
+    # storage failure just leaves the key null; grading still runs on the bytes.
+    image_bytes: Optional[bytes] = None
+    image_key: Optional[str] = None
+    if image_question_id is not None and erd_img is not None and getattr(erd_img, "filename", ""):
+        try:
+            await erd_img.seek(0)
+            provider = get_er_storage_provider()
+            image_key, _ = await asyncio.to_thread(provider.save, erd_img)
+        except Exception:
+            logger.exception("finalize-pending: image save failed; grading continues")
+        try:
+            await erd_img.seek(0)
+            image_bytes = await erd_img.read()
+        except Exception:
+            image_bytes = None
+
+    for qid in er_question_ids:
+        is_image_q = image_bytes is not None and qid == image_question_id
+        try:
+            await _grade_pending_erd_question(
+                db=db,
+                user_id=current_user.id,
+                question_id=qid,
+                image_bytes=image_bytes if is_image_q else None,
+                image_key=image_key if is_image_q else None,
+            )
+        except Exception:
+            logger.exception("finalize-pending: grading failed for question %s", qid)
+
+    # Re-read the session: grades committed on fresh sessions leave this one's row
+    # untouched, but a concurrent read may have lazily expired it mid-batch.
+    session = (
+        db.query(AssessmentSession).filter(AssessmentSession.id == session.id).first()
+    )
+    if session is None:
+        return {"end_time": None}
+
+    if session.is_active == 1:
+        credit_query_time(db, session, credit_start)
+        db.refresh(session)
+    else:
+        # Lazy expiry finalized us mid-batch and already computed weighted_score without
+        # the grades above — recompute so the freshly captured ER work still counts.
+        from app.models.assessment import Assessment as _Assessment
+        from app.services import assessment_scoring
+
+        assessment = (
+            db.query(_Assessment).filter(_Assessment.id == assessment_id).first()
+        )
+        if assessment is not None:
+            session.weighted_score = assessment_scoring.compute_weighted_score(
+                db, assessment, current_user.id
+            )
+            db.commit()
+
+    return {"end_time": session.end_time.isoformat() if session.end_time else None}
 
 
 @router.put("/questions/{question_id}", response_model=ERDiagramQuestionResponse)

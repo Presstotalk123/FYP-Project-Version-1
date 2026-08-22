@@ -42,6 +42,8 @@ import {
 import { erDiagramService } from "@/services/er-diagram.service";
 import { useErDraft } from "@/hooks/use-er-draft";
 import { useErdGuideDismissed } from "@/hooks/use-erd-guide";
+import { useBlockBrowserBack } from "@/hooks/use-block-browser-back";
+import { useWarnBeforeUnload } from "@/hooks/use-warn-before-unload";
 import type {
   ERRubricJson,
   ERSubmissionRequest,
@@ -187,6 +189,8 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   // Assessment countdown control. A no-op outside an assessment (practice/standalone), where the
   // provider isn't mounted and the context returns its safe default.
   const timer = useAssessmentTimer();
+  useBlockBrowserBack(!!backUrl);
+  useWarnBeforeUnload(!!backUrl);
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
   const [chatSending, setChatSending] = useState(false);
@@ -225,6 +229,10 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   const [pendingSubmitXml, setPendingSubmitXml] = useState<string | null>(null);
   // Last XML draw.io autosaved, kept as the fallback source for a submission.
   const lastAutosavedXmlRef = useRef<string>("");
+  // The uploaded-image File last successfully submitted, so the end-of-assessment
+  // capture can skip re-grading an unchanged upload (uploads have no server draft to
+  // diff against). Null until an image submission succeeds.
+  const lastSubmittedImageRef = useRef<File | null>(null);
 
   // Restore the persisted tutor transcript (LangGraph engine) so the chat log
   // survives reloads. Best-effort: no conversation yet / Dify engine / errors
@@ -263,6 +271,30 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     // whose identity must not re-run the one-shot transcript restore.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question.id]);
+  // Inside an assessment, contribute this question's pending work to the end-of-assessment
+  // capture the timer runs right before finalizing: flush the current canvas to its server
+  // draft, and, if the student answered by uploading an image that hasn't been submitted
+  // (or changed since), hand that image over — uploads aren't persisted server-side, so
+  // this is the only chance to grade them. Re-registers when the staged answer changes so
+  // the hook always sees the current image. registerPreFinalize / draft.flushNow are stable.
+  const { registerPreFinalize } = timer;
+  const flushNow = draft.flushNow;
+  useEffect(() => {
+    if (!backUrl) return;
+    return registerPreFinalize(async () => {
+      try {
+        await flushNow();
+      } catch {
+        // The local copy still holds the work; never block finalize on a flush.
+      }
+      const staged = submissionImageFiles[0];
+      if (submissionMode === "image" && staged && staged !== lastSubmittedImageRef.current) {
+        return { imageQuestionId: question.id, image: staged };
+      }
+      return undefined;
+    });
+  }, [backUrl, submissionMode, submissionImageFiles, flushNow, question.id, registerPreFinalize]);
+
   const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id"> => ({
     question_id: question.id,
   });
@@ -379,6 +411,12 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
       }
       setHasSubmittedAttempt(true);
       progress.markAttempted();
+      // Remember a successfully-submitted upload so the end-of-assessment capture
+      // doesn't re-grade it unchanged. An uploaded-image submission carries the image
+      // but no XML; a draw.io submission always carries XML, so this never fires there.
+      if (payload.erd_img && !payload.submission_xml_text) {
+        lastSubmittedImageRef.current = payload.erd_img;
+      }
       // The diagram stays the student's to keep working on — a submit is not an
       // eviction. It was already pushed up before the stream opened.
       setIsDirty(false);
@@ -881,8 +919,10 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
             borderRadius: 12,
             overflow: "hidden",
             width: "100%",
-            // sticky HeaderNav + Container py md + page-level Title group + Stack gap
-            height: "calc(100vh - 160px)",
+            // Container py md + page-level Title group + Stack gap; the HeaderNav
+            // itself is hidden in assessments (backUrl set) and adds another ~100px
+            // of height to reclaim outside them.
+            height: backUrl ? "calc(100vh - 60px)" : "calc(100vh - 160px)",
           }}
         >
           <Box

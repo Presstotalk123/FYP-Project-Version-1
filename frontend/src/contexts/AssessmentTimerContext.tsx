@@ -11,7 +11,18 @@ import React, {
 } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
+import { Loader, Text } from '@mantine/core';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
+import { erDiagramService } from '@/services/er-diagram.service';
+
+/**
+ * A pre-finalize hook a mounted workspace registers so the finalize sequence can flush
+ * its pending work first. It may return a staged uploaded image to include in the
+ * end-of-assessment capture (uploads aren't persisted server-side as drafts).
+ */
+export type PreFinalizeHook = () => Promise<
+  { imageQuestionId?: number; image?: File } | void
+>;
 
 interface AssessmentTimerContextValue {
   /** True only when the active session has a deadline (timed assessment). */
@@ -20,6 +31,8 @@ interface AssessmentTimerContextValue {
   remainingMs: number;
   /** Display is frozen while a query runs. */
   isPaused: boolean;
+  /** True while the end-of-assessment save+submit sequence is running. */
+  isFinalizing: boolean;
   /** Freeze the displayed countdown (call when a query starts). */
   pause: () => void;
   /**
@@ -28,6 +41,14 @@ interface AssessmentTimerContextValue {
    * pass null/undefined, e.g. on error) to re-fetch the authoritative end_time instead.
    */
   resume: (newEndTimeIso?: string | null) => void;
+  /**
+   * Register a callback run right before finalize (timer end or manual submit); returns
+   * an unregister fn. Lets a mounted ER workspace flush its draft and hand back a staged
+   * uploaded image to capture.
+   */
+  registerPreFinalize: (fn: PreFinalizeHook) => () => void;
+  /** Save any pending ER work, finalize the assessment, and navigate away. */
+  finalizeWithSave: () => Promise<void>;
 }
 
 // Safe default so the shared workspaces can call pause()/resume() even when rendered
@@ -36,8 +57,11 @@ const DEFAULT: AssessmentTimerContextValue = {
   hasTimer: false,
   remainingMs: 0,
   isPaused: false,
+  isFinalizing: false,
   pause: () => {},
   resume: () => {},
+  registerPreFinalize: () => () => {},
+  finalizeWithSave: async () => {},
 };
 
 const AssessmentTimerContext = createContext<AssessmentTimerContextValue>(DEFAULT);
@@ -60,7 +84,16 @@ export function AssessmentTimerProvider({
   const [deadline, setDeadline] = useState<number | null>(null);
   const [remainingMs, setRemainingMs] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const submittingRef = useRef(false);
+  // Workspaces register a flush-and-contribute callback here; run right before finalize.
+  const preFinalizeHooksRef = useRef<Set<PreFinalizeHook>>(new Set());
+  const registerPreFinalize = useCallback((fn: PreFinalizeHook) => {
+    preFinalizeHooksRef.current.add(fn);
+    return () => {
+      preFinalizeHooksRef.current.delete(fn);
+    };
+  }, []);
   // The gateway hard cap rarely changes, and the query-run "resume" fast path only carries
   // the credited end_time — so remember the cap here and re-fold it in on every apply.
   const hardDeadlineRef = useRef<string | null>(null);
@@ -108,24 +141,58 @@ export function AssessmentTimerProvider({
     };
   }, [assessmentId, applyEndTime, pathname]);
 
-  // Auto-submit once when time runs out. The backend enforces the real deadline lazily;
-  // this is the UX half that ends the attempt on the student's screen.
-  const autoSubmit = useCallback(async () => {
+  // Save any pending ER work, then finalize. Shared by the time's-up auto-submit and the
+  // manual "End & Submit" button so both capture unsubmitted diagrams. The order matters:
+  // (1) freeze the countdown, (2) let mounted workspaces flush their pending work (and hand
+  // back a staged uploaded image), (3) grade the changed drafts via the trusted
+  // finalize-pending endpoint (not blocked by the deadline; it credits time), (4) finalize
+  // so scores are computed with the fresh grades. Every step is best-effort — a failure
+  // still finalizes and navigates so the student is never stranded on a dead screen.
+  const finalizeWithSave = useCallback(async () => {
     if (submittingRef.current) return;
     submittingRef.current = true;
+    setIsFinalizing(true);
+    setIsPaused(true);
+    try {
+      let imageQuestionId: number | undefined;
+      let image: File | undefined;
+      for (const hook of Array.from(preFinalizeHooksRef.current)) {
+        try {
+          const res = await hook();
+          if (res?.image && res.imageQuestionId !== undefined) {
+            imageQuestionId = res.imageQuestionId;
+            image = res.image;
+          }
+        } catch {
+          // A failed flush must never block finalize.
+        }
+      }
+      try {
+        await erDiagramService.finalizePending(assessmentId, { imageQuestionId, image });
+      } catch {
+        // End-of-assessment capture is best-effort; still finalize below.
+      }
+      try {
+        await studentAssessmentService.submit(assessmentId);
+      } catch {
+        // Backend may have already finalized it via lazy expiration — ignore.
+      }
+    } finally {
+      router.push('/student/assessments');
+    }
+  }, [assessmentId, router]);
+
+  // Fired once when the countdown hits zero. The backend enforces the real deadline lazily;
+  // this is the UX half that ends the attempt on the student's screen.
+  const autoSubmit = useCallback(() => {
+    if (submittingRef.current) return;
     notifications.show({
       title: "Time's up",
       message: 'Your assessment time has ended and has been submitted automatically.',
       color: 'red',
     });
-    try {
-      await studentAssessmentService.submit(assessmentId);
-    } catch {
-      // Backend may have already finalized it via lazy expiration — ignore.
-    } finally {
-      router.push('/student/assessments');
-    }
-  }, [assessmentId, router]);
+    void finalizeWithSave();
+  }, [finalizeWithSave]);
 
   // Tick once per second while running (not paused, deadline known).
   useEffect(() => {
@@ -177,13 +244,36 @@ export function AssessmentTimerProvider({
     hasTimer: deadline !== null,
     remainingMs,
     isPaused,
+    isFinalizing,
     pause,
     resume,
+    registerPreFinalize,
+    finalizeWithSave,
   };
 
   return (
     <AssessmentTimerContext.Provider value={value}>
       {children}
+      {isFinalizing && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 16,
+            background: 'rgba(0, 0, 0, 0.6)',
+          }}
+        >
+          <Loader size="lg" color="white" />
+          <Text c="white" fw={600} size="lg">
+            Saving your work…
+          </Text>
+        </div>
+      )}
     </AssessmentTimerContext.Provider>
   );
 }

@@ -79,6 +79,10 @@ export function HeaderNav() {
   if (pathname === "/" && homeHeaderOwner(loading, isAuthenticated) !== "app") {
     return null;
   }
+  // Hidden while a student is inside an assessment (overview + item workspaces)
+  // so the timed, focused-taking experience isn't sharing screen space or nav
+  // affordances with the rest of the app. The assessments list page keeps it.
+  if (/^\/student\/assessments\/[^/]+/.test(pathname)) return null;
 
   const handleLogout = () => {
     logout();

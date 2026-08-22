@@ -26,6 +26,7 @@ from app.schemas.assessment import (
     AssessmentItemAnalyticsResponse,
     AssessmentAnalyticsSummaryRow,
     AssessmentAnalyticsSummaryResponse,
+    RecomputeScoresResponse,
     GatewayConfigUpdate,
     GatewayConfigResponse,
     ClassWindowOut,
@@ -638,6 +639,84 @@ def stop_assessment(
         gateway_enabled=bool(assessment.gateway_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
+    )
+
+
+@router.post("/{assessment_id}/recompute-scores", response_model=RecomputeScoresResponse)
+async def recompute_scores(
+    assessment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Staff 'Refresh scores': grade every student's latest stored draw.io ER draft, auto-submit
+    any still-active attempts (including deadline-expired stragglers), then recompute and
+    re-persist the weighted score for every finalized student. Unlike /stop this leaves
+    is_running untouched — the assessment stays open."""
+    assessment = db.query(Assessment).filter(
+        Assessment.id == assessment_id,
+        Assessment.is_deleted == 0,
+    ).first()
+
+    if not assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+
+    # 1. Capture & grade the latest server-stored draw.io ER drafts BEFORE recomputing, so the
+    # fresh grades feed into the roster totals. Sequential + skip-unchanged (see the helper) —
+    # the LLM is never flooded and untouched drafts cost nothing. Lazy import avoids a circular
+    # import between these two endpoint modules.
+    from app.api.v1.endpoints.er_diagram import grade_pending_er_for_assessment
+
+    user_ids = assessment_scoring.roster_user_ids(db, assessment_id)
+    er_graded = await grade_pending_er_for_assessment(db, assessment_id, user_ids)
+
+    # 2. Auto-submit everyone still active. This raw bulk UPDATE bypasses the normal submit path
+    # and enforce_not_expired, so attempts past their end time (whose session is still
+    # is_active==1 because the student's browser never triggered lazy expiry) are settled too.
+    # Mirrors stop_assessment, minus the is_running change.
+    just_finalized_ids = [
+        row[0]
+        for row in db.query(AssessmentSession.id)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.is_active == 1,
+        )
+        .all()
+    ]
+    db.query(AssessmentSession).filter(
+        AssessmentSession.assessment_id == assessment_id,
+        AssessmentSession.is_active == 1,
+    ).update(
+        {"is_active": 0, "attempt_complete": 1, "submitted_at": datetime.utcnow()},
+        synchronize_session=False,
+    )
+    # Bulk update() bypasses the ORM unit of work, so bump the analytics namespace explicitly.
+    bump_version(db, Ns.ASSESSMENT_ANALYTICS)
+    db.commit()
+    db.refresh(assessment)
+
+    # 3. Recompute the roster in one batched pass (reads the fresh ER grades + all activity) and
+    # re-persist every finalized session's weighted_score.
+    roster = assessment_scoring.compute_roster_analytics(db, assessment, class_group=None)
+    finalized = (
+        db.query(AssessmentSession)
+        .filter(
+            AssessmentSession.assessment_id == assessment_id,
+            AssessmentSession.is_active == 0,
+        )
+        .all()
+    )
+    for s in finalized:
+        s.weighted_score = roster.per_student_scores.get(s.user_id)
+    db.commit()
+
+    # 4. Re-materialize cohort + per-class-group analytics off the committed roster/version.
+    assessment_scoring.warm_analytics_cache(db, assessment)
+
+    return RecomputeScoresResponse(
+        updated=len(finalized),
+        submitted=len(just_finalized_ids),
+        er_graded=er_graded,
+        avg_weighted_score=roster.avg_weighted_score,
     )
 
 

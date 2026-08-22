@@ -19,6 +19,8 @@ import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
+import { useBlockBrowserBack } from '@/hooks/use-block-browser-back';
+import { useWarnBeforeUnload } from '@/hooks/use-warn-before-unload';
 
 /* ── SVG icons ── */
 const IconLogout = () => (
@@ -42,6 +44,8 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timer = useAssessmentTimer();
   const progress = useAssessmentProgress();
+  useBlockBrowserBack(inAssessment);
+  useWarnBeforeUnload(inAssessment);
 
   // State
   const [query, setQuery] = useState('');
@@ -279,7 +283,7 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
   const rightPercent = 100 - leftPercent - centerPercent;
 
   return (
-    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 60px)' }}>
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12, height: inAssessment ? '100vh' : 'calc(100vh - 60px)' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
         <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>

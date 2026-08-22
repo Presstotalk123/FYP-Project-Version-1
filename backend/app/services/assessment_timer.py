@@ -15,12 +15,15 @@ Design (see the assessment timer spec):
 here is then a no-op, so timed and untimed assessments share one code path.
 """
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.assessment_session import AssessmentSession
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -43,7 +46,9 @@ def get_active_assessment_session(
 
 
 def finalize_session(db: Session, session: AssessmentSession) -> None:
-    """End & submit a session, preserving the student's work (no attempt/lab deletion).
+    """End & submit a session, preserving attempt/query history. Terminates any
+    still-active sql_lab/graph_lab sessions for this attempt, since the student can no
+    longer return to them once submitted.
 
     Shared by manual submit and lazy expiration so both produce the identical end state.
     The weighted score is computed once, here, and persisted on the session so no reader
@@ -51,7 +56,10 @@ def finalize_session(db: Session, session: AssessmentSession) -> None:
     (mirrors the lazy assessment_gateway import in enforce_not_expired below).
     """
     from app.models.assessment import Assessment
+    from app.models.assessment_item import AssessmentItem
+    from app.models.lab_session import LabSession
     from app.services import assessment_scoring
+    from app.utils.lab_cleanup import terminate_session
 
     session.is_active = 0
     session.attempt_complete = 1  # single-attempt: lock out any future retake
@@ -66,6 +74,38 @@ def finalize_session(db: Session, session: AssessmentSession) -> None:
             db, assessment, session.user_id
         )
     db.commit()
+
+    # The attempt is durably finalized above; lab cleanup runs best-effort after that
+    # commit so a cleanup failure here never surfaces as a failed submission. Terminate
+    # each sql_lab/graph_lab item's session directly — the student can no longer return
+    # to any of them now that the attempt is over.
+    try:
+        lab_ids = [
+            item.item_id
+            for item in db.query(AssessmentItem)
+            .filter(
+                AssessmentItem.assessment_id == session.assessment_id,
+                AssessmentItem.item_type.in_(("sql_lab", "graph_lab")),
+            )
+            .all()
+        ]
+        for lab_id in lab_ids:
+            lab_session = (
+                db.query(LabSession)
+                .filter(
+                    LabSession.lab_id == lab_id,
+                    LabSession.user_id == session.user_id,
+                    LabSession.is_active == 1,
+                )
+                .first()
+            )
+            if lab_session is not None:
+                terminate_session(lab_session, db)
+    except Exception:
+        logger.exception(
+            "Lab session cleanup failed for assessment %s user %s",
+            session.assessment_id, session.user_id,
+        )
 
 
 def enforce_not_expired(db: Session, session: AssessmentSession | None) -> None:

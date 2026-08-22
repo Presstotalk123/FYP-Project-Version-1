@@ -44,6 +44,8 @@ import { QuestionNavigator } from '@/components/assessment/QuestionNavigator';
 import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
+import { useBlockBrowserBack } from '@/hooks/use-block-browser-back';
+import { useWarnBeforeUnload } from '@/hooks/use-warn-before-unload';
 
 interface LabWorkspaceProps {
   labId: number;
@@ -74,6 +76,8 @@ export function LabWorkspace({
   const tasksSeededRef = useRef(false);
   const timer = useAssessmentTimer();
   const progress = useAssessmentProgress();
+  useBlockBrowserBack(inAssessment);
+  useWarnBeforeUnload(inAssessment);
 
   // State
   const [lab, setLab] = useState<LabDetail | null>(null);
@@ -629,11 +633,21 @@ export function LabWorkspace({
           )
         );
       }
-      await labService.exitSession(labId);
+      // Inside an assessment, leaving a lab must not destroy the student's in-progress
+      // work: switching to another question already leaves the session (and its live
+      // database) untouched, and both timer auto-submit and assessment-level "End &
+      // Submit" explicitly preserve lab state (see finalize_session on the backend).
+      // "Save and Exit" should behave the same way here rather than being the one path
+      // that deletes the session's database out from under the student.
+      if (!inAssessment) {
+        await labService.exitSession(labId);
+      }
       notifications.show({
-        title: 'Session Ended',
-        message: 'Your lab session has been terminated',
-        color: 'blue',
+        title: inAssessment ? 'Progress Saved' : 'Session Ended',
+        message: inAssessment
+          ? 'Your work has been saved. You can return to this lab from the assessment overview.'
+          : 'Your lab session has been terminated',
+        color: inAssessment ? 'green' : 'blue',
       });
       router.push(isStaffMode ? '/admin/labs' : (backUrl ?? '/student/labs'));
     } catch (err) {
@@ -851,7 +865,7 @@ export function LabWorkspace({
   const rightPercent = 100 - leftPercent - centerPercent;
 
   return (
-    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 60px)' }}>
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12, height: inAssessment ? '100vh' : 'calc(100vh - 60px)' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
         {inAssessment && (

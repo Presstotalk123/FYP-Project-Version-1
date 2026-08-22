@@ -46,6 +46,7 @@ export const API_ENDPOINTS = {
     QUESTION_PUBLISH: (id: number) => `/er-diagram/questions/${id}/publish`,
     QUESTION_UNPUBLISH: (id: number) => `/er-diagram/questions/${id}/unpublish`,
     SUBMISSION: '/er-diagram/submission',
+    FINALIZE_PENDING: '/er-diagram/finalize-pending',
     CONVERSATION: '/er-diagram/conversation',
     DRAFT: '/er-diagram/draft',
   },
@@ -145,6 +146,7 @@ export const API_ENDPOINTS = {
     ITEM_STUDENTS: (id: number, itemId: number) =>
       `/assessments/${id}/items/${itemId}/students`,
     RESET_STUDENT: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/reset`,
+    RECOMPUTE_SCORES: (id: number) => `/assessments/${id}/recompute-scores`,
     WINDOWS: (id: number) => `/assessments/${id}/windows`,
     CLASS_GROUPS: (id: number) => `/assessments/${id}/class-groups`,
     CLASS_GROUPS_ALL: '/assessments/class-groups',

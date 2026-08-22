@@ -151,3 +151,21 @@ class ErDraftSaveRequest(BaseModel):
 class ErDraftSaveResponse(BaseModel):
     revision: int
     updated_at: datetime
+
+
+class ErImageDraftResponse(BaseModel):
+    """Metadata for the student's autosaved uploaded-image answer. Mirrors
+    ErDraftResponse — `exists: false` rather than a 404. Never carries the
+    bytes; the client fetches those from the separate `/content` endpoint only
+    when its IndexedDB cache is missing or stale (see `revision`)."""
+
+    exists: bool
+    revision: int | None = None
+    updated_at: datetime | None = None
+    filename: str | None = None
+    content_type: str | None = None
+
+
+class ErImageDraftSaveResponse(BaseModel):
+    revision: int
+    updated_at: datetime

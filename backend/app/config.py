@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # change and a redeploy. A cap that is runtime-settable on one side and
     # build-time on the other is a knob that can only be turned halfway.
     ER_MAX_XML_CHARS: int = 500_000
+    # Cap for an uploaded ER image (submission or autosaved image draft). The
+    # client's dropzone advertises "up to 5 MB"; enforce the same server-side so
+    # the image-draft PUT can't be used to stash arbitrarily large blobs.
+    ER_MAX_IMAGE_BYTES: int = 5 * 1024 * 1024
 
     # Security
     SECRET_KEY: str

@@ -11,6 +11,8 @@ import {
   ErdTutorConversationResponse,
   ErDraftResponse,
   ErDraftSaveResponse,
+  ErImageDraftResponse,
+  ErImageDraftSaveResponse,
   GenerateRubricRequest,
   GenerateRubricResponse,
   SaveERQuestionRequest,
@@ -263,6 +265,52 @@ export const erDiagramService = {
       { timeout: DRAFT_SAVE_TIMEOUT_MS },
     );
     return data;
+  },
+
+  /**
+   * Upsert the student's autosaved uploaded-image answer. Multipart, like the
+   * submission endpoint. No per-request timeout: an image is far larger than the
+   * XML draft and can take real time on a slow uplink, and the on-leave guard
+   * awaits this before an item switch — bounding it would strand a genuine slow
+   * upload rather than a stuck one.
+   */
+  async saveImageDraft(
+    questionId: number,
+    file: File,
+  ): Promise<ErImageDraftSaveResponse> {
+    const formData = new FormData();
+    formData.append("question_id", String(questionId));
+    formData.append("erd_img", file);
+    const { data } = await api.put<ErImageDraftSaveResponse>(
+      API_ENDPOINTS.ER_DIAGRAM.IMAGE_DRAFT,
+      formData,
+    );
+    return data;
+  },
+
+  /** Metadata (revision, filename, content_type) for the autosaved image — never
+   * the bytes. Used to decide whether the IndexedDB cache is stale. */
+  async getImageDraftMeta(questionId: number): Promise<ErImageDraftResponse> {
+    const { data } = await api.get<ErImageDraftResponse>(
+      API_ENDPOINTS.ER_DIAGRAM.IMAGE_DRAFT,
+      { params: { question_id: questionId } },
+    );
+    return data;
+  },
+
+  /** The image bytes, for a cold-cache restore (different browser / evicted). */
+  async getImageDraftContent(questionId: number): Promise<Blob> {
+    const { data } = await api.get<Blob>(
+      API_ENDPOINTS.ER_DIAGRAM.IMAGE_DRAFT_CONTENT,
+      { params: { question_id: questionId }, responseType: "blob" },
+    );
+    return data;
+  },
+
+  async deleteImageDraft(questionId: number): Promise<void> {
+    await api.delete(API_ENDPOINTS.ER_DIAGRAM.IMAGE_DRAFT, {
+      params: { question_id: questionId },
+    });
   },
 
   async *submitStream(payload: ERSubmissionRequest): AsyncGenerator<ERSubmissionStreamEvent> {

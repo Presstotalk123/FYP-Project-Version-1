@@ -227,3 +227,18 @@ export interface ErDraftSaveResponse {
   revision: number;
   updated_at: string;
 }
+
+/** Metadata for the student's autosaved uploaded-image answer (never the bytes;
+ * the client fetches those from the `/content` endpoint only on a cache miss). */
+export interface ErImageDraftResponse {
+  exists: boolean;
+  revision?: number | null;
+  updated_at?: string | null;
+  filename?: string | null;
+  content_type?: string | null;
+}
+
+export interface ErImageDraftSaveResponse {
+  revision: number;
+  updated_at: string;
+}

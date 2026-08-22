@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Badge,
@@ -41,6 +41,7 @@ import {
 } from "@/utils/er-rubric-results";
 import { erDiagramService } from "@/services/er-diagram.service";
 import { useErDraft } from "@/hooks/use-er-draft";
+import { useErImageDraft } from "@/hooks/use-er-image-draft";
 import { useErdGuideDismissed } from "@/hooks/use-erd-guide";
 import { useBlockBrowserBack } from "@/hooks/use-block-browser-back";
 import { useWarnBeforeUnload } from "@/hooks/use-warn-before-unload";
@@ -217,6 +218,18 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     // reaches an already-mounted board.
     onAdoptXml: (xml) => drawioRef.current?.loadXml(xml),
   });
+  // Restore an autosaved uploaded image into the dropzone. Only flips to image
+  // mode from the untouched choice screen, so it never yanks a student out of an
+  // active draw.io session or a mode they've already chosen this visit.
+  const handleRestoreImage = useCallback((file: File) => {
+    setSubmissionImageFiles([file]);
+    setSubmissionMode((current) => (current === null ? "image" : current));
+  }, []);
+  const imageDraft = useErImageDraft({
+    userId,
+    questionId: question.id,
+    onRestore: handleRestoreImage,
+  });
   const guide = useErdGuideDismissed(userId);
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
@@ -279,6 +292,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   // the hook always sees the current image. registerPreFinalize / draft.flushNow are stable.
   const { registerPreFinalize } = timer;
   const flushNow = draft.flushNow;
+  const imageFlushNow = imageDraft.flushNow;
   useEffect(() => {
     if (!backUrl) return;
     return registerPreFinalize(async () => {
@@ -286,6 +300,13 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
         await flushNow();
       } catch {
         // The local copy still holds the work; never block finalize on a flush.
+      }
+      try {
+        // Persist the staged image to its server draft so finalize can grade it
+        // from server state (covers this AND any navigated-away question).
+        await imageFlushNow();
+      } catch {
+        // Best-effort; the live handoff below is the race fallback.
       }
       // Hand over a staged image whenever one exists and hasn't been submitted, regardless
       // of the current submission mode: a student who drew in draw.io AND uploaded an image
@@ -298,7 +319,7 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
       }
       return undefined;
     });
-  }, [backUrl, submissionMode, submissionImageFiles, flushNow, question.id, registerPreFinalize]);
+  }, [backUrl, submissionMode, submissionImageFiles, flushNow, imageFlushNow, question.id, registerPreFinalize]);
 
   const buildSubmissionRef = (): Pick<ERSubmissionRequest, "question_id"> => ({
     question_id: question.id,
@@ -996,7 +1017,12 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
                 {submissionMode === "image" ? (
                   <Stack gap="xs">
                     <Dropzone
-                      onDrop={(files) => setSubmissionImageFiles(files)}
+                      onDrop={(files) => {
+                        setSubmissionImageFiles(files);
+                        // Autosave immediately: cache in IndexedDB + upload to the
+                        // server draft, so switching items or exiting never loses it.
+                        if (files[0]) imageDraft.recordImage(files[0]);
+                      }}
                       onReject={(files) => console.log("Rejected submission image files", files)}
                       maxSize={5 * 1024 ** 2}
                       accept={IMAGE_MIME_TYPE}
@@ -1029,7 +1055,19 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
                       </Group>
                     </Dropzone>
                     {submissionImageFiles.length > 0 ? (
-                      <Alert icon={<IconAlertCircle size={16} />} color="green" title="Image selected">
+                      <Alert
+                        icon={<IconAlertCircle size={16} />}
+                        color="green"
+                        title="Image selected"
+                        withCloseButton
+                        closeButtonLabel="Remove image"
+                        onClose={() => {
+                          setSubmissionImageFiles([]);
+                          // Clear the autosaved draft (row + blob + local cache) so
+                          // finalize grades nothing for a removed image.
+                          imageDraft.removeImage();
+                        }}
+                      >
                         {submissionImageFiles[0]?.name}
                       </Alert>
                     ) : null}

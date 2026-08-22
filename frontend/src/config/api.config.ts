@@ -49,6 +49,8 @@ export const API_ENDPOINTS = {
     FINALIZE_PENDING: '/er-diagram/finalize-pending',
     CONVERSATION: '/er-diagram/conversation',
     DRAFT: '/er-diagram/draft',
+    IMAGE_DRAFT: '/er-diagram/image-draft',
+    IMAGE_DRAFT_CONTENT: '/er-diagram/image-draft/content',
   },
   ER_ANALYTICS: {
     QUESTION: (id: number) => `/er-diagram/questions/${id}/analytics`,

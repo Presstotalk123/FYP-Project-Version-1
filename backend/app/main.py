@@ -39,6 +39,7 @@ from app.models.solo_classification import SoloClassification
 from app.models.sql_tutor_conversation import SqlTutorConversation
 from app.models.sql_tutor_message import SqlTutorMessage
 from app.models.er_diagram_draft import ErDiagramDraft
+from app.models.er_diagram_image_draft import ErDiagramImageDraft
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it
 # correctly as a partial index (WHERE is_active = 1). This fixes SQLite ignoring

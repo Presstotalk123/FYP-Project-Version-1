@@ -32,6 +32,8 @@ from app.schemas.er_diagram import (
     ErDraftResponse,
     ErDraftSaveRequest,
     ErDraftSaveResponse,
+    ErImageDraftResponse,
+    ErImageDraftSaveResponse,
     GenerateRubricMode,
     GenerateRubricResponse,
     ERSubmissionMode,
@@ -50,6 +52,7 @@ from app.services.er_grading import (
     stream_er_submission_grading,
 )
 from app.services import er_drafts
+from app.services import er_image_drafts
 from app.services.erd_rubric import runner as erd_rubric_runner
 from app.utils.er_storage import get_er_storage_provider
 
@@ -140,7 +143,35 @@ def _require_er_question_access(db: Session, *, question_id: int, current_user: 
 # the note on ER_MAX_XML_CHARS in config.py about keeping the client in step.
 # Read once at import, matching how the rest of this module treats settings.
 MAX_ER_XML_CHARS = settings.ER_MAX_XML_CHARS
+MAX_ER_IMAGE_BYTES = settings.ER_MAX_IMAGE_BYTES
 MAX_ER_DESC_CHARS = 5_000
+
+
+def _validate_erd_image_upload(upload: UploadFile) -> None:
+    """Reject a non-image upload with the same 400 the submission endpoint uses.
+    Shared by /submission and the image-draft PUT so both refuse identically."""
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="erd_img must be an image file",
+        )
+
+
+def _resolve_er_storage_path(storage_key: str) -> Path:
+    """Resolve a storage key to a local file path, guarding against traversal.
+
+    Local-provider only, matching get_er_model_answer / get_submission_image —
+    Azure serving is deferred across the ER feature. Raises 404 when the key
+    looks tampered (path separators) or the file is missing from storage.
+    """
+    if not storage_key or "/" in storage_key or "\\" in storage_key or ".." in storage_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Image missing from storage")
+    path = Path(settings.ER_DIAGRAM_UPLOAD_PATH) / storage_key
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Image missing from storage")
+    return path
 RUBRIC_REQUIRED_OUTPUT_KEYS = frozenset({"difficulty", "rubric_json", "rubric_md", "diff_summary"})
 SHOW_RUBRIC_ON_ATTEMPT_KEY = "show_rubric_on_attempt"
 
@@ -1821,6 +1852,132 @@ def save_er_draft(
     return ErDraftSaveResponse(revision=revision, updated_at=updated_at)
 
 
+@router.put("/image-draft", response_model=ErImageDraftSaveResponse)
+async def save_er_image_draft(
+    question_id: int = Form(...),
+    erd_img: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert the caller's autosaved *uploaded-image* answer for a question.
+
+    The image sibling of ``PUT /draft``: the workspace calls this the moment a
+    student drops an image, so switching items or exiting never loses it. Stores
+    the bytes via the ER storage provider and keeps only the key + metadata,
+    then deletes the blob this replaced so no orphans accumulate.
+    """
+    _validate_erd_image_upload(erd_img)
+
+    # Enforce the size cap by reading the body once (UploadFile.size isn't
+    # reliably populated by every ASGI server), before the storage save so an
+    # oversized upload never reaches disk/blob.
+    await erd_img.seek(0)
+    data = await erd_img.read()
+    if len(data) > MAX_ER_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"image exceeds maximum size of {MAX_ER_IMAGE_BYTES} bytes",
+        )
+    await erd_img.seek(0)
+
+    _require_er_question_access(db, question_id=question_id, current_user=current_user)
+
+    provider = get_er_storage_provider()
+    # Offloaded: provider.save is synchronous I/O (local disk, or a full Azure
+    # blob upload) and must never block the event loop. Mirrors submit_er_diagram.
+    storage_key, _ = await asyncio.to_thread(provider.save, erd_img)
+
+    revision, updated_at, superseded_key = er_image_drafts.save_image_draft(
+        db,
+        user_id=current_user.id,
+        question_id=question_id,
+        storage_key=storage_key,
+        filename=erd_img.filename,
+        content_type=erd_img.content_type,
+    )
+    if superseded_key:
+        try:
+            await asyncio.to_thread(provider.delete, superseded_key)
+        except Exception:
+            logger.exception("image-draft: failed to delete superseded blob %s", superseded_key)
+
+    return ErImageDraftSaveResponse(revision=revision, updated_at=updated_at)
+
+
+@router.get("/image-draft", response_model=ErImageDraftResponse)
+def get_er_image_draft(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Metadata for the caller's autosaved image answer (never the bytes).
+
+    The client reads its IndexedDB cache first and calls this to learn the
+    server's ``revision``; it fetches the bytes from ``/image-draft/content``
+    only when the cache is missing or older than that revision.
+    """
+    _require_er_question_access(db, question_id=question_id, current_user=current_user)
+    draft = er_image_drafts.get_image_draft(
+        db, user_id=current_user.id, question_id=question_id
+    )
+    if draft is None:
+        return ErImageDraftResponse(exists=False)
+    return ErImageDraftResponse(
+        exists=True,
+        revision=draft.revision,
+        updated_at=draft.updated_at,
+        filename=draft.filename,
+        content_type=draft.content_type,
+    )
+
+
+@router.get("/image-draft/content")
+def get_er_image_draft_content(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The bytes of the caller's autosaved image answer, so a device with a cold
+    IndexedDB cache (a different browser, or after browser eviction) can restore
+    the dropzone preview. Local-provider serving, matching get_er_model_answer /
+    get_submission_image; Azure serving is deferred across the ER feature.
+    """
+    _require_er_question_access(db, question_id=question_id, current_user=current_user)
+    draft = er_image_drafts.get_image_draft(
+        db, user_id=current_user.id, question_id=question_id
+    )
+    if draft is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No image draft stored for this question")
+    path = _resolve_er_storage_path(draft.storage_key)
+    return FileResponse(
+        path,
+        media_type=draft.content_type or "application/octet-stream",
+        filename=draft.filename or None,
+    )
+
+
+@router.delete("/image-draft", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_er_image_draft(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove the caller's autosaved image answer — the student cleared the
+    dropzone. Deletes the row and its blob so a subsequent finalize grades
+    nothing for it."""
+    _require_er_question_access(db, question_id=question_id, current_user=current_user)
+    storage_key = er_image_drafts.delete_image_draft(
+        db, user_id=current_user.id, question_id=question_id
+    )
+    if storage_key:
+        try:
+            provider = get_er_storage_provider()
+            await asyncio.to_thread(provider.delete, storage_key)
+        except Exception:
+            logger.exception("image-draft: failed to delete blob %s on remove", storage_key)
+
+
 @router.post("/submission")
 async def submit_er_diagram(
     request: Request,
@@ -1918,9 +2075,8 @@ async def submit_er_diagram(
         # the image is what gets stored for analytics and shown to the tutor.
         # They were mutually exclusive when XML was an alternative input rather
         # than a companion to it.
-        if erd_img and (not erd_img.content_type or not erd_img.content_type.startswith("image/")):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                                detail="erd_img must be an image file")
+        if erd_img:
+            _validate_erd_image_upload(erd_img)
 
     # LangGraph adds standalone tutor state; the Dify default is unchanged.
     question = (
@@ -2278,18 +2434,88 @@ async def _grade_pending_erd_question(
     return True
 
 
+def _latest_submission_at(db: Session, *, user_id: int, question_id: int):
+    """``created_at`` of the student's most recent graded submission for a
+    question, or None. Snapshot this BEFORE grading anything this pass so the
+    image-draft skip compares against submissions that predate it — grading the
+    XML draft first can insert a fresh row that would otherwise wrongly suppress
+    a genuine image draft."""
+    from app.models.er_submission import ErSubmission
+
+    row = (
+        db.query(ErSubmission.created_at)
+        .filter(
+            ErSubmission.user_id == user_id,
+            ErSubmission.er_diagram_question_id == question_id,
+        )
+        .order_by(ErSubmission.created_at.desc())
+        .first()
+    )
+    return row[0] if row else None
+
+
+async def _grade_pending_image_draft(
+    *,
+    db: Session,
+    user_id: int,
+    question_id: int,
+    pre_grade_last_sub_at,
+) -> bool:
+    """Grade a student's persisted image draft as an attempt, skipping one that is
+    unchanged since their last graded submission (the "no double-grade" guard,
+    mirroring the XML skip). Returns True when a grade actually ran.
+
+    Shared by the student's own finalize sweep and the staff bulk/refresh path so
+    an uploaded-image answer is captured identically no matter who triggers the
+    grade. Local-provider read only (Azure serving is deferred across the ER
+    feature); a missing blob just skips. The submission reuses the draft's
+    storage_key — these paths are terminal for the draft, so the shared blob is
+    safe.
+    """
+    img_draft = er_image_drafts.get_image_draft(
+        db, user_id=user_id, question_id=question_id
+    )
+    if img_draft is None:
+        return False
+    if (
+        pre_grade_last_sub_at is not None
+        and img_draft.updated_at is not None
+        and img_draft.updated_at <= pre_grade_last_sub_at
+    ):
+        return False  # unchanged since last graded submission — skip
+    try:
+        draft_path = _resolve_er_storage_path(img_draft.storage_key)
+        img_bytes = await asyncio.to_thread(draft_path.read_bytes)
+    except HTTPException:
+        return False  # blob missing (e.g. Azure serving deferred) — skip gracefully
+    except Exception:
+        logger.exception("image draft read failed for question %s", question_id)
+        return False
+    await _grade_pending_erd_question(
+        db=db,
+        user_id=user_id,
+        question_id=question_id,
+        image_bytes=img_bytes,
+        image_key=img_draft.storage_key,
+    )
+    return True
+
+
 async def grade_pending_er_for_assessment(
     db: Session, assessment_id: int, user_ids: list[int]
 ) -> int:
-    """Grade every roster student's latest stored draw.io draft for each ER item of this
-    assessment, from server state (image_bytes=None). Returns the number of (user, question)
-    pairs actually graded; unchanged/empty drafts (and non-langgraph engines) are skipped.
+    """Grade every roster student's latest stored ER draft for each ER item of this
+    assessment, from server state. Grades BOTH the draw.io XML draft AND the autosaved
+    uploaded-image draft (as separate best-of attempts), so the staff "Refresh scores" /
+    force-submit path captures an image-only answer the same way the student's own
+    end-of-assessment sweep does. Returns the number of (user, question) grades that
+    actually ran; unchanged/empty drafts (and non-langgraph engines) are skipped.
 
     SEQUENTIAL by design: one grade is awaited at a time, so the LLM is never flooded and the
     sync ``db`` Session is never used concurrently. The skip-unchanged / already-graded guard
-    inside ``_grade_pending_erd_question`` means untouched drafts make ZERO LLM calls, so only
-    the handful of new/changed drafts actually hit the model. Every ER item is graded per
-    student. A single pair failing is logged and does not abort the batch.
+    inside ``_grade_pending_erd_question`` (and the image skip) means untouched drafts make
+    ZERO LLM calls, so only the handful of new/changed drafts actually hit the model. Every ER
+    item is graded per student. A single pair failing is logged and does not abort the batch.
     """
     er_question_ids = [
         item.item_id
@@ -2306,6 +2532,9 @@ async def grade_pending_er_for_assessment(
     graded = 0
     for uid in user_ids:
         for qid in er_question_ids:
+            # Snapshot before grading: the XML grade below can insert a submission the
+            # image skip must not compare against (same ordering trap as finalize).
+            pre_grade_last_sub_at = _latest_submission_at(db, user_id=uid, question_id=qid)
             try:
                 if await _grade_pending_erd_question(
                     db=db, user_id=uid, question_id=qid, image_bytes=None, image_key=None
@@ -2314,6 +2543,16 @@ async def grade_pending_er_for_assessment(
             except Exception:
                 logger.exception(
                     "bulk ER grade failed for user %s question %s", uid, qid
+                )
+            try:
+                if await _grade_pending_image_draft(
+                    db=db, user_id=uid, question_id=qid,
+                    pre_grade_last_sub_at=pre_grade_last_sub_at,
+                ):
+                    graded += 1
+            except Exception:
+                logger.exception(
+                    "bulk ER image grade failed for user %s question %s", uid, qid
                 )
     return graded
 
@@ -2332,10 +2571,15 @@ async def finalize_pending_er(
 
     Trusted finalize path: unlike ``/submission`` it does **not** call
     ``enforce_not_expired``, so it still lands when fired at the buzzer. Grades each ER
-    question's changed XML draft (and, for the currently-open question, a staged uploaded
-    image passed as ``erd_img`` + ``image_question_id``), credits the elapsed grading time
-    once, and returns the pushed-forward ``end_time`` so the client can re-fold its timer
-    before the subsequent finalize computes the weighted score.
+    question's changed XML draft AND its autosaved image draft (an uploaded-image answer
+    is persisted server-side the moment it is dropped, so an image staged on a question
+    the student later navigated away from is still graded here — not just the currently
+    open one). The currently-open question may also hand over its live staged image via
+    ``erd_img`` + ``image_question_id`` as a race fallback for a drop-upload that hasn't
+    landed yet; when it does, that question's persisted draft is skipped so the same
+    image isn't graded twice. Credits the elapsed grading time once, and returns the
+    pushed-forward ``end_time`` so the client can re-fold its timer before the subsequent
+    finalize computes the weighted score.
     """
     from datetime import datetime, timezone
 
@@ -2379,6 +2623,18 @@ async def finalize_pending_er(
 
     for qid in er_question_ids:
         is_image_q = image_bytes is not None and qid == image_question_id
+
+        # Snapshot the latest graded-submission time BEFORE grading anything this pass, so
+        # the persisted-image skip compares against submissions that predate this finalize
+        # (the XML grade next can insert a fresh row). Only needed on the persisted-draft
+        # path — a live staged image is already known-changed (the client only hands one
+        # over when it differs from the last submitted image).
+        pre_grade_last_sub_at = (
+            None if is_image_q else _latest_submission_at(
+                db, user_id=current_user.id, question_id=qid
+            )
+        )
+
         # Always grade the server-stored XML draft first (a no-op if the student never drew).
         # Grading it before the image means the draft's "unchanged since last submission" skip
         # compares against submissions that predate this finalize, not the image attempt we add
@@ -2393,9 +2649,12 @@ async def finalize_pending_er(
             )
         except Exception:
             logger.exception("finalize-pending: XML grading failed for question %s", qid)
-        # When this question also carries a staged image, grade the image as a SECOND attempt so
-        # a student who both drew and uploaded loses neither — best-attempt scoring keeps the
-        # higher of the two graded rows.
+
+        # Grade an uploaded image as a SECOND attempt so a student who both drew and uploaded
+        # loses neither — best-attempt scoring keeps the higher of the two rows. Source: the
+        # live staged image for the currently-open question (covers the race where its
+        # drop-upload hasn't landed), otherwise the persisted image draft — which is what lets
+        # an image on a navigated-away question be graded at all.
         if is_image_q:
             try:
                 await _grade_pending_erd_question(
@@ -2404,6 +2663,16 @@ async def finalize_pending_er(
                     question_id=qid,
                     image_bytes=image_bytes,
                     image_key=image_key,
+                )
+            except Exception:
+                logger.exception("finalize-pending: image grading failed for question %s", qid)
+        else:
+            try:
+                await _grade_pending_image_draft(
+                    db=db,
+                    user_id=current_user.id,
+                    question_id=qid,
+                    pre_grade_last_sub_at=pre_grade_last_sub_at,
                 )
             except Exception:
                 logger.exception("finalize-pending: image grading failed for question %s", qid)

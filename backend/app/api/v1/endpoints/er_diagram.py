@@ -2379,16 +2379,34 @@ async def finalize_pending_er(
 
     for qid in er_question_ids:
         is_image_q = image_bytes is not None and qid == image_question_id
+        # Always grade the server-stored XML draft first (a no-op if the student never drew).
+        # Grading it before the image means the draft's "unchanged since last submission" skip
+        # compares against submissions that predate this finalize, not the image attempt we add
+        # next — so a genuine drawn answer is never skipped just because an image is also present.
         try:
             await _grade_pending_erd_question(
                 db=db,
                 user_id=current_user.id,
                 question_id=qid,
-                image_bytes=image_bytes if is_image_q else None,
-                image_key=image_key if is_image_q else None,
+                image_bytes=None,
+                image_key=None,
             )
         except Exception:
-            logger.exception("finalize-pending: grading failed for question %s", qid)
+            logger.exception("finalize-pending: XML grading failed for question %s", qid)
+        # When this question also carries a staged image, grade the image as a SECOND attempt so
+        # a student who both drew and uploaded loses neither — best-attempt scoring keeps the
+        # higher of the two graded rows.
+        if is_image_q:
+            try:
+                await _grade_pending_erd_question(
+                    db=db,
+                    user_id=current_user.id,
+                    question_id=qid,
+                    image_bytes=image_bytes,
+                    image_key=image_key,
+                )
+            except Exception:
+                logger.exception("finalize-pending: image grading failed for question %s", qid)
 
     # Re-read the session: grades committed on fresh sessions leave this one's row
     # untouched, but a concurrent read may have lazily expired it mid-batch.

@@ -287,8 +287,13 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
       } catch {
         // The local copy still holds the work; never block finalize on a flush.
       }
+      // Hand over a staged image whenever one exists and hasn't been submitted, regardless
+      // of the current submission mode: a student who drew in draw.io AND uploaded an image
+      // should have both auto-submitted (the backend grades the XML draft and this image as
+      // two attempts, best-of wins), so a leftover upload from before a mode switch is never
+      // silently dropped.
       const staged = submissionImageFiles[0];
-      if (submissionMode === "image" && staged && staged !== lastSubmittedImageRef.current) {
+      if (staged && staged !== lastSubmittedImageRef.current) {
         return { imageQuestionId: question.id, image: staged };
       }
       return undefined;

@@ -1,131 +1,180 @@
-# SQL Learning Platform
+# Akela — SQL Learning Platform
 
-A web-based SQL learning platform where teachers create practice questions and students solve them interactively with instant feedback.
+A web-based platform for teaching and practising SQL and database design. Teachers author practice questions, hands-on labs, ER-diagram exercises and timed assessments; students solve them interactively with instant feedback, an adaptive AI tutor, and a personal learning-analytics dashboard.
+
+Production: [ntuakela.net](https://ntuakela.net)
+
+## Features
+
+- **SQL Questions** — author and solve SQL practice problems against per-question SQLite databases, with automatic correctness grading and an AI query-review assistant.
+- **SQL Labs** — multi-task, session-based lab environments where students run queries against a shared schema.
+- **ER Diagram exercises** — draw.io-based entity-relationship modelling questions, graded by a rubric-driven grader with an interactive AI ERD tutor (LangGraph engine).
+- **Assessments** — timed, optionally password-gated assessments with per-class scheduling windows and a timing gateway; scoring uses each student's best attempt.
+- **AI Tutor ("Bagheera")** — a streaming chatbot that helps students with questions and labs, with an optional adaptive mode driven by concept mastery and scaffolding.
+- **Learning Analytics Dashboard (LAD)** — per-student concept mastery, SOLO-taxonomy classification, and anonymized peer benchmarking. Ships behind feature flags (see [Feature flags](#feature-flags)).
+- **Admin & analytics** — question/lab/assessment management, user whitelisting, login-activity and presence tracking, cohort analytics, and an anonymized research CSV export.
+- **Auth** — JWT sessions with Google and Microsoft (Azure Entra ID) SSO, plus role-based access (student / staff).
 
 ## Technology Stack
 
-**Backend:**
+**Backend**
 - FastAPI (Python)
 - SQLAlchemy 2.0 + Alembic
 - PostgreSQL (production) / SQLite (development)
-- JWT Authentication
+- LangGraph + LangChain (ERD tutor & rubric engines)
+- OpenAI / Azure OpenAI
+- JWT auth, Google & Microsoft SSO
 
-**Frontend:**
-- React 18 + TypeScript
-- Next.js
-- Mantine
-- Monaco Editor
+**Frontend**
+- Next.js 16 + React 19 + TypeScript
+- Mantine 8 (UI)
+- Monaco Editor (SQL editing)
+- TanStack Query (data fetching)
+- CASL (permissions), dnd-kit, dagre (graph layout)
+
+## Project Structure
+
+```
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/endpoints/   # Route handlers (auth, questions, labs, assessments, chatbot, LAD, …)
+│   │   ├── core/               # Grading, query execution, security, cache
+│   │   ├── models/             # SQLAlchemy models
+│   │   ├── schemas/            # Pydantic schemas
+│   │   ├── services/           # ERD tutor/rubric, learning analytics, tutor chat
+│   │   ├── utils/              # DB managers, storage helpers
+│   │   ├── config.py           # Settings (env-driven)
+│   │   └── main.py             # App entrypoint + router wiring
+│   ├── migrations/             # run_*.py migration scripts (PostgreSQL)
+│   ├── tests/
+│   └── requirements.txt
+├── frontend/                   # Next.js app (src/)
+└── docs/                       # Design docs & handoffs
+```
 
 ## Quick Start
 
-### Backend Setup
+### Backend
 
-1. Navigate to backend directory:
-```bash
-cd backend
-```
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
 
-2. Create and activate virtual environment:
-```bash
-python -m venv venv
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
 
-# On Windows:
-venv\Scripts\activate
+   # Windows
+   venv\Scripts\activate
 
-# On macOS/Linux:
-source venv/bin/activate
-```
+   # macOS/Linux
+   source venv/bin/activate
+   ```
 
 3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   # then edit .env — at minimum set SECRET_KEY (openssl rand -hex 32)
+   ```
+   See [Configuration](#configuration) for the full list.
+
+5. Run the development server (SQLite tables are auto-created on first run):
+   ```bash
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+6. Access the API:
+   - API: http://localhost:8000
+   - Swagger UI: http://localhost:8000/docs
+   - ReDoc: http://localhost:8000/redoc
+
+> **PostgreSQL note:** tables are auto-created only for SQLite. For PostgreSQL, pre-create the schema with `python create_tables.py` and apply the relevant `run_*.py` migration scripts before starting the server.
+
+### Frontend
+
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+   The app runs at http://localhost:3000 and expects the backend at http://localhost:8000.
+
+## Configuration
+
+Backend settings are loaded from `backend/.env` (see `backend/.env.example`). Key variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | `sqlite:///./sql_learning.db` (dev) or a PostgreSQL URL (prod) |
+| `SECRET_KEY` | JWT signing secret — **required** (`openssl rand -hex 32`) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT lifetime |
+| `GOOGLE_CLIENT_ID` | Google SSO client ID |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_TENANT_ID` | Microsoft (Azure Entra ID) SSO |
+| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | AI query-review provider (`azure_openai` \| `openai` \| `gemini`) |
+| `AI_AZURE_ENDPOINT` / `AI_AZURE_API_VERSION` | Azure OpenAI endpoint config |
+| `ERD_TUTOR_ENGINE` / `ERD_RUBRIC_ENGINE` | ERD engine selector (`dify` legacy \| `langgraph`) |
+| `ERD_AZURE_OPENAI_*` | Azure OpenAI config for the LangGraph ERD engines |
+| `ER_STORAGE_PROVIDER` | ER model-answer storage (`local` \| Azure Blob) |
+| `RESEARCH_EXPORT_SALT` | HMAC salt for anonymizing the research CSV export |
+
+See `backend/app/config.py` for the complete, documented list of settings and their defaults.
+
+### Feature flags
+
+The Akela multi-agent learning-analytics platform ships **dark** behind two independent flags (both default `False`):
+
+- `AKELA_AGENTS_ENABLED` — master switch for learning-event logging and the background Learner Profiling / SOLO Classifier agents.
+- `SQL_TUTOR_ADAPTIVE` — enables adaptive prompt construction (mastery/scaffolding) in the SQL chatbot.
+
+On PostgreSQL, run `python run_akela_agents_migration.py --seed` before enabling these flags.
+
+## Selected API Endpoints
+
+Base path: `/api/v1`
+
+- **Auth** — `POST /auth/register`, `POST /auth/login`, `GET /auth/me`
+- **Questions** — `questions/…` (author and solve SQL questions)
+- **Execution** — `execute/…` (run queries)
+- **Attempts** — `attempts/…`
+- **Labs** — `labs/…`, `lab_analytics/…`
+- **ER diagrams** — `er_diagram/…`, `er_analytics/…`, `erd_prompts/…`
+- **Assessments** — `assessments/…`, `student_assessments/…`
+- **AI tutor** — `chatbot/…`
+- **Analytics** — `sql_analytics/…`, `lad/…`, `login_activity/…`, `student_report/…`
+- **Admin** — `users/…`, `whitelist/…`, `app_settings/…`, `course_info/…`, `research_export/…`
+- **Health** — `GET /`, `GET /health`
+
+Full, interactive documentation is available at `/docs` (Swagger) and `/redoc`.
+
+## Testing
+
+Backend tests use `pytest`:
+
 ```bash
-pip install -r requirements.txt
+cd backend
+pytest
 ```
 
-4. The `.env` file is already configured with development settings.
+## Deployment
 
-5. Initialize database (tables will be created automatically on first run):
-```bash
-# Optional: Set up Alembic migrations
-alembic init alembic
-alembic revision --autogenerate -m "Initial migration"
-alembic upgrade head
-```
-
-6. Run the development server:
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-7. Access the API:
-- API: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-### Frontend Setup
-
-(Coming soon in Phase 4)
-
-## Project Status
-
-### ✅ Completed
-- [x] Backend project structure
-- [x] Configuration management
-- [x] Database setup with SQLAlchemy
-- [x] User model and authentication
-- [x] JWT token authentication
-- [x] Registration and login endpoints
-- [x] Protected routes with role-based access
-
-### 🚧 In Progress
-- [ ] Question management (Phase 2)
-- [ ] Query execution engine (Phase 3)
-- [ ] Frontend development (Phase 4-6)
-
-## API Endpoints
-
-### Authentication
-- `POST /api/v1/auth/register` - Register new user
-- `POST /api/v1/auth/login` - Login and get JWT token
-- `GET /api/v1/auth/me` - Get current user info (requires authentication)
-
-### Health
-- `GET /` - Root endpoint
-- `GET /health` - Health check
-
-## Testing the API
-
-You can test the API using the Swagger UI at http://localhost:8000/docs or use curl:
-
-### Register a student:
-```bash
-curl -X POST "http://localhost:8000/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"email": "student@example.com", "password": "password123", "role": "student"}'
-```
-
-### Register a staff member:
-```bash
-curl -X POST "http://localhost:8000/api/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"email": "staff@example.com", "password": "password123", "role": "staff"}'
-```
-
-### Login:
-```bash
-curl -X POST "http://localhost:8000/api/v1/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"email": "student@example.com", "password": "password123"}'
-```
-
-### Get current user (with token):
-```bash
-curl -X GET "http://localhost:8000/api/v1/auth/me" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-```
-
-## Development Plan
-
-Refer to `.claude/plans/cryptic-floating-key.md` for the detailed implementation plan.
+- **Frontend** — deployed to Azure Static Web Apps (see `.github/workflows/`).
+- **Backend** — deployed to Azure App Service with PostgreSQL.
 
 ## License
 

@@ -42,6 +42,7 @@ import {
 } from "@/utils/er-rubric-results";
 import { erDiagramService } from "@/services/er-diagram.service";
 import { useErDraft } from "@/hooks/use-er-draft";
+import { useRunCooldown } from "@/hooks/use-run-cooldown";
 import { useErImageDraft } from "@/hooks/use-er-image-draft";
 import { useErdGuideDismissed } from "@/hooks/use-erd-guide";
 import { useBlockBrowserBack } from "@/hooks/use-block-browser-back";
@@ -212,6 +213,28 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   const drawioRef = useRef<DrawioBoardHandle | null>(null);
   const focusLayoutRef = useRef<DrawioFocusLayoutHandle | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  // ERD Submit cooldown (assessment only): the first 3 submissions of each question are
+  // free; from the 4th onward the student must wait 3 minutes between submissions. Reuses
+  // the exact hook that backs the SQL Run cooldown — sessionStorage-backed and scoped
+  // per question (assessment ERD questions are cloned, so question.id is assessment-scoped).
+  //
+  // freeLimit is 2, not 3: the hook arms a cooldown *after* a completed submission and that
+  // gates the *next* one, so the first cooldown appears after submission (freeLimit + 1).
+  // freeLimit=2 arms it after the 3rd submission → submissions 1–3 all go through freely and
+  // the 4th is the first that must wait. tier1Limit=freeLimit sends every gated submit
+  // straight to the flat 180s tier.
+  const submitCooldown = useRunCooldown({
+    freeLimit: 2,
+    tier1Limit: 2,
+    tier1Cooldown: 180,
+    tier2Cooldown: 180,
+    storageKey: `erd-submit-cooldown:${question.id}`,
+  });
+  // Only enforce inside an assessment; practice/staff never cools down. Deliberately not
+  // surfaced on the button — it stays visually normal during the cooldown (no spinner,
+  // grey, or label, and no countdown), so the student is never told when it lifts. The
+  // wait message is shown only if they actually click Submit (see the guards below).
+  const submitCoolingDown = timer.isAssessment && submitCooldown.isCoolingDown;
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const draft = useErDraft({
@@ -452,6 +475,12 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
       }
       setHasSubmittedAttempt(true);
       progress.markAttempted();
+      // Count this successful submission toward the per-question cooldown (assessment
+      // only). Registered on the success path — not in `finally` — so an errored or
+      // interrupted submit never consumes one of the free attempts.
+      if (timer.isAssessment) {
+        submitCooldown.registerRunComplete();
+      }
       // Remember a successfully-submitted upload so the end-of-assessment capture
       // doesn't re-grade it unchanged. An uploaded-image submission carries the image
       // but no XML; a draw.io submission always carries XML, so this never fires there.
@@ -581,6 +610,15 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
 
   const handleFocusSubmit = () => {
     if (chatSending || submitLoading) return;
+    if (submitCoolingDown) {
+      notifications.show({
+        color: "yellow",
+        title: "Please wait a moment",
+        message: "You've submitted a few times — please wait a few minutes before your next submission.",
+        autoClose: 6000,
+      });
+      return;
+    }
     if (!drawioRef.current) {
       notifications.show({
         color: "red",
@@ -605,6 +643,18 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
 
   const requestSubmit = (imageFile: File, xml?: string | null) => {
     if (chatSending) return;
+    // Universal choke point for every manual submit (image upload and draw.io export
+    // both funnel here). Blocking here covers all paths; the auto-finalize path never
+    // calls this, so end-of-assessment capture is unaffected.
+    if (submitCoolingDown) {
+      notifications.show({
+        color: "yellow",
+        title: "Please wait a moment",
+        message: "You've submitted a few times — please wait a few minutes before your next submission.",
+        autoClose: 6000,
+      });
+      return;
+    }
     if (!imageFile || imageFile.size === 0) {
       setSubmitError("Diagram export is empty. Please export again and retry.");
       return;

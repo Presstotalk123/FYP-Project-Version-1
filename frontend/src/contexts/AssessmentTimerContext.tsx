@@ -25,6 +25,13 @@ export type PreFinalizeHook = () => Promise<
 >;
 
 interface AssessmentTimerContextValue {
+  /**
+   * True whenever this workspace is rendered inside an assessment (the provider is
+   * mounted), timed or not — as opposed to practice/staff, where the context is the
+   * safe default below. Distinct from `hasTimer`, which is only true for *timed*
+   * assessments. Used to scope in-assessment-only rules (e.g. the ERD submit cooldown).
+   */
+  isAssessment: boolean;
   /** True only when the active session has a deadline (timed assessment). */
   hasTimer: boolean;
   /** Milliseconds remaining until the deadline (clamped at 0). */
@@ -54,6 +61,7 @@ interface AssessmentTimerContextValue {
 // Safe default so the shared workspaces can call pause()/resume() even when rendered
 // outside an assessment (practice / staff) — there, the timer simply doesn't exist.
 const DEFAULT: AssessmentTimerContextValue = {
+  isAssessment: false,
   hasTimer: false,
   remainingMs: 0,
   isPaused: false,
@@ -241,6 +249,9 @@ export function AssessmentTimerProvider({
   );
 
   const value: AssessmentTimerContextValue = {
+    // The provider is only mounted on assessment pages, so being here at all means
+    // we are inside an assessment — true regardless of whether a deadline exists.
+    isAssessment: true,
     hasTimer: deadline !== null,
     remainingMs,
     isPaused,

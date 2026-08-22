@@ -661,9 +661,10 @@ async def recompute_scores(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
 
     # 1. Capture & grade the latest server-stored draw.io ER drafts BEFORE recomputing, so the
-    # fresh grades feed into the roster totals. Sequential + skip-unchanged (see the helper) —
-    # the LLM is never flooded and untouched drafts cost nothing. Lazy import avoids a circular
-    # import between these two endpoint modules.
+    # fresh grades feed into the roster totals. Concurrency-bounded + skip-unchanged (see the
+    # helper): grades run up to ERD_GRADE_MAX_CONCURRENCY at a time so the LLM is never flooded,
+    # and untouched drafts cost nothing. Lazy import avoids a circular import between these two
+    # endpoint modules.
     from app.api.v1.endpoints.er_diagram import grade_pending_er_for_assessment
 
     user_ids = assessment_scoring.roster_user_ids(db, assessment_id)

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -76,6 +77,24 @@ _ERD_PRODUCER_TASKS: set[asyncio.Task] = set()
 # last_submit_report and writes a duplicate ErSubmission row. While one is in
 # flight we refuse to start another for the same (user, question).
 _ERD_INFLIGHT_SUBMITS: set[tuple[int, int]] = set()
+
+# ── Grade concurrency cap ─────────────────────────────────────────────────
+# Each ER Submit grade is a single ~50k-token LLM call, and the model's ~500k
+# tokens/min budget allows only ~10 at once. This semaphore caps concurrent
+# grades so a mass end-of-assessment finalize (or the staff bulk sweep) can't
+# flood the model. It is PER WORKER: an asyncio.Semaphore is bound to one event
+# loop, so with N gunicorn workers the deployment total is
+# ERD_GRADE_MAX_CONCURRENCY × N — hence the default (5) is the global budget (10)
+# divided by the expected worker count (2). See config.py's note. Created lazily
+# so it binds to the running loop rather than import time.
+_ERD_GRADE_SEMAPHORE: Optional[asyncio.Semaphore] = None
+
+
+def _erd_grade_semaphore() -> asyncio.Semaphore:
+    global _ERD_GRADE_SEMAPHORE
+    if _ERD_GRADE_SEMAPHORE is None:
+        _ERD_GRADE_SEMAPHORE = asyncio.Semaphore(settings.ERD_GRADE_MAX_CONCURRENCY)
+    return _ERD_GRADE_SEMAPHORE
 
 # Sentinel pushed onto the producer→consumer queue to mark end-of-stream.
 _ERD_QUEUE_DONE = object()
@@ -1598,25 +1617,33 @@ async def _erd_grading_producer(
     """
     buffer = ""
     done_payload: Optional[dict[str, Any]] = None
+    # Cap concurrent Submit grades (each ~50k tokens) against the LLM's token/min
+    # budget — this is the same per-worker semaphore the batch finalize/bulk paths
+    # use, so a student's Submit shares one budget with a mass sweep. Query turns
+    # are cheap tutoring chat, so they stay ungated (nullcontext). The slot is held
+    # only while tokens stream; persistence in the finally runs *outside* it so a
+    # slot frees the instant the grade completes.
+    grade_slot = _erd_grade_semaphore() if mode == "Submit" else contextlib.nullcontext()
     try:
-        aiter_source = source if hasattr(source, "__aiter__") else iterate_in_threadpool(source)
-        async for chunk in aiter_source:
-            await queue.put(chunk)
-            buffer += chunk.decode("utf-8", "replace") if isinstance(chunk, (bytes, bytearray)) else chunk
-            while "\n\n" in buffer:
-                block, buffer = buffer.split("\n\n", 1)
-                event_name: Optional[str] = None
-                data_lines: list[str] = []
-                for line in block.splitlines():
-                    if line.startswith("event:"):
-                        event_name = line.split(":", 1)[1].strip()
-                    elif line.startswith("data:"):
-                        data_lines.append(line.split(":", 1)[1].strip())
-                if event_name == "done" and data_lines:
-                    try:
-                        done_payload = json.loads("\n".join(data_lines))
-                    except (json.JSONDecodeError, ValueError):
-                        done_payload = None
+        async with grade_slot:
+            aiter_source = source if hasattr(source, "__aiter__") else iterate_in_threadpool(source)
+            async for chunk in aiter_source:
+                await queue.put(chunk)
+                buffer += chunk.decode("utf-8", "replace") if isinstance(chunk, (bytes, bytearray)) else chunk
+                while "\n\n" in buffer:
+                    block, buffer = buffer.split("\n\n", 1)
+                    event_name: Optional[str] = None
+                    data_lines: list[str] = []
+                    for line in block.splitlines():
+                        if line.startswith("event:"):
+                            event_name = line.split(":", 1)[1].strip()
+                        elif line.startswith("data:"):
+                            data_lines.append(line.split(":", 1)[1].strip())
+                    if event_name == "done" and data_lines:
+                        try:
+                            done_payload = json.loads("\n".join(data_lines))
+                        except (json.JSONDecodeError, ValueError):
+                            done_payload = None
     except Exception:
         logger.exception("erd_tutor: grading stream failed for conversation %s", conversation_id)
     finally:
@@ -2501,6 +2528,90 @@ async def _grade_pending_image_draft(
     return True
 
 
+async def _guarded_grade_pending_pair(
+    *,
+    user_id: int,
+    question_id: int,
+    live_image_bytes: Optional[bytes] = None,
+    live_image_key: Optional[str] = None,
+) -> int:
+    """Grade one (user, question) pair — XML draft then image attempt — on its OWN DB
+    session, under the shared concurrency semaphore. Returns the number of grades that
+    actually ran (0–2); unchanged/empty drafts (and non-langgraph engines) are skipped.
+
+    Concurrency discipline:
+      - The semaphore is acquired BEFORE the session is opened, so a task waiting for a
+        slot pins no pooled connection (nothing is checked out until the first query).
+      - The pair uses a fresh ``SessionLocal`` — never the caller's request Session,
+        which is a sync object and unsafe to share across concurrently-running pairs.
+        ``_grade_pending_erd_question`` commits and releases that connection before its
+        LLM stream, so at most ``ERD_GRADE_MAX_CONCURRENCY`` connections are ever live
+        per worker, and never during the 30–90s grade itself.
+      - Best-effort per sub-grade: a failure is logged, not raised, so ``gather`` never
+        aborts sibling pairs.
+
+    Image source: when ``live_image_bytes`` is given (finalize's currently-open
+    question handing over its staged upload), that live image is graded as the second
+    attempt and the persisted image draft is skipped so the same image isn't graded
+    twice; otherwise the persisted image draft is graded (covers an upload on a
+    navigated-away question).
+    """
+    graded = 0
+    async with _erd_grade_semaphore():
+        task_db = SessionLocal()
+        try:
+            has_live_image = live_image_bytes is not None
+            # Snapshot the latest graded-submission time BEFORE the XML grade, which can
+            # insert a fresh row the persisted-image skip must not compare against. A live
+            # image is already known-changed (the client only hands one over when it
+            # differs from the last submitted image), so it needs no snapshot.
+            pre_grade_last_sub_at = (
+                None
+                if has_live_image
+                else _latest_submission_at(task_db, user_id=user_id, question_id=question_id)
+            )
+            # XML draft first: grading it before the image means its "unchanged since last
+            # submission" skip compares against submissions that predate this pass, not the
+            # image attempt added next — so a genuine drawn answer is never skipped just
+            # because an image is also present.
+            try:
+                if await _grade_pending_erd_question(
+                    db=task_db, user_id=user_id, question_id=question_id,
+                    image_bytes=None, image_key=None,
+                ):
+                    graded += 1
+            except Exception:
+                logger.exception(
+                    "ER grade (xml) failed for user %s question %s", user_id, question_id
+                )
+            # Image as a SECOND attempt so a student who both drew and uploaded loses
+            # neither — best-attempt scoring keeps the higher of the two rows.
+            try:
+                if has_live_image:
+                    if await _grade_pending_erd_question(
+                        db=task_db, user_id=user_id, question_id=question_id,
+                        image_bytes=live_image_bytes, image_key=live_image_key,
+                    ):
+                        graded += 1
+                elif await _grade_pending_image_draft(
+                    db=task_db, user_id=user_id, question_id=question_id,
+                    pre_grade_last_sub_at=pre_grade_last_sub_at,
+                ):
+                    graded += 1
+            except Exception:
+                logger.exception(
+                    "ER grade (image) failed for user %s question %s", user_id, question_id
+                )
+        except Exception:
+            # Snapshot / session setup failure for this pair: never let it abort the sweep.
+            logger.exception(
+                "ER grade pair failed for user %s question %s", user_id, question_id
+            )
+        finally:
+            task_db.close()
+    return graded
+
+
 async def grade_pending_er_for_assessment(
     db: Session, assessment_id: int, user_ids: list[int]
 ) -> int:
@@ -2511,11 +2622,13 @@ async def grade_pending_er_for_assessment(
     end-of-assessment sweep does. Returns the number of (user, question) grades that
     actually ran; unchanged/empty drafts (and non-langgraph engines) are skipped.
 
-    SEQUENTIAL by design: one grade is awaited at a time, so the LLM is never flooded and the
-    sync ``db`` Session is never used concurrently. The skip-unchanged / already-graded guard
-    inside ``_grade_pending_erd_question`` (and the image skip) means untouched drafts make
-    ZERO LLM calls, so only the handful of new/changed drafts actually hit the model. Every ER
-    item is graded per student. A single pair failing is logged and does not abort the batch.
+    Runs pairs CONCURRENTLY, bounded by ``_erd_grade_semaphore`` (per-worker cap =
+    ``settings.ERD_GRADE_MAX_CONCURRENCY``), so a class-sized sweep grades up to N
+    diagrams at once without ever flooding the LLM past its token/min budget. Each pair
+    runs on its OWN session (see ``_guarded_grade_pending_pair``) — the shared ``db`` is
+    never used concurrently. The skip-unchanged / already-graded guard means untouched
+    drafts make ZERO LLM calls, so only new/changed drafts hit the model. A single pair
+    failing is logged and does not abort the batch.
     """
     er_question_ids = [
         item.item_id
@@ -2529,32 +2642,19 @@ async def grade_pending_er_for_assessment(
     if not er_question_ids:
         return 0
 
-    graded = 0
-    for uid in user_ids:
-        for qid in er_question_ids:
-            # Snapshot before grading: the XML grade below can insert a submission the
-            # image skip must not compare against (same ordering trap as finalize).
-            pre_grade_last_sub_at = _latest_submission_at(db, user_id=uid, question_id=qid)
-            try:
-                if await _grade_pending_erd_question(
-                    db=db, user_id=uid, question_id=qid, image_bytes=None, image_key=None
-                ):
-                    graded += 1
-            except Exception:
-                logger.exception(
-                    "bulk ER grade failed for user %s question %s", uid, qid
-                )
-            try:
-                if await _grade_pending_image_draft(
-                    db=db, user_id=uid, question_id=qid,
-                    pre_grade_last_sub_at=pre_grade_last_sub_at,
-                ):
-                    graded += 1
-            except Exception:
-                logger.exception(
-                    "bulk ER image grade failed for user %s question %s", uid, qid
-                )
-    return graded
+    # Release the request session's pooled connection before the concurrent phase: each
+    # pair grades on its own SessionLocal, and this function touches `db` no further.
+    db.commit()
+
+    results = await asyncio.gather(
+        *[
+            _guarded_grade_pending_pair(user_id=uid, question_id=qid)
+            for uid in user_ids
+            for qid in er_question_ids
+        ],
+        return_exceptions=True,
+    )
+    return sum(r for r in results if isinstance(r, int))
 
 
 @router.post("/finalize-pending")
@@ -2591,6 +2691,9 @@ async def finalize_pending_er(
     session = get_active_assessment_session(db, assessment_id, current_user.id)
     if session is None:
         return {"end_time": None}
+    # Capture the id before the pre-grade commit expires the ORM object, so the
+    # post-grade re-read below doesn't fire a lazy refresh on a stale instance.
+    session_id = session.id
 
     credit_start = getattr(request.state, "received_at", None) or datetime.now(timezone.utc)
 
@@ -2621,66 +2724,33 @@ async def finalize_pending_er(
         except Exception:
             image_bytes = None
 
-    for qid in er_question_ids:
-        is_image_q = image_bytes is not None and qid == image_question_id
+    # Release the request session's pooled connection before the concurrent grading
+    # phase: each question grades on its own SessionLocal (see _guarded_grade_pending_pair),
+    # and we don't touch `db` again until the credit/re-read below.
+    db.commit()
 
-        # Snapshot the latest graded-submission time BEFORE grading anything this pass, so
-        # the persisted-image skip compares against submissions that predate this finalize
-        # (the XML grade next can insert a fresh row). Only needed on the persisted-draft
-        # path — a live staged image is already known-changed (the client only hands one
-        # over when it differs from the last submitted image).
-        pre_grade_last_sub_at = (
-            None if is_image_q else _latest_submission_at(
-                db, user_id=current_user.id, question_id=qid
-            )
-        )
-
-        # Always grade the server-stored XML draft first (a no-op if the student never drew).
-        # Grading it before the image means the draft's "unchanged since last submission" skip
-        # compares against submissions that predate this finalize, not the image attempt we add
-        # next — so a genuine drawn answer is never skipped just because an image is also present.
-        try:
-            await _grade_pending_erd_question(
-                db=db,
+    # Grade every question CONCURRENTLY, bounded by the shared per-worker semaphore so a
+    # whole-class finalize can't flood the LLM past its token/min budget. Each question
+    # grades its XML draft then its image attempt (in that order) on its own session; the
+    # currently-open question hands over its live staged image, all others use the
+    # persisted image draft. Best-effort: a failing question is logged, never aborts the rest.
+    await asyncio.gather(
+        *[
+            _guarded_grade_pending_pair(
                 user_id=current_user.id,
                 question_id=qid,
-                image_bytes=None,
-                image_key=None,
+                live_image_bytes=(image_bytes if qid == image_question_id else None),
+                live_image_key=(image_key if qid == image_question_id else None),
             )
-        except Exception:
-            logger.exception("finalize-pending: XML grading failed for question %s", qid)
-
-        # Grade an uploaded image as a SECOND attempt so a student who both drew and uploaded
-        # loses neither — best-attempt scoring keeps the higher of the two rows. Source: the
-        # live staged image for the currently-open question (covers the race where its
-        # drop-upload hasn't landed), otherwise the persisted image draft — which is what lets
-        # an image on a navigated-away question be graded at all.
-        if is_image_q:
-            try:
-                await _grade_pending_erd_question(
-                    db=db,
-                    user_id=current_user.id,
-                    question_id=qid,
-                    image_bytes=image_bytes,
-                    image_key=image_key,
-                )
-            except Exception:
-                logger.exception("finalize-pending: image grading failed for question %s", qid)
-        else:
-            try:
-                await _grade_pending_image_draft(
-                    db=db,
-                    user_id=current_user.id,
-                    question_id=qid,
-                    pre_grade_last_sub_at=pre_grade_last_sub_at,
-                )
-            except Exception:
-                logger.exception("finalize-pending: image grading failed for question %s", qid)
+            for qid in er_question_ids
+        ],
+        return_exceptions=True,
+    )
 
     # Re-read the session: grades committed on fresh sessions leave this one's row
     # untouched, but a concurrent read may have lazily expired it mid-batch.
     session = (
-        db.query(AssessmentSession).filter(AssessmentSession.id == session.id).first()
+        db.query(AssessmentSession).filter(AssessmentSession.id == session_id).first()
     )
     if session is None:
         return {"end_time": None}

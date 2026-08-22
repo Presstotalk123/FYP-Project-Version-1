@@ -137,6 +137,15 @@ class Settings(BaseSettings):
     # ERD tutor engine selector: "dify" (legacy) | "langgraph" (new)
     ERD_TUTOR_ENGINE: str = "dify"
 
+    # Max concurrent ~50k-token ER grades PER WORKER. The LLM's ~500k tokens/min
+    # budget is global (account-level), so the deployment total —
+    # ERD_GRADE_MAX_CONCURRENCY × gunicorn_workers — must stay ≤ ~10 (10 × 50k =
+    # 500k). Default assumes 2 workers → 5 each. This is per-worker for the same
+    # reason DB_POOL_SIZE is (see database.py's "with 2 workers…" note): an
+    # in-process asyncio.Semaphore can't coordinate across workers, so the budget
+    # is divided. Adjust if the worker count changes.
+    ERD_GRADE_MAX_CONCURRENCY: int = 5
+
     # ERD rubric-generation engine selector: "dify" (legacy) | "langgraph" (new)
     ERD_RUBRIC_ENGINE: str = "dify"
 

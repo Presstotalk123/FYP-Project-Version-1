@@ -8,6 +8,7 @@ import {
   Button,
   Container,
   Group,
+  Image,
   Modal,
   Paper,
   ScrollArea,
@@ -194,6 +195,10 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   useWarnBeforeUnload(!!backUrl);
   const [submissionMode, setSubmissionMode] = useState<"drawio" | "image" | null>(null);
   const [submissionImageFiles, setSubmissionImageFiles] = useState<File[]>([]);
+  // Object URL for previewing the staged image (fresh drop or restored draft).
+  // Recreated whenever the staged file changes and revoked on change/unmount so
+  // a replace never leaks a blob URL.
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [chatSending, setChatSending] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -230,6 +235,16 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
     questionId: question.id,
     onRestore: handleRestoreImage,
   });
+  useEffect(() => {
+    const file = submissionImageFiles[0];
+    if (!file) {
+      setImagePreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [submissionImageFiles]);
   const guide = useErdGuideDismissed(userId);
   const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[] | null>(null);
   const [descModalOpen, setDescModalOpen] = useState(false);
@@ -1055,21 +1070,34 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
                       </Group>
                     </Dropzone>
                     {submissionImageFiles.length > 0 ? (
-                      <Alert
-                        icon={<IconAlertCircle size={16} />}
-                        color="green"
-                        title="Image selected"
-                        withCloseButton
-                        closeButtonLabel="Remove image"
-                        onClose={() => {
-                          setSubmissionImageFiles([]);
-                          // Clear the autosaved draft (row + blob + local cache) so
-                          // finalize grades nothing for a removed image.
-                          imageDraft.removeImage();
-                        }}
-                      >
-                        {submissionImageFiles[0]?.name}
-                      </Alert>
+                      <Stack gap="xs">
+                        <Alert
+                          icon={<IconAlertCircle size={16} />}
+                          color="green"
+                          title="Image selected"
+                          withCloseButton
+                          closeButtonLabel="Remove image"
+                          onClose={() => {
+                            setSubmissionImageFiles([]);
+                            // Clear the autosaved draft (row + blob + local cache) so
+                            // finalize grades nothing for a removed image.
+                            imageDraft.removeImage();
+                          }}
+                        >
+                          {submissionImageFiles[0]?.name}
+                        </Alert>
+                        {imagePreviewUrl ? (
+                          <Paper withBorder radius="md" p="xs">
+                            <Image
+                              src={imagePreviewUrl}
+                              alt={submissionImageFiles[0]?.name ?? "Uploaded ER diagram"}
+                              fit="contain"
+                              mah={220}
+                              radius="sm"
+                            />
+                          </Paper>
+                        ) : null}
+                      </Stack>
                     ) : null}
                     <Group justify="flex-end">
                       <Button onClick={handleSubmitImage} loading={submitLoading} disabled={chatSending}>

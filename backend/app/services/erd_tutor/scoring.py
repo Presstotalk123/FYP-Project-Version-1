@@ -1,5 +1,7 @@
 import json
 
+from app.services.erd_tutor.name_matching import flag as _policy_flag, is_naming_check
+
 def _to_dict(x):
     if isinstance(x, dict): return x
     if isinstance(x, str):
@@ -58,8 +60,22 @@ def compute_grade(judge_result: dict, rubric: dict, prev: dict) -> dict:
         # Enforce the rubric's own policy here so a non-compliant judge cannot
         # award half marks on a check that does not allow them. Rubrics without a
         # decision_policy (pre-LangGraph, or Dify-authored) are left untouched.
+        #
+        # Naming checks are exempt. GRADE_SYSTEM rule 16 makes "partial" the
+        # defined outcome for a token mismatch under exact_name_required, and it
+        # is the ONLY route to partial that rule 12 allows at all. The generator
+        # prompt gives partial_allowed guidance for structural checks only, so on
+        # naming checks the value is unguided — and it lands "false" on 403 of the
+        # 409 naming checks in the stored rubrics, which deleted rule 16 outright
+        # and turned every synonym into a whole-check fail (48 of 100 points on
+        # question 30). The flag is honoured everywhere else.
+        #
+        # _policy_flag, not `is False`: eight rubrics store these flags as the
+        # strings "true"/"false", so an identity test enforced the same declared
+        # policy on some questions and ignored it on others.
         policy = rc.get("decision_policy")
-        if status == "partial" and isinstance(policy, dict) and policy.get("partial_allowed") is False:
+        if (status == "partial" and _policy_flag(policy, "partial_allowed") is False
+                and not is_naming_check(rc)):
             fallback = policy.get("unclear_evidence_policy")
             status = fallback if fallback in {"pass", "fail", "not_applicable"} else "fail"
             reason = (f"{reason} [Grader returned partial, which this check does not "

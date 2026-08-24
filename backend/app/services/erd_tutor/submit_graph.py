@@ -15,10 +15,12 @@ from app.services.erd_tutor.state import GraphState
 from app.services.erd_tutor.nodes import observe_node, normalize_node, grade_node
 from app.services.erd_tutor.scoring import compute_grade
 from app.services.erd_tutor.deterministic_checks import apply_deterministic_overrides
+from app.services.erd_tutor.name_matching import apply_naming_overrides
 
 
 def _score_node(state: dict) -> dict:
     rubric = _as_dict(state["rubric_json"])
+    canonical = state.get("canonical_erd") or {}
     # Cardinality checks whose rubric target names two explicit endpoints are
     # decided by comparing those values against the canonical model in Python.
     # Measured: the judge repeatedly failed endpoint-for-endpoint matches as
@@ -27,8 +29,13 @@ def _score_node(state: dict) -> dict:
     # judgment call. Everything the comparison cannot decide mechanically —
     # equivalences, unlocatable structure, unparseable values — keeps the
     # judge's verdict untouched.
-    judge = apply_deterministic_overrides(state["judge"], rubric,
-                                          state.get("canonical_erd") or {})
+    judge = apply_deterministic_overrides(state["judge"], rubric, canonical)
+    # The same argument applied to names. A rubric that requires the attribute
+    # "name" and a box labelled "Names" differ in one letter of inflection, not
+    # in meaning, and the judge decided those cases from prose rules alone.
+    # Only exact-after-normalization matches are decided here; a true synonym
+    # ("client" for "customer") keeps the judge's verdict.
+    judge = apply_naming_overrides(judge, rubric, canonical)
     return {"result": compute_grade(judge, rubric,
                                     state.get("last_submit_report", {}))}
 

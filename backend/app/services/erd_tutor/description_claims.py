@@ -50,6 +50,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.services.erd_tutor.llm import make_llm
+from app.services.erd_tutor.name_matching import normalize_label
 
 logger = logging.getLogger(__name__)
 
@@ -152,15 +153,14 @@ def _norm(text: str) -> str:
 
     Prose and diagram labels diverge in punctuation and number far more often
     than in wording — "Membership-type" versus "membership type", "Orders"
-    versus "Order". The "ss" guard keeps "Address" from becoming "addres" and
-    failing to match itself.
+    versus "Order".
+
+    The rule now lives in name_matching, because the grader compares a rubric
+    name against a drawn label with the same question in mind. Two copies would
+    drift, and then a name the merge stage accepted could be one the grader
+    rejected.
     """
-    t = re.sub(r"[^a-z0-9]", "", (text or "").lower())
-    if len(t) > 4 and t.endswith("sses"):
-        t = t[:-2]  # "addresses" -> "address": keep the double s, drop the "es"
-    elif len(t) > 3 and t.endswith("s") and not t.endswith("ss"):
-        t = t[:-1]
-    return t
+    return normalize_label(text)
 
 
 def resolve_name(name: str, items) -> Optional[str]:

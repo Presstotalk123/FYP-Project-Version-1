@@ -1024,6 +1024,24 @@ Status policy:
    case and is NOT grounds for withholding a pass. Say in brief_reason which
    equivalence you applied (rule 20).
 
+14c. The three naming fields in decision_policy are binding, and they override
+   the general naming rules 16 to 18 for this check:
+   - exact_name_required: true -> the rubric's token is fixed. A different token
+     with the same meaning is "partial", never "pass".
+   - semantic_alias_allowed: true -> a different token with the same meaning is
+     "pass" (client for customer, staff for employee).
+   - abbreviation_allowed: true -> a short form of the required token is "pass"
+     (cust_id for customer_id, emp_no for employee_number, P# for part_number).
+   When a field is absent from decision_policy, apply rules 16 to 18 instead.
+
+14d. A label is the SAME name as the rubric's token, never a different one, when
+   it differs only in:
+   - letter case ("Names", "NAME", "name")
+   - punctuation or spacing ("membership type", "membership_type", "Membership-Type")
+   - singular or plural form ("Names" for "name", "Orders" for "Order")
+   This holds even when exact_name_required is true. Those are inflections of one
+   token, not another token, so rule 16 does not apply and the status is "pass".
+
 Problem statement policy:
 15. Problem_Statement defines the target semantics.
    - It does NOT replace missing student evidence unless the rubric explicitly allows that equivalence.

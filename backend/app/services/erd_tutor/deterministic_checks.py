@@ -11,15 +11,29 @@ an endpoint is that entity's own (min,max) participation), this comparison is
 mechanical — so it is done here in Python, the same reasoning that put scoring
 in ``scoring.py``.
 
-POLICY (deliberately asymmetric, conservative about equivalences)
+POLICY (conservative about equivalences; missing is a lesser error than wrong)
 For each rubric check with dimension "cardinality" and two explicit endpoints:
   * definite endpoint MATCH        -> override the judge to pass
-  * definite MISMATCH or unreadable evidence, and the check has NO
-    equivalence_options             -> override the judge to fail, naming the
+  * definite MISMATCH, and the check has NO equivalence_options
+                                    -> override the judge to fail, naming the
                                        exact endpoint and values
+  * no contradiction, at least one required bound confirmed, the rest not
+    stated in the diagram, and NO equivalence_options
+                                    -> override the judge to partial. A student
+                                       who draws the maximum correctly and
+                                       omits the minimum made a lesser error
+                                       than one who drew a wrong value; before
+                                       this rule both lost the full check.
+  * nothing readable at either endpoint, and NO equivalence_options
+                                    -> override the judge to fail
   * anything else (structure not locatable, equivalence options present and
     direct evidence absent/mismatched, unparseable rubric values)
                                     -> leave the judge's verdict untouched
+A rubric endpoint constrains only the components it states: a bare "N" with no
+participation value checks the maximum alone, so any drawn minimum satisfies
+it. Every check decided here is stamped decided_by="deterministic"; scoring.py
+uses the stamp to keep a deliberate partial that it would strip from the judge
+(an LLM returning partial out of mere uncertainty, which rule 13 forbids).
 An "associative bridge" is treated as direct evidence: if A and B have no
 direct relationship but both connect to one common entity X (e.g. an
 associative/weak entity), A's endpoint on rel(A,X) and B's endpoint on
@@ -142,18 +156,26 @@ class _Model:
 
 
 def _match(required, found):
-    """required/found are (min,max); None = unknown. -> 'match' | 'mismatch' | 'unknown'"""
+    """required/found are (min,max); None = unknown.
+
+    -> (verdict, confirmed): verdict is 'match' | 'mismatch' | 'unknown';
+    confirmed counts required components the diagram states AND matches. The
+    count is what separates "partly verified" (-> partial) from "nothing
+    readable at all" (-> fail).
+    """
     r_lo, r_hi = required
     f_lo, f_hi = found
-    verdict = "match"
+    verdict, confirmed = "match", 0
     for r, f in ((r_lo, f_lo), (r_hi, f_hi)):
         if r is None:
             continue  # rubric does not constrain this component
         if f is None:
             verdict = "unknown"
         elif f != r:
-            return "mismatch"
-    return verdict
+            return ("mismatch", confirmed)
+        else:
+            confirmed += 1
+    return (verdict, confirmed)
 
 
 def _fmt(rng):
@@ -209,26 +231,32 @@ def _apply(judge_result, rubric, canonical):
         if not candidates:
             continue  # no structure found -> judge keeps it (may be equivalence)
 
-        best = None  # (verdict_rank, detail) — prefer a match over unknown over mismatch
+        # Prefer a match over a partly-confirmed unknown, that over a fully
+        # unreadable one, and any of them over a mismatch. A single recorded
+        # endpoint still counts: one labelled end and one bare end is partial
+        # evidence, not unreadable evidence.
+        best = None  # (verdict, confirmed, detail)
         rank = {"match": 0, "unknown": 1, "mismatch": 2}
         for rel_a, rel_b in candidates:
             found_a = model.endpoint(rel_a, ids[0])
             found_b = model.endpoint(rel_b, ids[1])
-            if found_a is None or found_b is None:
-                verdict, detail = "unknown", "endpoint not recorded"
+            if found_a is None and found_b is None:
+                verdict, confirmed, detail = "unknown", 0, "endpoint not recorded"
             else:
-                v_a = _match(wanted[0][1], found_a)
-                v_b = _match(wanted[1][1], found_b)
+                fa, fb = found_a or (None, None), found_b or (None, None)
+                v_a, c_a = _match(wanted[0][1], fa)
+                v_b, c_b = _match(wanted[1][1], fb)
+                confirmed = c_a + c_b
                 verdict = ("mismatch" if "mismatch" in (v_a, v_b)
                            else "unknown" if "unknown" in (v_a, v_b) else "match")
-                detail = (f"{wanted[0][0]}: required {_fmt(wanted[0][1])}, drawn {_fmt(found_a)}; "
-                          f"{wanted[1][0]}: required {_fmt(wanted[1][1])}, drawn {_fmt(found_b)}")
-            if best is None or rank[verdict] < rank[best[0]]:
-                best = (verdict, detail)
+                detail = (f"{wanted[0][0]}: required {_fmt(wanted[0][1])}, drawn {_fmt(fa)}; "
+                          f"{wanted[1][0]}: required {_fmt(wanted[1][1])}, drawn {_fmt(fb)}")
+            if best is None or (rank[verdict], -confirmed) < (rank[best[0]], -best[1]):
+                best = (verdict, confirmed, detail)
                 if verdict == "match":
                     break
 
-        verdict, detail = best
+        verdict, confirmed, detail = best
         via = " (via the associative entity)" if via_bridge else ""
         jc = by_id.get(cid)
         if jc is None:
@@ -237,15 +265,29 @@ def _apply(judge_result, rubric, canonical):
         if verdict == "match":
             jc["status"] = "pass"
             jc["brief_reason"] = f"Endpoint values match the requirement{via}: {detail}."
-        elif not has_equiv:
-            # Definite mismatch, or unreadable evidence, with no equivalence escape:
-            # the binding decision_policy (unclear_evidence_policy=fail) applies.
-            jc["status"] = "fail"
-            word = "do not match the requirement" if verdict == "mismatch" \
-                else "could not be read from the diagram"
-            jc["brief_reason"] = f"Endpoint values {word}{via}: {detail}."
-        else:
+        elif has_equiv:
             continue  # equivalence options exist and direct evidence is not a match
+        elif verdict == "mismatch":
+            # A stated value contradicts the rubric: the binding decision_policy
+            # (unclear_evidence_policy=fail) applies with no softening.
+            jc["status"] = "fail"
+            jc["brief_reason"] = f"Endpoint values do not match the requirement{via}: {detail}."
+        elif confirmed:
+            # Missing is not wrong. Nothing the student drew contradicts the
+            # requirement and part of it is confirmed; the rest is simply not
+            # stated. Half marks, and the reason names what is absent.
+            jc["status"] = "partial"
+            jc["brief_reason"] = (f"Partly verified{via}: no drawn value contradicts the "
+                                  f"requirement, but not every required bound is stated "
+                                  f"in the diagram: {detail}.")
+        else:
+            # The structure is drawn but carries no readable cardinality
+            # evidence at all — there is nothing to award.
+            jc["status"] = "fail"
+            jc["brief_reason"] = f"Endpoint values could not be read from the diagram{via}: {detail}."
+        # The stamp lets scoring.py tell this deliberate decision apart from a
+        # judge LLM hedging with "partial" where its policy forbids one.
+        jc["decided_by"] = "deterministic"
         by_id[cid] = jc
 
     judge["checks"] = [by_id.get(str(j.get("id")), j) for j in judge.get("checks") or []]

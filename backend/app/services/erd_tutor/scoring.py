@@ -73,9 +73,16 @@ def compute_grade(judge_result: dict, rubric: dict, prev: dict) -> dict:
         # _policy_flag, not `is False`: eight rubrics store these flags as the
         # strings "true"/"false", so an identity test enforced the same declared
         # policy on some questions and ignored it on others.
+        #
+        # A partial stamped decided_by="deterministic" is also kept. That status
+        # is a deliberate code decision (deterministic_checks: no drawn value
+        # contradicts the rubric, part of it is confirmed, the rest is not
+        # stated), not an LLM hedging against uncertainty — and the hedging is
+        # the behaviour this enforcement exists to stop.
         policy = rc.get("decision_policy")
         if (status == "partial" and _policy_flag(policy, "partial_allowed") is False
-                and not is_naming_check(rc)):
+                and not is_naming_check(rc)
+                and jc.get("decided_by") != "deterministic"):
             fallback = policy.get("unclear_evidence_policy")
             status = fallback if fallback in {"pass", "fail", "not_applicable"} else "fail"
             reason = (f"{reason} [Grader returned partial, which this check does not "

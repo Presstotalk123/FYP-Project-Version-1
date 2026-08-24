@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
+import { ErRegradeControl } from '@/components/admin/ErRegradeControl';
 import {
   DRAWIO_RENDERER_URL,
   OFFSCREEN_FRAME_STYLE,
@@ -102,8 +103,12 @@ export default function ErQuestionAnalyticsPage() {
   // ?student=<id> opens that student's attempts straight away, so a link from the
   // assessment gradebook lands on the person being looked at rather than on the
   // class table with them still to be found.
-  const focusStudent = Number(useSearchParams().get('student')) || null;
+  const searchParams = useSearchParams();
+  const focusStudent = Number(searchParams.get('student')) || null;
   const autoOpened = useRef(false);
+  // ?regrade=1 opens the regrade dialog on arrival — the rubric editor routes
+  // here after a save so "save, then choose whether to regrade" is one flow.
+  const autoRegrade = searchParams.get('regrade') === '1';
 
   useEffect(() => {
     if (!focusStudent || autoOpened.current || !data) return;
@@ -286,6 +291,13 @@ export default function ErQuestionAnalyticsPage() {
           </div>
         </div>
 
+        <ErRegradeControl
+          questionId={questionId}
+          classGroups={classGroups}
+          autoOpen={autoRegrade}
+          onFinished={() => setReloadKey((k) => k + 1)}
+        />
+
         {error && (
           <div className="da-alert alert-error" role="alert">
             <strong>Error</strong>
@@ -411,7 +423,18 @@ export default function ErQuestionAnalyticsPage() {
                         <tr key={a.id}>
                           <td>{i + 1}</td>
                           <td>{a.created_at ? new Date(a.created_at).toLocaleString() : '—'}</td>
-                          <td>{pct(a.percent)} {a.label ? `(${a.label})` : ''}</td>
+                          <td>
+                            {pct(a.percent)} {a.label ? `(${a.label})` : ''}
+                            {a.regraded_at && (
+                              <span
+                                className="badge badge-info"
+                                style={{ marginLeft: 8 }}
+                                title={`Regraded ${new Date(a.regraded_at).toLocaleString()}`}
+                              >
+                                Regraded
+                              </span>
+                            )}
+                          </td>
                           <td>{a.hint_level_at_submit ?? '—'}</td>
                           <td>{a.ibl_stage_at_submit ?? '—'}</td>
                           <td>
@@ -466,6 +489,15 @@ export default function ErQuestionAnalyticsPage() {
                     Overridden from {pct(attempt.override.original_score.percent)} by{' '}
                     {attempt.override.by_email ?? 'staff'} on{' '}
                     {new Date(attempt.override.at).toLocaleString()} — “{attempt.override.reason}”
+                  </span>
+                </div>
+              )}
+
+              {attempt.regraded_at && (
+                <div className="da-alert alert-info" style={{ fontSize: 12 }}>
+                  <span>
+                    Regraded against the current rubric on{' '}
+                    {new Date(attempt.regraded_at).toLocaleString()}.
                   </span>
                 </div>
               )}

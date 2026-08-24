@@ -81,6 +81,43 @@ export async function fetchSubmissionImage(submissionId: number): Promise<string
   return URL.createObjectURL(r.data);
 }
 
+/** Snapshot of a question's regrade job. `exists: false` means no job ran
+ *  since the server started. */
+export interface RegradeStatus {
+  exists: boolean;
+  question_id?: number;
+  class_group?: string | null;
+  status?: "running" | "done" | "failed";
+  total?: number;
+  completed?: number;
+  regraded?: number;
+  skipped?: number;
+  failed?: number;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+/** Start a background regrade of every stored submission for this question
+ *  against its current rubric — staff overrides included. `classGroup` limits
+ *  the run to one group's students; omit it to regrade everyone. */
+export async function startRegrade(
+  questionId: number,
+  classGroup?: string | null,
+): Promise<RegradeStatus> {
+  const r = await api.post<RegradeStatus>(API_ENDPOINTS.ER_ANALYTICS.REGRADE(questionId), {
+    class_group: classGroup || null,
+  });
+  return { ...r.data, exists: true };
+}
+
+export async function fetchRegradeStatus(questionId: number): Promise<RegradeStatus> {
+  const r = await api.get<RegradeStatus>(
+    API_ENDPOINTS.ER_ANALYTICS.REGRADE_STATUS(questionId),
+  );
+  return r.data;
+}
+
 /** Where the diagram came from, echoed back so the UI can name it. */
 export type AddedSubmissionSource = "draft" | "xml" | "image";
 

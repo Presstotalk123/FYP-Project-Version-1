@@ -65,6 +65,9 @@ export const API_ENDPOINTS = {
     /** Staff create a submission for a student who never submitted one. */
     ADD_STUDENT_SUBMISSION: (id: number, studentId: number) =>
       `/er-diagram/questions/${id}/students/${studentId}/submission`,
+    /** Regrade every stored submission against the current rubric. */
+    REGRADE: (id: number) => `/er-diagram/questions/${id}/regrade`,
+    REGRADE_STATUS: (id: number) => `/er-diagram/questions/${id}/regrade/status`,
   },
   SQL_ANALYTICS: {
     QUESTION: (id: number) => `/questions/${id}/analytics`,

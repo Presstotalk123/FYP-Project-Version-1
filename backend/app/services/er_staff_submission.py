@@ -87,12 +87,17 @@ def load_draft_xml(db: Session, *, user_id: int, question_id: int) -> str:
 
 
 async def _collect_done(
-    *, question, xml_text, image_bytes, ibl_stage, hint_level, last_report
+    *, question, xml_text, image_bytes, ibl_stage, hint_level, last_report,
+    submission_description: Optional[str] = None,
 ) -> Optional[dict]:
     """Drive the submit stream and return its ``done`` payload, or None.
 
     The runner emits SSE text rather than objects, so the terminal event is parsed
     back out here — the same shape the live passthrough wrapper reads.
+
+    ``submission_description`` stays None for staff-added grades (the staff reason
+    is a note, not evidence). The regrade service passes the student's stored
+    description through, because it fed the original grade and must feed the replay.
     """
     stream = erd_runner.stream_er_submission_grading(
         question_id=question.id,
@@ -104,7 +109,7 @@ async def _collect_done(
         ibl_stage=ibl_stage,
         hint_level=hint_level,
         last_submit_report=last_report,
-        submission_description=None,
+        submission_description=submission_description,
     )
 
     buffer = ""

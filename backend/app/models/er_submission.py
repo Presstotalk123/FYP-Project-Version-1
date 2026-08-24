@@ -49,6 +49,13 @@ class ErSubmission(Base):
     overridden_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     overridden_at = Column(DateTime(timezone=True), nullable=True)
 
+    # When the stored grade was last replaced by a rubric regrade (see
+    # services/er_regrade.py). NULL = the grade is still the one produced at
+    # submit time (or by a staff override). Set on every regrade pass, so it
+    # always names the run that produced the current numbers; the journey and
+    # the attempt view badge on it.
+    regraded_at = Column(DateTime(timezone=True), nullable=True)
+
     # A staff member created this row from a diagram the student never submitted —
     # the assessment timer closes the session without submitting the open canvas, so
     # a saved draft with no grade is the normal shape of a lost attempt.

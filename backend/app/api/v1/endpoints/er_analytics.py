@@ -18,7 +18,7 @@ from app.dependencies import require_staff_role
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.er_submission import ErSubmission
 from app.models.user import User
-from app.services import er_staff_submission
+from app.services import er_regrade, er_staff_submission
 from app.utils.er_storage import get_er_storage_provider
 from app.services.er_analytics import (
     class_overview,
@@ -178,6 +178,8 @@ def get_submission_detail(
         # Override provenance. `override` is null for an untouched attempt, so the
         # UI can tell "graded by the AI" from "corrected by a person".
         "override": _override_view(db, row),
+        # Non-null when a rubric regrade replaced this attempt's grade.
+        "regraded_at": row.regraded_at.isoformat() if row.regraded_at else None,
         # Whether adjusting this attempt would move the student's mark. Shown up
         # front so staff are not surprised by a correction that only lands in
         # analytics — see er_score_override._sync_conversation.
@@ -277,6 +279,71 @@ def get_class_overview(
         key=("overview", context, class_group or ""),
         producer=lambda: class_overview(db, context, class_group),
     )
+
+
+class RegradeRequest(BaseModel):
+    """Scope for a regrade run. `class_group` limits it to one group's students;
+    None means every submission of the question."""
+    class_group: Optional[str] = None
+
+
+@router.post("/questions/{question_id}/regrade")
+async def start_question_regrade(
+    question_id: int,
+    body: RegradeRequest,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """Regrade every stored submission of this question against its current
+    rubric, staff overrides included. An explicit staff choice — the rubric
+    editor offers it after a save, it never runs on its own.
+
+    Runs as a background job (one per question) because a full class is many
+    30-90 s pipeline runs — far past any request timeout. Progress is read from
+    the status endpoint below. Each row commits on its own, so a crashed job
+    keeps every grade it already produced and a re-run continues safely.
+    """
+    if settings.ERD_TUTOR_ENGINE != "langgraph":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Regrading requires the langgraph grading engine.",
+        )
+    question = (
+        db.query(ERDiagramQuestion)
+        .filter(ERDiagramQuestion.id == question_id,
+                ERDiagramQuestion.is_deleted == 0)
+        .first()
+    )
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Question not found")
+    if er_regrade.count_submissions(db, question_id, body.class_group) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No submissions match this scope."
+                if body.class_group
+                else "This question has no submissions to regrade."
+            ),
+        )
+    try:
+        return er_regrade.start_regrade(question_id, body.class_group)
+    except er_regrade.RegradeAlreadyRunning as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
+@router.get("/questions/{question_id}/regrade/status")
+def get_question_regrade_status(
+    question_id: int,
+    _staff: User = Depends(require_staff_role),
+):
+    """Snapshot of the question's regrade job, or {"exists": false} when none
+    ran since startup. In-process registry: under several workers a poll can
+    land on a worker that never saw the job."""
+    snapshot = er_regrade.job_status(question_id)
+    if snapshot is None:
+        return {"exists": False}
+    return {"exists": True, **snapshot}
 
 
 @router.get("/questions/{question_id}/students/{student_id}/draft")

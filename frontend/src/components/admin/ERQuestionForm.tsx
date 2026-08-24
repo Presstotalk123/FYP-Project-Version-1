@@ -80,6 +80,9 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
   const [isSaved, setIsSaved] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [savedQuestionId, setSavedQuestionId] = useState<number | null>(null);
+  // The parsed rubric captured when the save-choice modal opened, so its buttons
+  // save exactly what was validated. Non-null = the modal is open.
+  const [pendingSaveRubric, setPendingSaveRubric] = useState<ERRubricJson | null>(null);
 
   const attemptCount = question?.attempt_count ?? 0;
 
@@ -316,16 +319,22 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
       return;
     }
 
-    // Students graded against the current rubric keep their old scores, so make
-    // the author aware before the rubric moves under them.
+    // Students graded against the current rubric keep their old scores, so the
+    // save pauses on an in-app choice — cancel, save only, or save and then
+    // regrade. An app modal, not window.confirm: the rest of this form is
+    // Mantine UI, and a native alert cannot offer the third option anyway.
     if (isEdit && attemptCount > 0) {
-      const confirmed = window.confirm(
-        `${attemptCount} student${attemptCount === 1 ? " has" : "s have"} already been graded ` +
-          `against the current rubric. Their scores will not be recalculated. Save anyway?`,
-      );
-      if (!confirmed) return;
+      setPendingSaveRubric(committedRubricJson);
+      return;
     }
 
+    await performSave(committedRubricJson, false);
+  };
+
+  const performSave = async (committedRubricJson: ERRubricJson, regradeAfter: boolean) => {
+    // handleSaveRubric validated this before the call; the local check is what
+    // carries the non-null narrowing into this function.
+    if (!difficulty) return;
     setIsSaving(true);
     const derivedRubricMarkdown = getDerivedRubricMarkdown(committedRubricJson);
 
@@ -353,7 +362,11 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
         // refetchType 'all' is required: the query client sets refetchOnMount
         // false, so a plain invalidate would leave the unmounted lists stale.
         await queryClient.invalidateQueries({ queryKey: queryKeys.erdQuestions, refetchType: "all" });
-        router.push("/admin/problems");
+        // "Save and regrade" routes to the analytics page, whose dialog
+        // (?regrade=1) owns the class-group scope and the run itself.
+        router.push(
+          regradeAfter ? `/admin/er-analytics/${question.id}?regrade=1` : "/admin/problems",
+        );
         return;
       }
 
@@ -663,6 +676,70 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
           </Stack>
         </Card>
       </Grid.Col>
+
+      {/* Save choice for a question that already has graded attempts: cancel,
+          save only, or save and then regrade. A hand-rolled overlay (the
+          ErRegradeControl pattern), not a Mantine <Modal>: on this build the
+          Mantine Modal mounts an empty root and shows nothing — the model
+          answer zoom on this same page has the identical defect. */}
+      {pendingSaveRubric !== null && (
+        <div
+          role="dialog"
+          aria-label="Save rubric changes"
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300,
+          }}
+          onClick={() => setPendingSaveRubric(null)}
+        >
+          <Card
+            withBorder
+            style={{ maxWidth: 520, width: "92%" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Stack gap="sm">
+              <Text fw={600}>Save rubric changes?</Text>
+              <Text size="sm">
+                {attemptCount} student{attemptCount === 1 ? " has" : "s have"} already
+                been graded against the current rubric. The save does not change their
+                scores by itself.
+              </Text>
+              {isStaff && (
+                <Text size="sm" c="dimmed">
+                  “Save and regrade” opens the analytics page, where you choose the
+                  class group and start the regrade.
+                </Text>
+              )}
+              <Group justify="flex-end" mt="xs">
+                <Button variant="default" onClick={() => setPendingSaveRubric(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="light"
+                  onClick={() => {
+                    const rubric = pendingSaveRubric;
+                    setPendingSaveRubric(null);
+                    if (rubric) void performSave(rubric, false);
+                  }}
+                >
+                  Save only
+                </Button>
+                {isStaff && (
+                  <Button
+                    onClick={() => {
+                      const rubric = pendingSaveRubric;
+                      setPendingSaveRubric(null);
+                      if (rubric) void performSave(rubric, true);
+                    }}
+                  >
+                    Save and regrade…
+                  </Button>
+                )}
+              </Group>
+            </Stack>
+          </Card>
+        </div>
+      )}
 
       {/* Full-size model answer. Fullscreen rather than a sized modal because an
           ERD is wide, and the body scrolls so a diagram larger than the viewport

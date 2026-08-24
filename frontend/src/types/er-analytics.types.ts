@@ -51,6 +51,8 @@ export interface AttemptSummary {
   hint_level_at_submit: number | null;
   ibl_stage_at_submit: string | null;
   has_image: boolean;
+  /** Non-null when a rubric regrade replaced this attempt's grade. */
+  regraded_at: string | null;
 }
 
 export interface StudentSubmissions {
@@ -119,6 +121,8 @@ export interface SubmissionDetail {
   has_image: boolean;
   hint_level_at_submit: number | null;
   ibl_stage_at_submit: string | null;
+  /** Non-null when a rubric regrade replaced this attempt's grade. */
+  regraded_at: string | null;
 }
 
 export interface ClassOverview {

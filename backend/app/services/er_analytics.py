@@ -348,6 +348,9 @@ def student_submissions(db: Session, question_id: int, student_id: int) -> dict:
         "hint_level_at_submit": r.hint_level_at_submit,
         "ibl_stage_at_submit": r.ibl_stage_at_submit,
         "has_image": bool(r.submitted_image_storage_key),
+        # Non-null when a rubric regrade replaced this attempt's grade; the
+        # journey badges on it.
+        "regraded_at": r.regraded_at.isoformat() if r.regraded_at else None,
     } for r in rows]
 
     conv = (

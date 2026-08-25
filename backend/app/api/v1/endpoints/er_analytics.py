@@ -308,16 +308,20 @@ async def start_question_regrade(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Regrading requires the langgraph grading engine.",
         )
+    # Normalized to the family master: assessment attempts are stored on clone
+    # questions, the master's rubric is the one staff edit, and one job key per
+    # family keeps two entry points from racing over the same rows.
+    master_id = er_regrade.family_master_id(db, question_id)
     question = (
         db.query(ERDiagramQuestion)
-        .filter(ERDiagramQuestion.id == question_id,
+        .filter(ERDiagramQuestion.id == master_id,
                 ERDiagramQuestion.is_deleted == 0)
         .first()
     )
     if question is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Question not found")
-    if er_regrade.count_submissions(db, question_id, body.class_group) == 0:
+    if er_regrade.count_submissions(db, master_id, body.class_group) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -327,7 +331,7 @@ async def start_question_regrade(
             ),
         )
     try:
-        return er_regrade.start_regrade(question_id, body.class_group)
+        return er_regrade.start_regrade(master_id, body.class_group)
     except er_regrade.RegradeAlreadyRunning as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
@@ -335,12 +339,14 @@ async def start_question_regrade(
 @router.get("/questions/{question_id}/regrade/status")
 def get_question_regrade_status(
     question_id: int,
+    db: Session = Depends(get_db),
     _staff: User = Depends(require_staff_role),
 ):
     """Snapshot of the question's regrade job, or {"exists": false} when none
-    ran since startup. In-process registry: under several workers a poll can
-    land on a worker that never saw the job."""
-    snapshot = er_regrade.job_status(question_id)
+    ran since startup. Jobs are keyed by the family master, so a clone id polls
+    the same job. In-process registry: under several workers a poll can land on
+    a worker that never saw the job."""
+    snapshot = er_regrade.job_status(er_regrade.family_master_id(db, question_id))
     if snapshot is None:
         return {"exists": False}
     return {"exists": True, **snapshot}

@@ -1,10 +1,16 @@
-"""Regrade every stored submission of one ER question against its current rubric.
+"""Regrade every stored submission of an ER question family against the master's
+current rubric.
 
 Staff run this after they edit a rubric. It is an explicit choice, never a side
-effect of the edit itself, and it can be scoped to one class group. Each stored
-attempt is replayed through the same submit pipeline the student used, from the
-inputs the row already holds (XML first, image as fallback, plus the student's
-own description and the stage/hint recorded at submit time).
+effect of the edit itself, and it can be scoped to one class group. The scope is
+the question FAMILY (the bank master plus its assessment clones), because
+assessment attempts are stored against the clone id — the master's analytics
+page shows them, so the regrade must reach them too. Each stored attempt is
+replayed through the same submit pipeline the student used, from the inputs the
+row already holds (XML first, image as fallback, plus the student's own
+description and the stage/hint recorded at submit time), and graded against the
+master's current rubric — which is then copied onto the clones so the stored
+grades stay readable against the rubric that produced them.
 
 The replay result replaces the row's grade in place. A staff override is
 replaced too — the caller asked for a clean recalculation — so the override
@@ -37,10 +43,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.core.cache import Ns, bump_version
 from app.database import SessionLocal
+from app.models.assessment_item import AssessmentItem
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.er_submission import ErSubmission
 from app.models.user import User
 from app.services import assessment_scoring
+from app.services.er_analytics import question_family
 
 # Module-scope alias so tests can monkeypatch er_regrade.collect_done, the same
 # by-attribute pattern the erd_tutor tests use on the runner.
@@ -70,9 +78,9 @@ def _flt(value):
         return None
 
 
-def _submissions_query(db: Session, question_id: int, class_group: Optional[str]):
+def _submissions_query(db: Session, question_ids: list[int], class_group: Optional[str]):
     query = db.query(ErSubmission).filter(
-        ErSubmission.er_diagram_question_id == question_id
+        ErSubmission.er_diagram_question_id.in_(question_ids)
     )
     if class_group:
         query = query.join(User, User.id == ErSubmission.user_id).filter(
@@ -81,9 +89,28 @@ def _submissions_query(db: Session, question_id: int, class_group: Optional[str]
     return query
 
 
+def family_master_id(db: Session, question_id: int) -> int:
+    """The bank master of a question family — the id itself unless it is an
+    assessment clone, in which case the id its item was repointed from.
+
+    The regrade normalizes every entry point to the master: the master's rubric
+    is the one staff edit, and one job key per family stops a master-page run
+    and a clone-id run racing over the same rows."""
+    return (
+        db.query(AssessmentItem.source_item_id)
+        .filter(AssessmentItem.item_type == "er_question",
+                AssessmentItem.item_id == question_id,
+                AssessmentItem.source_item_id.isnot(None))
+        .scalar()
+    ) or question_id
+
+
 def count_submissions(db: Session, question_id: int, class_group: Optional[str] = None) -> int:
-    """How many rows a regrade with this scope would touch — for the start guard."""
-    return _submissions_query(db, question_id, class_group).count()
+    """How many rows a regrade with this scope would touch — for the start guard.
+
+    Family-wide, matching what the analytics page shows: assessment attempts are
+    recorded against the clone question, not the master staff look at."""
+    return _submissions_query(db, question_family(db, question_id), class_group).count()
 
 
 def _load_image_bytes(storage_key: Optional[str]) -> Optional[bytes]:
@@ -188,18 +215,36 @@ async def regrade_submissions(
     re-run simply continues over the same rows.
     """
     rows = (
-        _submissions_query(db, question.id, class_group)
-        .order_by(ErSubmission.user_id, ErSubmission.created_at, ErSubmission.id)
+        _submissions_query(db, question_family(db, question.id), class_group)
+        .order_by(ErSubmission.user_id, ErSubmission.er_diagram_question_id,
+                  ErSubmission.created_at, ErSubmission.id)
         .all()
     )
     summary = RegradeSummary(total=len(rows))
     if on_total:
         on_total(len(rows))
 
-    # Ordered by (user, created_at, id), so the last row seen per user is their
-    # latest attempt — the one the conversation must mirror.
-    latest: dict[int, tuple[ErSubmission, Optional[dict]]] = {}
-    changed_users: set[int] = set()
+    # Family rows belong to assessment clones whose rubric_json froze at publish.
+    # They are about to be graded against the MASTER's current rubric, so that
+    # rubric is copied onto the clones first — the enriched-checks view joins
+    # criteria through the row's own question, and the student rubric tab reads
+    # it too; leaving the stale copy would describe grades it never produced.
+    # Bulk update bypasses the ORM listener, so the namespace is bumped by hand.
+    clone_ids = sorted({r.er_diagram_question_id for r in rows} - {question.id})
+    if clone_ids:
+        bump_version(db, Ns.ER_QUESTIONS)
+        db.query(ERDiagramQuestion).filter(ERDiagramQuestion.id.in_(clone_ids)).update(
+            {"rubric_json": question.rubric_json, "rubric_md": question.rubric_md},
+            synchronize_session=False,
+        )
+        db.commit()
+
+    # Ordered by (user, question, created_at, id), so the last row seen per
+    # (user, question) is their latest attempt there — the one the conversation
+    # must mirror. Keyed per question too: a student can hold a practice run on
+    # the master and an assessment run on the clone, with separate conversations.
+    latest: dict[tuple[int, int], tuple[ErSubmission, Optional[dict]]] = {}
+    changed: set[tuple[int, int]] = set()
 
     for row in rows:
         xml_text = (row.submitted_xml or "").strip() or None
@@ -233,7 +278,7 @@ async def regrade_submissions(
                 _write_grade(row, structured)
                 db.commit()
                 summary.regraded += 1
-                changed_users.add(row.user_id)
+                changed.add((row.user_id, row.er_diagram_question_id))
                 outcome = "regraded"
             except Exception as exc:
                 db.rollback()
@@ -245,23 +290,26 @@ async def regrade_submissions(
                     row.id, row.user_id, question.id, exc,
                 )
 
-        latest[row.user_id] = (row, structured)
+        latest[(row.user_id, row.er_diagram_question_id)] = (row, structured)
         if on_row:
             on_row(outcome)
 
-    for uid in sorted(changed_users):
-        row, structured = latest[uid]
+    for uid, qid in sorted(changed):
+        row, structured = latest[(uid, qid)]
+        # Both syncs go through the ROW's question id: an assessment attempt's
+        # conversation keys on the clone id, and the frozen-total refresh finds
+        # the assessment through the clone's owner_assessment_id.
         _sync_conversation(
-            db, question_id=question.id, user_id=uid, row=row, structured=structured
+            db, question_id=qid, user_id=uid, row=row, structured=structured
         )
         # Never raises; recomputes the frozen assessment total for a completed
         # attempt. Reads the conversation, so the sync above must come first.
         assessment_scoring.refresh_frozen_weighted_score(
-            db, er_question_id=question.id, user_id=uid
+            db, er_question_id=qid, user_id=uid
         )
-    summary.affected_users = len(changed_users)
+    summary.affected_users = len({uid for uid, _ in changed})
 
-    if changed_users:
+    if changed:
         # The materialized assessment averages are deliberately not invalidated
         # by submission/conversation writes (see core/cache.py), so bump them
         # here; ER analytics is bumped too so a stale worker cannot serve the

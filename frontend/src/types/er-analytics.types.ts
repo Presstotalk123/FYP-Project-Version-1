@@ -55,10 +55,18 @@ export interface AttemptSummary {
   regraded_at: string | null;
 }
 
+/** One side of a tutor exchange. Query mode only — submissions are attempts,
+ *  not conversation, and live in `attempts`. */
+export interface TutorChatMessage {
+  role: string;
+  content: string;
+  created_at: string | null;
+}
+
 export interface StudentSubmissions {
   student_id: number;
   attempts: AttemptSummary[];
-  chat: { queries_asked: number; topics: string[] };
+  chat: { queries_asked: number; topics: string[]; messages: TutorChatMessage[] };
 }
 
 export interface SubmissionCheck {

@@ -18,6 +18,7 @@ import {
   Modal,
   Select,
   Box,
+  TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -27,6 +28,10 @@ import {
   IconEye,
   IconRefresh,
   IconPlus,
+  IconSearch,
+  IconArrowUp,
+  IconArrowDown,
+  IconArrowsSort,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { AddErSubmissionModal } from '@/components/admin/AddErSubmissionModal';
@@ -53,6 +58,11 @@ export default function AssessmentStudentsPage() {
 
   // Lab-group (class_group) filter
   const [selectedClassGroup, setSelectedClassGroup] = useState<string | null>(null);
+
+  // Name/email search and Score-column sort direction.
+  // scoreSort: null = table's default order; 'desc' = highest→lowest; 'asc' = lowest→highest
+  const [search, setSearch] = useState('');
+  const [scoreSort, setScoreSort] = useState<'asc' | 'desc' | null>(null);
 
   // Per-question averages, scoped to the current class-group filter (or the whole
   // cohort when unfiltered).
@@ -369,9 +379,29 @@ export default function AssessmentStudentsPage() {
         new Set(data.students.map((s) => s.class_group).filter((c): c is string => !!c))
       ).sort()
     : [];
+  const q = search.trim().toLowerCase();
   const filteredStudents = data
-    ? data.students.filter((s) => !selectedClassGroup || s.class_group === selectedClassGroup)
+    ? data.students.filter(
+        (s) =>
+          (!selectedClassGroup || s.class_group === selectedClassGroup) &&
+          (!q ||
+            s.email.toLowerCase().includes(q) ||
+            (s.name ?? '').toLowerCase().includes(q))
+      )
     : [];
+  // Sorted view for rendering. Nulls (no score) always sort last, regardless of
+  // direction, so an empty score never masquerades as the lowest or highest.
+  const sortedStudents =
+    scoreSort === null
+      ? filteredStudents
+      : [...filteredStudents].sort((a, b) => {
+          const sa = a.weighted_score;
+          const sb = b.weighted_score;
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return scoreSort === 'desc' ? sb - sa : sa - sb;
+        });
   // Students still mid-attempt — ending & refreshing will force-submit them, so warn first.
   const activeCount = data ? data.students.filter((s) => s.is_active).length : 0;
 
@@ -421,6 +451,13 @@ export default function AssessmentStudentsPage() {
               ) : (
                 <>
                   <Group>
+                    <TextInput
+                      leftSection={<IconSearch size={14} />}
+                      placeholder="Search name or email…"
+                      value={search}
+                      onChange={(e) => setSearch(e.currentTarget.value)}
+                      style={{ width: 250 }}
+                    />
                     <Select
                       placeholder="Filter by Class Group"
                       data={classGroups}
@@ -521,14 +558,32 @@ export default function AssessmentStudentsPage() {
                       <Table.Th>Name</Table.Th>
                       <Table.Th>Class</Table.Th>
                       <Table.Th>Status</Table.Th>
-                      <Table.Th>Score</Table.Th>
+                      <Table.Th
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() =>
+                          setScoreSort((s) =>
+                            s === 'desc' ? 'asc' : s === 'asc' ? null : 'desc'
+                          )
+                        }
+                      >
+                        <Group gap={4} wrap="nowrap">
+                          Score
+                          {scoreSort === 'desc' ? (
+                            <IconArrowDown size={14} />
+                          ) : scoreSort === 'asc' ? (
+                            <IconArrowUp size={14} />
+                          ) : (
+                            <IconArrowsSort size={14} style={{ opacity: 0.5 }} />
+                          )}
+                        </Group>
+                      </Table.Th>
                       <Table.Th>Joined At</Table.Th>
                       <Table.Th>Submitted At</Table.Th>
                       <Table.Th>Actions</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {filteredStudents.map((student) => (
+                    {sortedStudents.map((student) => (
                       <Table.Tr key={student.user_id}>
                         <Table.Td>
                           <Text size="sm" fw={500}>{student.email}</Text>

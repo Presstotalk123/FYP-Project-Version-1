@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
@@ -21,6 +22,9 @@ export function AssessmentAnalyticsList({
 }: {
   onSelect: (assessmentId: number) => void;
 }) {
+  // Average-column sort: null = server order; 'desc' = highest→lowest; 'asc' = lowest→highest
+  const [avgSort, setAvgSort] = useState<'asc' | 'desc' | null>(null);
+
   const summaryQuery = useQuery({
     queryKey: queryKeys.assessmentAnalyticsSummary,
     queryFn: () => assessmentService.getAnalyticsSummary(),
@@ -46,6 +50,18 @@ export function AssessmentAnalyticsList({
   }
 
   const rows = summaryQuery.data?.assessments ?? [];
+  // Assessments with no average (—) always sort last, regardless of direction.
+  const sortedRows =
+    avgSort === null
+      ? rows
+      : [...rows].sort((a, b) => {
+          const sa = a.avg_weighted_score;
+          const sb = b.avg_weighted_score;
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return avgSort === 'desc' ? sb - sa : sa - sb;
+        });
 
   if (rows.length === 0) {
     return (
@@ -62,14 +78,24 @@ export function AssessmentAnalyticsList({
         <thead>
           <tr>
             <th>Assessment</th>
-            <th>Average</th>
+            <th
+              style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() =>
+                setAvgSort((s) => (s === 'desc' ? 'asc' : s === 'asc' ? null : 'desc'))
+              }
+            >
+              Average{' '}
+              <span style={{ color: 'var(--text-muted)' }}>
+                {avgSort === 'desc' ? '↓' : avgSort === 'asc' ? '↑' : '⇅'}
+              </span>
+            </th>
             <th>Started</th>
             <th>Questions</th>
             <th />
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {sortedRows.map((row) => (
             <tr
               key={row.assessment_id}
               style={{ cursor: 'pointer' }}

@@ -17,7 +17,7 @@ import {
   Card,
   Modal,
 } from '@mantine/core';
-import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers, IconUpload, IconRefresh } from '@tabler/icons-react';
+import { IconTrash, IconEdit, IconAlertCircle, IconPlus, IconCheck, IconUser, IconUsers, IconUpload, IconRefresh, IconSearch } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
@@ -94,6 +94,9 @@ export default function ManageUsersPage() {
     [UserRole.STUDENT]: false,
   });
   const [deleting, setDeleting] = useState<number | null>(null);
+
+  // Filters every role section by email, name, or class group.
+  const [search, setSearch] = useState('');
 
   const [editingEntry, setEditingEntry] = useState<WhitelistEntry | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; class_group: string }>({ name: '', class_group: '' });
@@ -326,7 +329,16 @@ export default function ManageUsersPage() {
     }
   };
 
-  const getEntriesByRole = (role: UserRole) => entries.filter((e) => e.role === role);
+  const q = search.trim().toLowerCase();
+  const getEntriesByRole = (role: UserRole) =>
+    entries.filter(
+      (e) =>
+        e.role === role &&
+        (!q ||
+          e.email.toLowerCase().includes(q) ||
+          (e.name ?? '').toLowerCase().includes(q) ||
+          (e.class_group ?? '').toLowerCase().includes(q))
+    );
 
   return (
     <ProtectedRoute requiredRole={UserRole.ADMIN}>
@@ -355,6 +367,13 @@ export default function ManageUsersPage() {
               {error}
             </Alert>
           )}
+
+          <TextInput
+            leftSection={<IconSearch size={16} />}
+            placeholder="Search by email, name, or class group…"
+            value={search}
+            onChange={(e) => setSearch(e.currentTarget.value)}
+          />
 
           {loading ? (
             <Stack align="center" justify="center" style={{ minHeight: '200px' }}>
@@ -395,6 +414,50 @@ export default function ManageUsersPage() {
                             </Button>
                           </Group>
                         )}
+                      </Group>
+
+                      {/* Add new entry — three inputs */}
+                      <Group gap="sm" align="flex-end">
+                        <TextInput
+                          label="Email"
+                          placeholder="user@example.com"
+                          maxLength={255}
+                          value={form.email}
+                          onChange={(e) => setField(role, 'email', e.currentTarget.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
+                          style={{ flex: 2 }}
+                          type="email"
+                          leftSection={<IconUser size={14} />}
+                          required
+                        />
+                        <TextInput
+                          label="Name"
+                          placeholder="Full name (optional)"
+                          maxLength={255}
+                          value={form.name}
+                          onChange={(e) => setField(role, 'name', e.currentTarget.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
+                          style={{ flex: 2 }}
+                        />
+                        <TextInput
+                          label="Class Group"
+                          placeholder="e.g. CS3 (optional)"
+                          maxLength={100}
+                          value={form.class_group}
+                          onChange={(e) => setField(role, 'class_group', e.currentTarget.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
+                          style={{ flex: 1 }}
+                          leftSection={<IconUsers size={14} />}
+                        />
+                        <Button
+                          leftSection={<IconPlus size={16} />}
+                          loading={adding[role]}
+                          onClick={() => handleAdd(role)}
+                          color={color}
+                          style={{ alignSelf: 'flex-end' }}
+                        >
+                          Add
+                        </Button>
                       </Group>
 
                       {roleEntries.length === 0 ? (
@@ -455,50 +518,6 @@ export default function ManageUsersPage() {
                           </Table.Tbody>
                         </Table>
                       )}
-
-                      {/* Add new entry — three inputs */}
-                      <Group gap="sm" align="flex-end">
-                        <TextInput
-                          label="Email"
-                          placeholder="user@example.com"
-                          maxLength={255}
-                          value={form.email}
-                          onChange={(e) => setField(role, 'email', e.currentTarget.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
-                          style={{ flex: 2 }}
-                          type="email"
-                          leftSection={<IconUser size={14} />}
-                          required
-                        />
-                        <TextInput
-                          label="Name"
-                          placeholder="Full name (optional)"
-                          maxLength={255}
-                          value={form.name}
-                          onChange={(e) => setField(role, 'name', e.currentTarget.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
-                          style={{ flex: 2 }}
-                        />
-                        <TextInput
-                          label="Class Group"
-                          placeholder="e.g. CS3 (optional)"
-                          maxLength={100}
-                          value={form.class_group}
-                          onChange={(e) => setField(role, 'class_group', e.currentTarget.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAdd(role)}
-                          style={{ flex: 1 }}
-                          leftSection={<IconUsers size={14} />}
-                        />
-                        <Button
-                          leftSection={<IconPlus size={16} />}
-                          loading={adding[role]}
-                          onClick={() => handleAdd(role)}
-                          color={color}
-                          style={{ alignSelf: 'flex-end' }}
-                        >
-                          Add
-                        </Button>
-                      </Group>
                     </Stack>
                   </Card>
                 );

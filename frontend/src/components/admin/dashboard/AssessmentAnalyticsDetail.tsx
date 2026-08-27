@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
 import { AssessmentItemAggregateScore, ItemStudentRow } from '@/types/assessment.types';
+import { AssessmentGroupMatrix } from './AssessmentGroupMatrix';
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   sql_question: 'SQL Question',
@@ -63,6 +64,23 @@ function QuestionStudentList({
     queryFn: () => assessmentService.getItemStudents(assessmentId, itemId, classGroup),
   });
 
+  // Score sort: null = server order (weakest first); 'desc' = highest→lowest; 'asc' = lowest→highest
+  const [scoreSort, setScoreSort] = useState<'asc' | 'desc' | null>(null);
+
+  // score_percent is null only for 'not_started' rows, which always sort last.
+  const students = query.data?.students ?? [];
+  const sortedStudents =
+    scoreSort === null
+      ? students
+      : [...students].sort((a, b) => {
+          const sa = a.score_percent;
+          const sb = b.score_percent;
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return scoreSort === 'desc' ? sb - sa : sa - sb;
+        });
+
   const renderCell = (row: ItemStudentRow) => {
     if (row.status === 'not_started') {
       return <span style={{ color: 'var(--text-muted)' }}>—</span>;
@@ -99,12 +117,22 @@ function QuestionStudentList({
                   <th style={{ width: '28%' }}>Student</th>
                   <th style={{ width: '30%' }}>Email</th>
                   <th style={{ width: '12%' }}>Class</th>
-                  <th style={{ width: '12%' }}>Score</th>
+                  <th
+                    style={{ width: '12%', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() =>
+                      setScoreSort((s) => (s === 'desc' ? 'asc' : s === 'asc' ? null : 'desc'))
+                    }
+                  >
+                    Score{' '}
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {scoreSort === 'desc' ? '↓' : scoreSort === 'asc' ? '↑' : '⇅'}
+                    </span>
+                  </th>
                   <th>Result</th>
                 </tr>
               </thead>
               <tbody>
-                {query.data.students.map((row) => (
+                {sortedStudents.map((row) => (
                   <tr key={row.email}>
                     <td>{row.name || '—'}</td>
                     <td>{row.email}</td>
@@ -135,6 +163,10 @@ export function AssessmentAnalyticsDetail({
   // One question expanded at a time — opening a second collapses the first, so the page
   // never becomes a wall of student lists.
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
+  // Per-question Average sort: null = assessment order; 'desc' = highest→lowest; 'asc' = lowest→highest
+  const [itemAvgSort, setItemAvgSort] = useState<'asc' | 'desc' | null>(null);
+  // Toggles the group × question breakdown matrix in place of the per-question tables.
+  const [showMatrix, setShowMatrix] = useState(false);
 
   const cohortQuery = useQuery({
     queryKey: queryKeys.assessmentItemAnalytics(assessmentId, null),
@@ -181,6 +213,21 @@ export function AssessmentAnalyticsDetail({
   const comparing = classGroup !== null && !!group;
   const scoped = group ?? cohort;
 
+  // Rows carry their original position (#) so sorting by average doesn't renumber the
+  // questions. Items with no average (—) always sort last, regardless of direction.
+  const indexedItems = scoped.items.map((item, idx) => ({ item, idx }));
+  const displayItems =
+    itemAvgSort === null
+      ? indexedItems
+      : [...indexedItems].sort((a, b) => {
+          const sa = itemPercent(a.item);
+          const sb = itemPercent(b.item);
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return itemAvgSort === 'desc' ? sb - sa : sa - sb;
+        });
+
   return (
     <>
       <div className="page-head">
@@ -189,19 +236,33 @@ export function AssessmentAnalyticsDetail({
           <h2 style={{ marginTop: 10 }}>{cohort.assessment_title}</h2>
         </div>
         <div className="button-row">
-          <select
-            className="btn btn-secondary"
-            value={classGroup ?? ''}
-            onChange={(e) => setClassGroup(e.target.value || null)}
-            aria-label="Tutorial group"
-          >
-            <option value="">All (cohort)</option>
-            {groupOptions.map((g) => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
+          {!showMatrix && (
+            <select
+              className="btn btn-secondary"
+              value={classGroup ?? ''}
+              onChange={(e) => setClassGroup(e.target.value || null)}
+              aria-label="Tutorial group"
+            >
+              <option value="">All (cohort)</option>
+              {groupOptions.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          )}
+          <button className="btn btn-secondary" onClick={() => setShowMatrix((v) => !v)}>
+            {showMatrix ? 'Per-question view' : 'Group breakdown'}
+          </button>
         </div>
       </div>
+
+      {showMatrix ? (
+        <AssessmentGroupMatrix
+          assessmentId={assessmentId}
+          groups={groupOptions}
+          items={cohort.items}
+        />
+      ) : (
+      <>
 
       {classGroup && groupQuery.isLoading && (
         <div className="loading-center">
@@ -263,14 +324,24 @@ export function AssessmentAnalyticsDetail({
             <thead>
               <tr>
                 <th>Question</th>
-                <th>Average</th>
+                <th
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() =>
+                    setItemAvgSort((s) => (s === 'desc' ? 'asc' : s === 'asc' ? null : 'desc'))
+                  }
+                >
+                  Average{' '}
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {itemAvgSort === 'desc' ? '↓' : itemAvgSort === 'asc' ? '↑' : '⇅'}
+                  </span>
+                </th>
                 {comparing && <th>Cohort</th>}
                 {comparing && <th>Δ</th>}
                 <th>Attempted</th>
               </tr>
             </thead>
             <tbody>
-              {scoped.items.map((item, idx) => {
+              {displayItems.map(({ item, idx }) => {
                 const cohortItem = cohort.items.find(
                   (c) => c.assessment_item_id === item.assessment_item_id,
                 );
@@ -323,6 +394,8 @@ export function AssessmentAnalyticsDetail({
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
     </>
   );

@@ -98,8 +98,6 @@ export interface ScoreOverrideResult {
     label?: string;
   };
   checks: SubmissionCheck[];
-  /** False when the attempt was not the student's latest, so only analytics moved. */
-  assessment_mark_updated: boolean;
   override: ScoreOverride | null;
 }
 
@@ -114,7 +112,8 @@ export interface SubmissionDetail {
   score_label: string | null;
   checks: SubmissionCheck[];
   override: ScoreOverride | null;
-  /** Only the latest attempt carries the student's mark, so only it can move one. */
+  /** The most recent attempt — the grade the student currently sees. The
+   *  assessment mark itself follows their best attempt. */
   is_latest_attempt: boolean;
   submission_description: string | null;
   submitted_xml: string | null;

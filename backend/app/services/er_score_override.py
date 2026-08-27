@@ -65,8 +65,10 @@ def _snapshot(submission: ErSubmission) -> str:
 def is_latest_attempt(db: Session, submission: ErSubmission) -> bool:
     """Whether this is the student's most recent attempt at this question.
 
-    Only the latest one describes where the student ended up, and only that is
-    allowed to move their assessment mark — see apply_override.
+    The tutor conversation only ever mirrors the latest attempt's grade, so only
+    a correction to that attempt rewrites what the student sees — see
+    _sync_conversation. The assessment mark is a separate matter: it counts the
+    student's best grade, whichever attempt carries it.
     """
     latest_id = (
         db.query(ErSubmission.id)
@@ -82,12 +84,13 @@ def is_latest_attempt(db: Session, submission: ErSubmission) -> bool:
 
 
 def _sync_conversation(db: Session, submission: ErSubmission, grade: dict) -> bool:
-    """Push a corrected grade onto the tutor conversation, which is what the
-    student sees and what assessment scoring reads. Returns whether it happened.
+    """Push a corrected grade onto the tutor conversation — what the student
+    sees, and one of the grades the assessment best-scan reads
+    (assessment_scoring.er_best_scores_bulk). Returns whether it happened.
 
     Skipped for anything but the latest attempt: the conversation holds one
     grade, the student's current standing, and rewriting it from a superseded
-    attempt would mark them on work they had already replaced.
+    attempt would show them feedback for work they had already replaced.
     """
     if not is_latest_attempt(db, submission):
         return False
@@ -130,8 +133,9 @@ def _propagate_to_assessment(db: Session, submission: ErSubmission) -> None:
     an exam is running). Without both steps a corrected mark shows in ER analytics
     and nowhere else.
 
-    Only called when the conversation was actually synced, because only then did
-    the student's standing change.
+    Called for every correction: the mark counts the student's best grade
+    (assessment_scoring.er_best_scores_bulk), so adjusting any attempt — latest
+    or not — can change it.
     """
     bump_version(db, Ns.ASSESSMENT_ANALYTICS)
     assessment_scoring.refresh_frozen_weighted_score(
@@ -308,11 +312,10 @@ def apply_override(
     submission.overridden_by = staff_id
     submission.overridden_at = datetime.now(timezone.utc)
 
-    mark_updated = _sync_conversation(db, submission, grade)
-    if mark_updated:
-        _propagate_to_assessment(db, submission)
+    _sync_conversation(db, submission, grade)
+    _propagate_to_assessment(db, submission)
     db.commit()
-    return {"grade": grade, "assessment_mark_updated": mark_updated}
+    return {"grade": grade}
 
 
 def revert_override(db: Session, submission: ErSubmission) -> dict[str, Any]:
@@ -336,10 +339,9 @@ def revert_override(db: Session, submission: ErSubmission) -> dict[str, Any]:
     submission.overridden_at = None
     submission.original_grade_json = None
 
-    mark_updated = _sync_conversation(
+    _sync_conversation(
         db, submission, {"score": score, "checks": original.get("checks") or []}
     )
-    if mark_updated:
-        _propagate_to_assessment(db, submission)
+    _propagate_to_assessment(db, submission)
     db.commit()
-    return {"grade": original, "assessment_mark_updated": mark_updated}
+    return {"grade": original}

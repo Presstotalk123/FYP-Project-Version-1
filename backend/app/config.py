@@ -158,10 +158,16 @@ class Settings(BaseSettings):
     ERD_AZURE_OPENAI_VISION_DEPLOYMENT: str = "gpt-5.4"
     ERD_AZURE_OPENAI_GRADE_DEPLOYMENT: str = "gpt-5.4-mini"
     ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT: str = "gpt-5.4-nano"
-    # Per-request timeout (seconds) for the LangGraph ERD tutor/rubric LLM calls,
+    # Per-request timeout (seconds) for the LangGraph ERD tutor/grading LLM calls,
     # mirroring DIFY_ER_*_TIMEOUT_SECONDS. Bounds a hung upstream call so it can't
     # tie up the request indefinitely (max_retries=3 is set separately on the client).
     ERD_AZURE_OPENAI_TIMEOUT_SECONDS: int = 60
+    # The rubric generator's own budget. Atomic checks made rubrics far longer —
+    # one check per entity/attribute/relationship, each carrying a decision_policy —
+    # and generation started timing out the grader's 60 s the day they landed. A
+    # staff authoring call can afford to wait; a student waiting on a grade cannot,
+    # so the two do not share a number.
+    ERD_RUBRIC_TIMEOUT_SECONDS: int = 300
 
     # --- Akela multi-agent / learning-analytics platform ---------------------
     # Two independent flags so telemetry + mastery can be built and validated

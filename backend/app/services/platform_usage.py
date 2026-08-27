@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core.time import sgt_today
+from app.models.assessment_session import AssessmentSession
 from app.models.platform_session import PlatformSession
 from app.models.user import User, UserRole
 
@@ -282,6 +283,7 @@ def usage_overview(db: Session, year: int, month: int) -> list[dict]:
                 "class_group": info.class_group,
                 "total_seconds": 0,
                 "all_time_seconds": 0,
+                "avg_assessment_score": None,
             }
         duration = _duration_seconds_between(login_at, last_action_at)
         acc["all_time_seconds"] += duration
@@ -290,10 +292,29 @@ def usage_overview(db: Session, year: int, month: int) -> list[dict]:
             acc["total_seconds"] += duration
             month_days[user_id].add(login_date)
 
+    # Each student's overall assessment average: the mean of their finalized per-assessment
+    # weighted scores (completed attempts only; un-attempted assessments are excluded).
+    # Mirrors the cross-assessment average in research_export. Sum/round in Python for
+    # SQLite/Postgres portability.
+    score_acc: dict[int, list[float]] = defaultdict(list)
+    score_rows = (
+        db.query(AssessmentSession.user_id, AssessmentSession.weighted_score)
+        .filter(
+            AssessmentSession.user_id.in_(totals.keys()),
+            AssessmentSession.attempt_complete == 1,
+            AssessmentSession.weighted_score.isnot(None),
+        )
+        .all()
+    )
+    for uid, score in score_rows:
+        score_acc[uid].append(score)
+
     result = []
     for uid, acc in totals.items():
         acc["active_days"] = len(month_days[uid])
         acc["all_time_active_days"] = len(all_days[uid])
+        scores = score_acc.get(uid)
+        acc["avg_assessment_score"] = round(sum(scores) / len(scores), 1) if scores else None
         result.append(acc)
     result.sort(key=lambda r: r["all_time_seconds"], reverse=True)
     return result

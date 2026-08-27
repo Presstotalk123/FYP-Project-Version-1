@@ -40,6 +40,10 @@ class StudentUsageRow(BaseModel):
     active_days: int = Field(..., description="Distinct calendar days with a session in the selected month")
     all_time_seconds: int = Field(..., description="Sum of the student's session durations across all days")
     all_time_active_days: int = Field(..., description="Distinct calendar days with any session, all-time")
+    avg_assessment_score: Optional[float] = Field(
+        None,
+        description="Mean of the student's finalized per-assessment weighted scores (0-100), or null if none",
+    )
 
 
 class LoginActivitySummary(BaseModel):

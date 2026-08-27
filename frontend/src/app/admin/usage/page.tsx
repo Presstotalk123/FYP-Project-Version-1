@@ -16,8 +16,9 @@ import {
   Button,
   Drawer,
   ScrollArea,
+  TextInput,
 } from '@mantine/core';
-import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock, IconReportAnalytics } from '@tabler/icons-react';
+import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock, IconReportAnalytics, IconSearch } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { PlatformUsageTable } from '@/components/common/PlatformUsageTable';
@@ -37,6 +38,8 @@ export default function StudentUsagePage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
   const [selected, setSelected] = useState<{ id: number; name: string } | null>(null);
+  // Filters the table by name, email, or class group.
+  const [search, setSearch] = useState('');
   // Drives the per-student report drawer (practice + assessment scores).
   const [reportStudent, setReportStudent] = useState<{ id: number; name: string } | null>(null);
 
@@ -61,7 +64,18 @@ export default function StudentUsagePage() {
     enabled: selected !== null,
   });
 
+  // Gradebook colouring for the overall assessment average, matching the assessment pages.
+  const scoreColor = (s: number) => (s >= 75 ? 'green' : s >= 50 ? 'yellow' : 'red');
+
   const rows = overviewQuery.data ?? [];
+  const q = search.trim().toLowerCase();
+  const filteredRows = rows.filter(
+    (r) =>
+      !q ||
+      (r.name ?? '').toLowerCase().includes(q) ||
+      r.email.toLowerCase().includes(q) ||
+      (r.class_group ?? '').toLowerCase().includes(q),
+  );
 
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
@@ -96,12 +110,23 @@ export default function StudentUsagePage() {
           ) : rows.length === 0 ? (
             <Text c="dimmed" ta="center" py="xl">No student activity recorded this month.</Text>
           ) : (
+            <>
+            <TextInput
+              leftSection={<IconSearch size={16} />}
+              placeholder="Search by name, email, or class group…"
+              value={search}
+              onChange={(e) => setSearch(e.currentTarget.value)}
+            />
+            {filteredRows.length === 0 ? (
+              <Text c="dimmed" ta="center" py="xl">No students match your search.</Text>
+            ) : (
             <Card withBorder padding="0" style={{ opacity: overviewQuery.isFetching ? 0.6 : 1 }}>
               <Table striped highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Student</Table.Th>
                     <Table.Th>Class group</Table.Th>
+                    <Table.Th ta="center">Assessment avg</Table.Th>
                     <Table.Th ta="right">{MONTH_NAMES[month - 1]} time</Table.Th>
                     <Table.Th ta="center">Days active (all-time)</Table.Th>
                     <Table.Th ta="right">Total time (all-time)</Table.Th>
@@ -109,13 +134,22 @@ export default function StudentUsagePage() {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {rows.map((r) => (
+                  {filteredRows.map((r) => (
                     <Table.Tr key={r.student_id}>
                       <Table.Td>
                         <Text fw={600} size="sm">{r.name || r.email}</Text>
                         {r.name && <Text size="xs" c="dimmed">{r.email}</Text>}
                       </Table.Td>
                       <Table.Td>{r.class_group || <Text c="dimmed" size="sm">—</Text>}</Table.Td>
+                      <Table.Td ta="center">
+                        {r.avg_assessment_score == null ? (
+                          <Text c="dimmed" size="sm">—</Text>
+                        ) : (
+                          <Badge color={scoreColor(r.avg_assessment_score)} variant="light">
+                            {r.avg_assessment_score}%
+                          </Badge>
+                        )}
+                      </Table.Td>
                       <Table.Td ta="right">
                         <Text size="sm" c={r.total_seconds > 0 ? undefined : 'dimmed'}>
                           {formatDuration(r.total_seconds)}
@@ -159,6 +193,8 @@ export default function StudentUsagePage() {
                 </Table.Tbody>
               </Table>
             </Card>
+            )}
+            </>
           )}
 
         </Stack>

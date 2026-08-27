@@ -50,6 +50,8 @@ export interface StudentUsageRow {
   all_time_seconds: number;
   /** Distinct calendar days with any session, all-time. */
   all_time_active_days: number;
+  /** Mean of the student's finalized per-assessment weighted scores (0-100); null if none. */
+  avg_assessment_score: number | null;
 }
 
 /** Live count of users on the platform right now (staff dashboard card). */

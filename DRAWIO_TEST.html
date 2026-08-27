@@ -52,8 +52,10 @@
     var RAW_URL = "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
 
     function configFor(mode){
+      // cache-buster: raw.githubusercontent caches ~5 min; this forces the newest file
+      var url = RAW_URL + "?t=" + Date.now();
       var lib = (mode === 'A') ? { title:{main:"ER"}, data: mxlib }
-                               : { title:{main:"ER"}, url: RAW_URL };
+                               : { title:{main:"ER"}, url: url };
       return {
         defaultLibraries: "erd",
         enabledLibraries: ["erd"],

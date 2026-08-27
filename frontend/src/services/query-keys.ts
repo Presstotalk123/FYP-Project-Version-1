@@ -18,6 +18,9 @@ export const queryKeys = {
   // caches separately and collapsing then re-expanding costs no request.
   assessmentItemStudents: (assessmentId: number, itemId: number, classGroup: string | null) =>
     ['assessmentItemStudents', assessmentId, itemId, classGroup] as const,
+  // All students on an assessment with their weighted totals — shared by the students
+  // page and the group-breakdown student expansion.
+  assessmentStudents: (assessmentId: number) => ['assessmentStudents', assessmentId] as const,
   whitelist: ['whitelist'] as const,
   users: ['users'] as const,
   attempts: ['attempts'] as const,

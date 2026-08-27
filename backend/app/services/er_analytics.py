@@ -361,17 +361,28 @@ def student_submissions(db: Session, question_id: int, student_id: int) -> dict:
     )
     queries_asked = 0
     topics: list = []
+    transcript: list = []
     if conv is not None:
+        # The whole query-mode exchange, both sides, in order — the transcript
+        # staff read next to the attempts, as the SQL page already shows for its
+        # chatbot. Submit-mode rows are grading traffic (diagram in, report
+        # out), not conversation, and stay out.
         messages = (
             db.query(ErdTutorMessage)
             .filter(ErdTutorMessage.conversation_id == conv.id,
-                    ErdTutorMessage.role == "user",
                     ErdTutorMessage.mode == "query")
+            .order_by(ErdTutorMessage.created_at.asc(), ErdTutorMessage.id.asc())
             .all()
         )
-        queries_asked = len(messages)
+        transcript = [{
+            "role": m.role,
+            "content": m.content or "",
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        } for m in messages]
+        asked = [m for m in messages if m.role == "user"]
+        queries_asked = len(asked)
         seen = set()
-        for m in messages:
+        for m in asked:
             topic = classify_query_topic(m.content or "")
             if topic not in seen:
                 seen.add(topic)
@@ -380,7 +391,8 @@ def student_submissions(db: Session, question_id: int, student_id: int) -> dict:
     return {
         "student_id": student_id,
         "attempts": attempts,
-        "chat": {"queries_asked": queries_asked, "topics": topics},
+        "chat": {"queries_asked": queries_asked, "topics": topics,
+                 "messages": transcript},
     }
 
 

@@ -476,6 +476,26 @@ export default function ErQuestionAnalyticsPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* The full exchange with Baloo, like the SQL page's chatbot
+                    transcript — the heading above only counts and labels it.
+                    Capped height so a chatty student doesn't swallow the page. */}
+                {journey.chat.messages.length > 0 && (
+                  <>
+                    <h4 style={{ marginTop: 16 }}>Chat transcript</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 380, overflow: 'auto' }}>
+                      {journey.chat.messages.map((m, i) => (
+                        <div key={i} className="card" style={{ padding: 10 }}>
+                          <strong>{m.role === 'assistant' ? 'Baloo' : 'Student'}</strong>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                          <small style={{ opacity: 0.6 }}>
+                            {m.created_at ? new Date(m.created_at).toLocaleString() : '—'}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </>

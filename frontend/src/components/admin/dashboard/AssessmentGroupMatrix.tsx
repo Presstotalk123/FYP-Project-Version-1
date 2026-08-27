@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
@@ -38,6 +39,17 @@ export function AssessmentGroupMatrix({
   groups: string[];
   items: AssessmentItemAggregateScore[];
 }) {
+  // Column sort: which column ('total' or a question's column index) and direction.
+  // null = roster order. Only one column is active at a time; the Average row stays pinned.
+  const [sort, setSort] = useState<{ col: number | 'total'; dir: 'asc' | 'desc' } | null>(null);
+  // Cycle a column: none/other → desc → asc → none.
+  const cycleSort = (col: number | 'total') =>
+    setSort((s) =>
+      !s || s.col !== col ? { col, dir: 'desc' } : s.dir === 'desc' ? { col, dir: 'asc' } : null,
+    );
+  const sortArrow = (col: number | 'total') =>
+    sort && sort.col === col ? (sort.dir === 'desc' ? '↓' : '↑') : '⇅';
+
   // One analytics call per class group. Reuses the same query keys as the per-question
   // dropdown, so a group already viewed there is served from cache.
   const groupQueries = useQueries({
@@ -93,6 +105,22 @@ export function AssessmentGroupMatrix({
   );
   const totalAverage = meanOrNull(rows.map((r) => r.total));
 
+  // Sort the group rows by the active column; groups with no value (—) sort last. The
+  // Average row is rendered separately and always stays at the bottom.
+  const valueFor = (row: (typeof rows)[number], col: number | 'total') =>
+    col === 'total' ? row.total : row.cells[col];
+  const sortedRows =
+    sort === null
+      ? rows
+      : [...rows].sort((a, b) => {
+          const sa = valueFor(a, sort.col);
+          const sb = valueFor(b, sort.col);
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return sort.dir === 'desc' ? sb - sa : sa - sb;
+        });
+
   return (
     <>
       {anyError && (
@@ -107,15 +135,27 @@ export function AssessmentGroupMatrix({
             <tr>
               <th>Group</th>
               {columns.map((c, idx) => (
-                <th key={c.assessment_item_id} title={c.item_title}>
-                  Q{idx + 1}
+                <th
+                  key={c.assessment_item_id}
+                  title={c.item_title}
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => cycleSort(idx)}
+                >
+                  Q{idx + 1}{' '}
+                  <span style={{ color: 'var(--text-muted)' }}>{sortArrow(idx)}</span>
                 </th>
               ))}
-              <th>Total</th>
+              <th
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => cycleSort('total')}
+              >
+                Total{' '}
+                <span style={{ color: 'var(--text-muted)' }}>{sortArrow('total')}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {sortedRows.map((row) => (
               <tr key={row.group}>
                 <td style={{ fontWeight: 600 }}>{row.group}</td>
                 {row.cells.map((cell, idx) => (

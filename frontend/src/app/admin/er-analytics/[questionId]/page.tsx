@@ -20,6 +20,7 @@ import {
 import { getApiErrorMessage } from '@/utils/api-error';
 import type {
   AnalyticsContext,
+  AttemptSummary,
   QuestionAnalytics,
   StudentSubmissions,
   SubmissionCheck,
@@ -100,12 +101,17 @@ export default function ErQuestionAnalyticsPage() {
     };
   }, [questionId, context, classGroup, reloadKey]);
 
-  // ?student=<id> opens that student's attempts straight away, so a link from the
-  // assessment gradebook lands on the person being looked at rather than on the
-  // class table with them still to be found.
+  // ?student=<id> opens that student's marked attempt straight away, so a link
+  // from the assessment gradebook lands on the work being looked at rather than
+  // on the class table with the student still to be found.
   const searchParams = useSearchParams();
   const focusStudent = Number(searchParams.get('student')) || null;
   const autoOpened = useRef(false);
+  // The journey renders below the whole students table, so opening it alone
+  // changes nothing on screen. This pair scrolls it into view once it exists —
+  // behind the attempt modal, so closing the modal lands on the student.
+  const journeyHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const scrollPending = useRef(false);
   // ?regrade=1 opens the regrade dialog on arrival — the rubric editor routes
   // here after a save so "save, then choose whether to regrade" is one flow.
   const autoRegrade = searchParams.get('regrade') === '1';
@@ -113,10 +119,17 @@ export default function ErQuestionAnalyticsPage() {
   useEffect(() => {
     if (!focusStudent || autoOpened.current || !data) return;
     autoOpened.current = true;
-    openJourney(focusStudent);
-    // openJourney is redefined every render; the ref is what makes this run once.
+    scrollPending.current = true;
+    markBest(focusStudent);
+    // markBest is redefined every render; the ref is what makes this run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusStudent, data]);
+
+  useEffect(() => {
+    if (!journey || !scrollPending.current) return;
+    scrollPending.current = false;
+    journeyHeadingRef.current?.scrollIntoView({ block: 'start' });
+  }, [journey]);
 
   const openJourney = (studentId: number) => {
     setOpenStudent(studentId);
@@ -155,15 +168,31 @@ export default function ErQuestionAnalyticsPage() {
     stopEditing();
   };
 
+  /** The attempt behind the number staff see: assessment scoring counts the best
+   *  grade (er_best_scores_bulk scans with strictly-greater, so the earliest of a
+   *  tie wins — mirrored here). An ungraded journey falls back to the latest. */
+  const bestAttempt = (attempts: AttemptSummary[]): AttemptSummary | undefined => {
+    let best: AttemptSummary | undefined;
+    let bestPercent = -1;
+    for (const a of attempts) {
+      if (a.percent !== null && a.percent > bestPercent) {
+        best = a;
+        bestPercent = a.percent;
+      }
+    }
+    return best ?? attempts[attempts.length - 1];
+  };
+
   /** Straight to the attempt that carries the student's mark, skipping the journey.
    *  Marking is the common errand here; the journey is for studying a progression. */
-  const markLatest = async (studentId: number) => {
+  const markBest = async (studentId: number) => {
     const journeyForStudent = await erAnalyticsService.studentSubmissions(questionId, studentId);
-    const latest = journeyForStudent.attempts[journeyForStudent.attempts.length - 1];
-    if (!latest) return;
+    // Journey first, so a student with no attempts still opens to something
+    // rather than to an unchanged page.
     setOpenStudent(studentId);
     setJourney(journeyForStudent);
-    openAttempt(latest.id);
+    const target = bestAttempt(journeyForStudent.attempts);
+    if (target) openAttempt(target.id);
   };
 
   const stopEditing = () => {
@@ -393,7 +422,7 @@ export default function ErQuestionAnalyticsPage() {
                           onClick={(e) => {
                             // The row opens the journey; this skips it.
                             e.stopPropagation();
-                            markLatest(s.user_id);
+                            markBest(s.user_id);
                           }}
                         >
                           Mark
@@ -407,7 +436,7 @@ export default function ErQuestionAnalyticsPage() {
 
             {openStudent !== null && journey && (
               <>
-                <h3 style={{ marginTop: 24 }}>
+                <h3 ref={journeyHeadingRef} style={{ marginTop: 24 }}>
                   Journey — {data.students.find((s) => s.user_id === openStudent)?.email}
                   {'  '}({journey.chat.queries_asked} questions asked to Baloo
                   {journey.chat.topics.length > 0 &&
@@ -502,11 +531,12 @@ export default function ErQuestionAnalyticsPage() {
                 </div>
               )}
 
-              {editing && !attempt.is_latest_attempt && (
+              {editing && journey && bestAttempt(journey.attempts)?.id !== attempt.id && (
                 <div className="da-alert alert-warn" style={{ fontSize: 12 }}>
                   <span>
-                    This is not the student’s most recent attempt. Adjusting it updates
-                    analytics but not their assessment mark.
+                    This is not the attempt behind the student’s mark — the mark counts
+                    their best grade. Adjusting this one moves it only if the new score
+                    becomes their best.
                   </span>
                 </div>
               )}

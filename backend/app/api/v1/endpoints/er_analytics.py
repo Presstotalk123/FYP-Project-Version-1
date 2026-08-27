@@ -180,9 +180,9 @@ def get_submission_detail(
         "override": _override_view(db, row),
         # Non-null when a rubric regrade replaced this attempt's grade.
         "regraded_at": row.regraded_at.isoformat() if row.regraded_at else None,
-        # Whether adjusting this attempt would move the student's mark. Shown up
-        # front so staff are not surprised by a correction that only lands in
-        # analytics — see er_score_override._sync_conversation.
+        # The most recent attempt — the one whose grade the tutor conversation
+        # mirrors. The assessment mark itself follows the student's BEST grade
+        # (assessment_scoring.er_best_scores_bulk), whichever attempt carries it.
         "is_latest_attempt": is_latest_attempt(db, row),
     }
 
@@ -202,8 +202,9 @@ def override_submission_score(
     staff: User = Depends(require_staff_role),
 ):
     """Correct a graded attempt. The corrected score becomes the truth everywhere:
-    analytics aggregates read it directly, and the student's mark follows when this
-    is their latest attempt.
+    analytics aggregates read it directly, the assessment mark re-derives from the
+    student's best grade, and the grade the student sees follows when this is
+    their latest attempt.
 
     Mutating the ORM row is what invalidates the analytics cache — the after_flush
     listener watches session.dirty, so no explicit bump is needed here.
@@ -216,7 +217,6 @@ def override_submission_score(
     return {
         "score": result["grade"]["score"],
         "checks": _enriched_checks(db, row, result["grade"]["checks"]),
-        "assessment_mark_updated": result["assessment_mark_updated"],
         "override": _override_view(db, row),
     }
 
@@ -236,7 +236,6 @@ def revert_submission_score(
     return {
         "score": result["grade"].get("score", {}),
         "checks": _enriched_checks(db, row, result["grade"].get("checks", [])),
-        "assessment_mark_updated": result["assessment_mark_updated"],
         "override": None,
     }
 

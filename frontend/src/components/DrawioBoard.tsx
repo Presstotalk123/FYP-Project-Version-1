@@ -7,6 +7,7 @@ import {
   useRef,
 } from "react";
 import { Box, Button, Group } from "@mantine/core";
+import { ER_CONFIG } from "./erShapeLibrary";
 
 export type DrawioBoardHandle = {
   submit: () => void;
@@ -28,7 +29,10 @@ type DrawioBoardProps = {
   initialXml?: string;
 };
 
-const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "https://embed.diagrams.net/?embed=1&spin=1&ui=min&libs=er;general&proto=json";
+// `configure=1` makes the editor request a configuration on startup (answered with
+// ER_CONFIG), which is what locks the sidebar to the seven stock ER shapes. With the
+// config controlling libraries, the `libs=` parameter is no longer used.
+const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "https://embed.diagrams.net/?embed=1&spin=1&ui=min&configure=1&proto=json";
 
 const DRAWIO_ORIGIN = (() => {
   if (!DRAWIO_URL) return "";
@@ -44,7 +48,7 @@ const DRAWIO_ORIGIN = (() => {
 const XML_EXPORT_TIMEOUT_MS = 4000;
 
 type DrawioMessage = {
-  event?: "init" | "export" | "autosave" | "save" | "exit";
+  event?: "configure" | "init" | "export" | "autosave" | "save" | "exit";
   data?: string;
   xml?: string;
   format?: "png" | "xml" | "svg";
@@ -55,6 +59,7 @@ const isDrawioMessage = (value: unknown): value is DrawioMessage => {
   if (!("event" in value)) return false;
   const event = (value as { event?: string }).event;
   return (
+    event === "configure" ||
     event === "init" ||
     event === "export" ||
     event === "autosave" ||
@@ -289,6 +294,13 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
       }
 
       if (!data || !isDrawioMessage(data)) return;
+
+      // Fired first because of `configure=1`. We reply with the locked ER palette
+      // before the editor initialises; `init` (and the load below) follows normally.
+      if (data.event === "configure") {
+        postToIframe({ action: "configure", config: ER_CONFIG });
+        return;
+      }
 
       if (data.event === "init") {
         stopRetry();

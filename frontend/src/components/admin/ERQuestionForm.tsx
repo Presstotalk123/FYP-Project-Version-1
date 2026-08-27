@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,8 +11,10 @@ import {
   Grid,
   Group,
   Modal,
+  ScrollArea,
   Stack,
   Switch,
+  Tabs,
   Text,
   Textarea,
 } from "@mantine/core";
@@ -31,6 +33,8 @@ import type {
   GenerateRubricMode,
 } from "@/types/er-diagram.types";
 import { formatRubricJson, isRubricJsonObject } from "@/utils/er-rubric-authoring";
+import { buildRubricDisplayGroups } from "@/utils/er-rubric-results";
+import { RubricDisplayGroups } from "@/components/RubricDisplayGroups";
 import { buildRubricMarkdownFromJson } from "@/utils/er-rubric-markdown";
 import { parseJsonObjectWithLocation } from "@/utils/json-parse-error";
 import styles from "@/app/er-diagram/add/page.module.css";
@@ -62,6 +66,11 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
     isEdit ? formatRubricJson(initialRubric) : "{}",
   );
   const [rubricJsonError, setRubricJsonError] = useState<string | null>(null);
+  const [rubricTab, setRubricTab] = useState<string | null>("preview");
+  /** What the Student Preview tab renders. Deliberately NOT live: it updates
+   *  only from the Refresh button (and starts from the saved rubric), so the
+   *  cards hold still while the JSON is being reshaped next door. */
+  const [previewJson, setPreviewJson] = useState<ERRubricJson>(initialRubric);
   const [difficulty, setDifficulty] = useState<GenerateRubricDifficulty | null>(
     question ? { label: question.difficulty_label, rationale: question.difficulty_rationale } : null,
   );
@@ -213,6 +222,20 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
     if (!parsed.ok) return;
     setRubricJsonDraft(formatRubricJson(parsed.value));
   };
+
+  const handleRefreshPreview = () => {
+    const parsed = parseJsonObjectWithLocation(rubricJsonDraft, isRubricJsonObject, "rubric_json");
+    if (!parsed.ok) {
+      setRubricJsonError(parsed.message);
+      showErrorNotification("Please fix rubric_json before refreshing the preview");
+      return;
+    }
+    setPreviewJson(parsed.value);
+  };
+
+  /** Statuses stay "not evaluated": a preview has no submission to grade, so it
+   *  shows the structure students see without inventing verdicts. */
+  const previewGroups = useMemo(() => buildRubricDisplayGroups(previewJson, null), [previewJson]);
 
   const handleGenerateRubric = async (mode: GenerateRubricMode) => {
     if (!problemTitle.trim()) {
@@ -624,43 +647,118 @@ export function ERQuestionForm({ question }: ERQuestionFormProps) {
                 {difficulty.rationale}
               </Alert>
             ) : null}
-            <Stack gap="xs" className={styles.jsonPanelStack}>
-              {rubricJsonError ? (
-                <Alert color="red" title="Invalid rubric_json">
-                  {rubricJsonError}
-                </Alert>
-              ) : null}
-              <Group justify="flex-end" gap="xs">
-                <Button
-                  variant="subtle"
-                  size="xs"
-                  onClick={handleFormatJson}
-                  disabled={!hasOutput || hasRubricJsonError || isGenerating || isSaving}
-                >
-                  Format
-                </Button>
-              </Group>
-              <Box className={styles.jsonEditorWrapper}>
-                <Editor
-                  height="100%"
-                  language="json"
-                  theme="light"
-                  value={rubricJsonDraft}
-                  onChange={(next) => handleRubricJsonChange(next ?? "")}
-                  options={{
-                    minimap: { enabled: false },
-                    lineNumbers: "on",
-                    fontSize: 13,
-                    tabSize: 2,
-                    wordWrap: "on",
-                    formatOnPaste: true,
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    readOnly: !hasOutput || isGenerating || isSaving,
-                  }}
-                />
-              </Box>
-            </Stack>
+            {/* keepMounted so switching tabs never unmounts Monaco — the undo
+                stack and cursor survive a look at the preview. Inline flex on
+                the panels is safe: Mantine appends display:none for the
+                inactive one after our style. */}
+            <Tabs
+              value={rubricTab}
+              onChange={setRubricTab}
+              keepMounted
+              style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
+            >
+              <Tabs.List>
+                <Tabs.Tab value="preview">Rubric Preview</Tabs.Tab>
+                <Tabs.Tab value="json">JSON</Tabs.Tab>
+              </Tabs.List>
+              <Tabs.Panel
+                value="json"
+                pt="xs"
+                style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+              >
+                <Stack gap="xs" className={styles.jsonPanelStack}>
+                  {rubricJsonError ? (
+                    <Alert color="red" title="Invalid rubric_json">
+                      {rubricJsonError}
+                    </Alert>
+                  ) : null}
+                  <Group justify="flex-end" gap="xs">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={handleFormatJson}
+                      disabled={!hasOutput || hasRubricJsonError || isGenerating || isSaving}
+                    >
+                      Format
+                    </Button>
+                  </Group>
+                  <Box className={styles.jsonEditorWrapper}>
+                    <Editor
+                      height="100%"
+                      language="json"
+                      theme="light"
+                      value={rubricJsonDraft}
+                      onChange={(next) => handleRubricJsonChange(next ?? "")}
+                      options={{
+                        minimap: { enabled: false },
+                        lineNumbers: "on",
+                        fontSize: 13,
+                        tabSize: 2,
+                        wordWrap: "on",
+                        formatOnPaste: true,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        readOnly: !hasOutput || isGenerating || isSaving,
+                      }}
+                    />
+                  </Box>
+                </Stack>
+              </Tabs.Panel>
+              <Tabs.Panel
+                value="preview"
+                pt="xs"
+                style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+              >
+                {/* Same class as the JSON tab, so the preview is held to the same
+                    height and the cards scroll inside instead of growing the card. */}
+                <Stack gap="xs" className={styles.jsonPanelStack}>
+                  <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
+                    <Text size="xs" c="dimmed">
+                      How students see this rubric after they submit — statuses fill in once
+                      an attempt is graded.
+                    </Text>
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      style={{ flexShrink: 0 }}
+                      onClick={handleRefreshPreview}
+                      disabled={!hasOutput || isGenerating || isSaving}
+                    >
+                      Refresh preview
+                    </Button>
+                  </Group>
+                  {/* Absolutely positioned inside a flex-filling box so the cards
+                      have no intrinsic height: the Grid row would otherwise grow
+                      to fit them (stretching the form column too) instead of
+                      holding the card's height and scrolling. Monaco next door is
+                      immune only because it takes whatever height it is given. */}
+                  <Box style={{ position: "relative", flex: 1, minHeight: 0 }}>
+                    <ScrollArea
+                      type="always"
+                      offsetScrollbars
+                      p="md"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        border: "1px solid var(--mantine-color-gray-3)",
+                        borderRadius: 8,
+                      }}
+                    >
+                      {previewGroups ? (
+                        <Stack gap="lg">
+                          <RubricDisplayGroups groups={previewGroups} />
+                        </Stack>
+                      ) : (
+                        <Alert color="gray" title="Structured rubric unavailable">
+                          Add a checks array to rubric_json (or generate one) to see the
+                          student view.
+                        </Alert>
+                      )}
+                    </ScrollArea>
+                  </Box>
+                </Stack>
+              </Tabs.Panel>
+            </Tabs>
             {hasOutput ? (
               <Group justify="space-between" style={{ marginTop: "auto" }}>
                 <Text size="xs" c={isSaved ? "green" : "dimmed"}>

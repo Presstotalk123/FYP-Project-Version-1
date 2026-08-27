@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>draw.io palette test</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; display: flex; height: 100vh; }
+    #side { width: 340px; display: flex; flex-direction: column; }
+    #buttons { padding: 8px; background: #222; }
+    #buttons button { display: block; width: 100%; margin: 4px 0; padding: 8px; cursor: pointer;
+                      font-size: 13px; }
+    #log { flex: 1; padding: 10px; overflow: auto; background: #111; color: #0f0;
+           font: 12px/1.4 monospace; white-space: pre-wrap; }
+    #log b { color: #ff0; }
+    #log .err { color: #f66; }
+    #frameWrap { flex: 1; }
+    iframe { width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <div id="side">
+    <div id="buttons">
+      <button onclick="start('A')">A: inline data (old approach)</button>
+      <button onclick="start('R')">R: url = GitHub raw (final approach)</button>
+    </div>
+    <div id="log"></div>
+  </div>
+  <div id="frameWrap"></div>
+  <script>
+    var SHAPES = [
+      { title: "Entity", style: "rounded=0;whitespace=wrap;html=1;", value: "Entity", w: 120, h: 60 },
+      { title: "Weak Entity", style: "shape=ext;double=1;whitespace=wrap;html=1;", value: "Weak Entity", w: 120, h: 60 },
+      { title: "Relationship", style: "rhombus;whitespace=wrap;html=1;", value: "Relationship", w: 120, h: 80 },
+      { title: "Identifying Relationship", style: "rhombus;double=1;whitespace=wrap;html=1;", value: "Identifying", w: 120, h: 80 },
+      { title: "Attribute", style: "ellipse;whitespace=wrap;html=1;", value: "Attribute", w: 120, h: 60 },
+      { title: "Key Attribute", style: "ellipse;whitespace=wrap;html=1;", value: "<u>Key</u>", w: 120, h: 60 },
+      { title: "Triangle", style: "triangle;whitespace=wrap;html=1;", value: "", w: 80, h: 80 },
+      { title: "Arc", style: "shape=mxgraph.basic.arc;html=1;startAngle=0.15;endAngle=0.55;arcWidth=0.5;fillColor=none;", value: "", w: 100, h: 100 }
+    ];
+    function esc(v){ return v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+    function entryXml(s){
+      return "<mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>" +
+        "<mxCell id=\"2\" value=\"" + esc(s.value) + "\" style=\"" + esc(s.style) + "\" vertex=\"1\" parent=\"1\">" +
+        "<mxGeometry x=\"0\" y=\"0\" width=\"" + s.w + "\" height=\"" + s.h + "\" as=\"geometry\"/></mxCell>" +
+        "</root></mxGraphModel>";
+    }
+    var mxlib = "<mxlibrary>" + JSON.stringify(SHAPES.map(function(s){
+      return { xml: entryXml(s), w: s.w, h: s.h, aspect: "fixed", title: s.title };
+    })) + "</mxlibrary>";
+    // Final approach: draw.io fetches this raw URL directly (raw.githubusercontent.com is
+    // allowlisted in Editor.isCorsEnabledForUrl). Goes live seconds after you push.
+    var RAW_URL = "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
+
+    function configFor(mode){
+      var lib = (mode === 'A') ? { title:{main:"ER"}, data: mxlib }
+                               : { title:{main:"ER"}, url: RAW_URL };
+      return {
+        defaultLibraries: "erd",
+        enabledLibraries: ["erd"],
+        libraries: [{
+          title: { main: "Entity-Relationship" },
+          entries: [{ id:"erd", title:{main:"ER Shapes"}, desc:{main:"Stock ER notation"}, libs:[lib] }]
+        }]
+      };
+    }
+
+    var logEl = document.getElementById("log");
+    function log(msg, cls){ logEl.innerHTML += (cls?'<span class="'+cls+'">':'') + msg + (cls?'</span>':'') + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+
+    var ORIGIN = "https://embed.diagrams.net";
+    var iframe = null;
+    var MODE = 'A';
+
+    function start(mode){
+      MODE = mode;
+      logEl.innerHTML = "";
+      log("<b>=== MODE " + mode + " ===</b>");
+      log("mxlibrary length: " + mxlib.length);
+      if (iframe) iframe.remove();
+      iframe = document.createElement("iframe");
+      iframe.src = ORIGIN + "/?embed=1&spin=1&ui=min&configure=1&proto=json";
+      document.getElementById("frameWrap").appendChild(iframe);
+      log("iframe created, waiting for events...\n");
+    }
+
+    window.addEventListener("message", function(evt){
+      if (evt.origin !== ORIGIN) return;
+      if (typeof evt.data !== "string" || evt.data.length === 0) return;
+      var msg;
+      try { msg = JSON.parse(evt.data); } catch(e){ return; }
+      log("&lt;- " + msg.event);
+      if (msg.event === "configure") {
+        iframe.contentWindow.postMessage(JSON.stringify({ action:"configure", config: configFor(MODE) }), "*");
+        log("   -> sent configure (mode " + MODE + ")");
+      } else if (msg.event === "init") {
+        iframe.contentWindow.postMessage(JSON.stringify({ action:"load", autosave:1, xml:"" }), "*");
+        log("   -> sent load");
+        log("\n<b>LOOK AT SIDEBAR: 8 shapes under ER?</b>");
+      }
+    });
+
+    start('A');
+  </script>
+</body>
+</html>

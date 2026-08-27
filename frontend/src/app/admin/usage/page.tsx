@@ -18,7 +18,7 @@ import {
   ScrollArea,
   TextInput,
 } from '@mantine/core';
-import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock, IconReportAnalytics, IconSearch } from '@tabler/icons-react';
+import { IconAlertCircle, IconChevronLeft, IconChevronRight, IconClock, IconReportAnalytics, IconSearch, IconArrowUp, IconArrowDown, IconArrowsSort } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { PlatformUsageTable } from '@/components/common/PlatformUsageTable';
@@ -40,6 +40,8 @@ export default function StudentUsagePage() {
   const [selected, setSelected] = useState<{ id: number; name: string } | null>(null);
   // Filters the table by name, email, or class group.
   const [search, setSearch] = useState('');
+  // Assessment-avg sort: null = default (all-time order); 'desc' = highest→lowest; 'asc' = lowest→highest
+  const [avgSort, setAvgSort] = useState<'asc' | 'desc' | null>(null);
   // Drives the per-student report drawer (practice + assessment scores).
   const [reportStudent, setReportStudent] = useState<{ id: number; name: string } | null>(null);
 
@@ -76,6 +78,18 @@ export default function StudentUsagePage() {
       r.email.toLowerCase().includes(q) ||
       (r.class_group ?? '').toLowerCase().includes(q),
   );
+  // Sort by assessment average when active; students with no score always sort last.
+  const sortedRows =
+    avgSort === null
+      ? filteredRows
+      : [...filteredRows].sort((a, b) => {
+          const sa = a.avg_assessment_score;
+          const sb = b.avg_assessment_score;
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return avgSort === 'desc' ? sb - sa : sa - sb;
+        });
 
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
@@ -126,7 +140,24 @@ export default function StudentUsagePage() {
                   <Table.Tr>
                     <Table.Th>Student</Table.Th>
                     <Table.Th>Class group</Table.Th>
-                    <Table.Th ta="center">Assessment avg</Table.Th>
+                    <Table.Th
+                      ta="center"
+                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                      onClick={() =>
+                        setAvgSort((s) => (s === 'desc' ? 'asc' : s === 'asc' ? null : 'desc'))
+                      }
+                    >
+                      <Group gap={4} justify="center" wrap="nowrap">
+                        Assessment avg
+                        {avgSort === 'desc' ? (
+                          <IconArrowDown size={14} />
+                        ) : avgSort === 'asc' ? (
+                          <IconArrowUp size={14} />
+                        ) : (
+                          <IconArrowsSort size={14} style={{ opacity: 0.5 }} />
+                        )}
+                      </Group>
+                    </Table.Th>
                     <Table.Th ta="right">{MONTH_NAMES[month - 1]} time</Table.Th>
                     <Table.Th ta="center">Days active (all-time)</Table.Th>
                     <Table.Th ta="right">Total time (all-time)</Table.Th>
@@ -134,7 +165,7 @@ export default function StudentUsagePage() {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {filteredRows.map((r) => (
+                  {sortedRows.map((r) => (
                     <Table.Tr key={r.student_id}>
                       <Table.Td>
                         <Text fw={600} size="sm">{r.name || r.email}</Text>

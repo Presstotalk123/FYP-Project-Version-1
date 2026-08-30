@@ -39,6 +39,8 @@ from app.services import (
     assessment_reset,
     assessment_scoring,
 )
+from app.models.attempt import Attempt
+from app.models.er_submission import ErSubmission
 from app.models.er_diagram_draft import ErDiagramDraft
 from app.services.erd_tutor import persistence as erd_persistence
 from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
@@ -281,9 +283,41 @@ def get_assessment_analytics_summary(
             avg_weighted_score=analytics.avg_weighted_score,
         ))
 
+    # Platform-wide totals for the Overview tab's Questions/Attempts cards.
+    # Questions: bank only, so the numbers match the Problems page. Attempts:
+    # students only, so a staff test run doesn't inflate platform activity —
+    # the same rule the ERD tab's engagement numbers follow.
+    total_sql_questions = (
+        db.query(func.count(Question.id))
+        .filter(Question.is_deleted == 0, Question.owner_assessment_id.is_(None))
+        .scalar() or 0
+    )
+    total_erd_questions = (
+        db.query(func.count(ERDiagramQuestion.id))
+        .filter(ERDiagramQuestion.is_deleted == 0,
+                ERDiagramQuestion.owner_assessment_id.is_(None))
+        .scalar() or 0
+    )
+    total_sql_attempts = (
+        db.query(func.count(Attempt.id))
+        .join(User, User.id == Attempt.user_id)
+        .filter(User.role == "student")
+        .scalar() or 0
+    )
+    total_erd_submissions = (
+        db.query(func.count(ErSubmission.id))
+        .join(User, User.id == ErSubmission.user_id)
+        .filter(User.role == "student")
+        .scalar() or 0
+    )
+
     return AssessmentAnalyticsSummaryResponse(
         platform_registered=registered_for(None),
         platform_signed_in=assessment_registration.signed_in_student_count(db),
+        total_sql_questions=int(total_sql_questions),
+        total_erd_questions=int(total_erd_questions),
+        total_sql_attempts=int(total_sql_attempts),
+        total_erd_submissions=int(total_erd_submissions),
         assessments=rows,
     )
 

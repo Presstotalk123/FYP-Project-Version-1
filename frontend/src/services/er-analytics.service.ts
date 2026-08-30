@@ -5,6 +5,7 @@ import type {
   ClassOverview,
   QuestionAnalytics,
   ScoreOverrideResult,
+  StudentEngagement,
   StudentSubmissions,
   SubmissionDetail,
 } from "@/types/er-analytics.types";
@@ -39,6 +40,12 @@ export const erAnalyticsService = {
   async overview(context: AnalyticsContext, classGroup?: string): Promise<ClassOverview> {
     const r = await api.get<ClassOverview>(API_ENDPOINTS.ER_ANALYTICS.OVERVIEW, {
       params: { context, ...(classGroup ? { class_group: classGroup } : {}) },
+    });
+    return r.data;
+  },
+  async studentEngagement(classGroup?: string): Promise<StudentEngagement> {
+    const r = await api.get<StudentEngagement>(API_ENDPOINTS.ER_ANALYTICS.STUDENTS, {
+      params: classGroup ? { class_group: classGroup } : {},
     });
     return r.data;
   },

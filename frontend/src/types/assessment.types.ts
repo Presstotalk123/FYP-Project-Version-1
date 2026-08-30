@@ -303,6 +303,12 @@ export interface AssessmentAnalyticsSummaryResponse {
   // Platform-wide counts for the Overview tab's metric card.
   platform_registered: number;
   platform_signed_in: number;
+  /** Bank (practice) questions only — assessment-owned clones excluded. */
+  total_sql_questions: number;
+  total_erd_questions: number;
+  /** Graded attempts by students platform-wide; staff test runs excluded. */
+  total_sql_attempts: number;
+  total_erd_submissions: number;
   assessments: AssessmentAnalyticsSummaryRow[];
 }
 

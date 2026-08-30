@@ -132,6 +132,47 @@ export interface SubmissionDetail {
   regraded_at: string | null;
 }
 
+/** One student's ERD usage across every question. Practice numbers only —
+ *  assessment attempts are deliberately not counted as engagement. */
+export interface StudentEngagementRow {
+  user_id: number;
+  email: string;
+  name: string | null;
+  class_group: string | null;
+  practice_submissions: number;
+  distinct_practice_questions: number;
+  practice_best_percent: number | null;
+  practice_avg_percent: number | null;
+  /** Best percent per assessment question, averaged; null if never assessed. */
+  assessment_score_percent: number | null;
+  baloo_queries: number;
+  first_activity_at: string | null;
+}
+
+export interface EngagementPoint {
+  user_id: number;
+  practice_submissions: number;
+  assessment_score_percent: number;
+}
+
+export interface StudentEngagement {
+  totals: {
+    practice_submissions: number;
+    assessment_submissions: number;
+    students_engaged: number;
+    registered_students: number;
+    avg_best_percent: number | null;
+    baloo_queries: number;
+  };
+  students: StudentEngagementRow[];
+  correlation: {
+    n: number;
+    /** Null when fewer than 3 scored students, or no variance to rank. */
+    spearman_rho: number | null;
+    points: EngagementPoint[];
+  };
+}
+
 export interface ClassOverview {
   dimensions: {
     dimension: string;

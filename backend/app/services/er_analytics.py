@@ -537,11 +537,9 @@ def student_engagement(db: Session, class_group: Optional[str] = None) -> dict:
             "name": user_meta.get(uid, {}).get("name"),
             "class_group": user_meta.get(uid, {}).get("class_group"),
         }
-        for uid, s in sorted(
-            per.items(),
-            key=lambda kv: (-kv[1]["practice_submissions"],
-                            user_meta.get(kv[0], {}).get("email", "")),
-        )
+        # By user id, purely for a deterministic payload — the ERD tab re-sorts
+        # client-side, so no display order is promised here.
+        for uid, s in sorted(per.items())
     ]
 
     bests = [s["_best_overall"] for s in per.values() if s["_best_overall"] is not None]

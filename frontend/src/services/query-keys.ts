@@ -26,7 +26,7 @@ export const queryKeys = {
   // The staff-tunable ERD toggle. Reads are open to any authenticated user, so
   // this is shared by the staff settings page and the student question list.
   erdSettings: ['erdSettings'] as const,
-  // Admin ERD tab: per-student engagement + practice-vs-score correlation,
+  // Admin ERD tab: per-student engagement across every ERD question,
   // keyed by class group so each cohort caches separately.
   erdEngagement: (classGroup: string | null) =>
     ['erdEngagement', classGroup] as const,

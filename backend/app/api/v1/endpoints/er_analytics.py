@@ -288,7 +288,7 @@ def get_student_engagement(
     _staff: User = Depends(require_staff_role),
 ):
     """Per-student ERD engagement (practice volume, assessment score, Baloo
-    usage) plus the practice-vs-score correlation, for the admin ERD tab."""
+    usage), for the admin ERD tab."""
     return cache_read(
         db,
         Ns.ER_ANALYTICS,

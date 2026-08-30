@@ -44,14 +44,16 @@ const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
  *  back to email); ISO timestamps compare fine as strings. */
 const sortValue = (s: StudentEngagementRow, key: SortKey): string | number | null => {
   if (key === 'student') return (s.name || s.email).toLowerCase();
-  if (key === 'class_group') return s.class_group?.toLowerCase() ?? null;
+  // '' renders as '—' exactly like null, so it must sink with null too —
+  // otherwise identical-looking rows sort to opposite ends.
+  if (key === 'class_group') return s.class_group ? s.class_group.toLowerCase() : null;
   return s[key];
 };
 
 export function ErdAnalyticsTab() {
   const router = useRouter();
   const [classGroup, setClassGroup] = useState('');
-  // Default mirrors the server order: most practice first.
+  // Most practice first by default.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({
     key: 'practice_submissions',
     dir: 'desc',

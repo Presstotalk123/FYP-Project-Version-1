@@ -60,7 +60,7 @@ export const API_ENDPOINTS = {
     SUBMISSION_IMAGE: (submissionId: number) =>
       `/er-diagram/submissions/${submissionId}/image`,
     OVERVIEW: '/er-diagram/analytics/overview',
-    /** Per-student engagement + practice-vs-score correlation (admin ERD tab). */
+    /** Per-student engagement across every ERD question (admin ERD tab). */
     STUDENTS: '/er-diagram/analytics/students',
     CLASS_GROUPS: '/er-diagram/analytics/class-groups',
     /** A student's autosaved canvas, read as staff. */

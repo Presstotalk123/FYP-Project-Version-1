@@ -50,6 +50,27 @@ const sortValue = (s: StudentEngagementRow, key: SortKey): string | number | nul
   return s[key];
 };
 
+/** RFC-4180 quoting: wrap anything holding a comma, quote, or newline. */
+const csvCell = (v: string | number | null): string => {
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** The table as CSV, in the given (already sorted/filtered) order. Raw numbers,
+ *  ISO dates — analysis-friendly rather than display-formatted. */
+const studentsCsv = (rows: StudentEngagementRow[]): string => {
+  const header = ['Name', 'Email', 'Class group', 'Practice submissions',
+    'Questions tried', 'Practice best %', 'Practice avg %',
+    'Baloo queries', 'First activity'];
+  const lines = rows.map((s) => [
+    s.name ?? '', s.email, s.class_group ?? '',
+    s.practice_submissions, s.distinct_practice_questions,
+    s.practice_best_percent ?? '', s.practice_avg_percent ?? '',
+    s.baloo_queries, s.first_activity_at ?? '',
+  ].map(csvCell).join(','));
+  return [header.map(csvCell).join(','), ...lines].join('\r\n');
+};
+
 export function ErdAnalyticsTab() {
   const router = useRouter();
   const [classGroup, setClassGroup] = useState('');
@@ -119,6 +140,25 @@ export function ErdAnalyticsTab() {
             not duplicated here. */}
         <button className="btn btn-secondary" onClick={() => router.push('/admin/er-analytics')}>
           Class overview
+        </button>
+        <button
+          className="btn btn-secondary"
+          disabled={sortedStudents.length === 0}
+          onClick={() => {
+            // BOM so Excel reads UTF-8 names correctly when double-clicked.
+            const blob = new Blob(['\uFEFF' + studentsCsv(sortedStudents)],
+              { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = classGroup
+              ? `erd-analytics-students-${classGroup}.csv`
+              : 'erd-analytics-students.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          Export CSV
         </button>
       </div>
 

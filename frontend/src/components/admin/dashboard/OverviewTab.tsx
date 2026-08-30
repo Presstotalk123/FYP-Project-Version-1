@@ -2,10 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { questionService } from '@/services/question.service';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
-import api from '@/services/api.service';
 import { ActiveUsersCard } from '@/components/admin/ActiveUsersCard';
 
 const METRIC_LABEL: React.CSSProperties = {
@@ -19,23 +17,18 @@ const METRIC_LABEL: React.CSSProperties = {
 export function OverviewTab() {
   const router = useRouter();
 
-  const questionsQuery = useQuery({
-    queryKey: queryKeys.questions,
-    queryFn: () => questionService.getQuestions(),
-  });
-  const attemptsQuery = useQuery({
-    queryKey: queryKeys.attempts,
-    queryFn: async () => (await api.get('/attempts')).data as unknown[],
-  });
-  // Registered/signed-in ride on the analytics summary because /whitelist is admin-only
-  // while this dashboard is staff + admin. Same key as the Assessments tab, so whichever
-  // tab is opened first pays for the fetch.
+  // Everything on this tab rides on the analytics summary: it carries the
+  // platform-wide question/attempt totals (bank questions; student attempts,
+  // SQL + ERD) alongside registered/signed-in, and it is served from
+  // /assessments because /whitelist is admin-only while this dashboard is
+  // staff + admin. Same key as the Assessments tab, so whichever tab is opened
+  // first pays for the fetch.
   const summaryQuery = useQuery({
     queryKey: queryKeys.assessmentAnalyticsSummary,
     queryFn: () => assessmentService.getAnalyticsSummary(),
   });
 
-  if (questionsQuery.isLoading) {
+  if (summaryQuery.isLoading) {
     return (
       <div className="loading-center">
         <div className="spinner" />
@@ -44,25 +37,28 @@ export function OverviewTab() {
     );
   }
 
-  const totalQuestions = questionsQuery.data?.length ?? 0;
-  const totalAttempts = attemptsQuery.data?.length ?? 0;
-  const registered = summaryQuery.data?.platform_registered;
-  const signedIn = summaryQuery.data?.platform_signed_in;
+  const s = summaryQuery.data;
+  const totalQuestions = (s?.total_sql_questions ?? 0) + (s?.total_erd_questions ?? 0);
+  const totalAttempts = (s?.total_sql_attempts ?? 0) + (s?.total_erd_submissions ?? 0);
+  const registered = s?.platform_registered;
+  const signedIn = s?.platform_signed_in;
 
   return (
     <>
       <ActiveUsersCard />
 
       <div className="grid-3" style={{ marginBottom: 18 }}>
-        <article className="card metric">
+        <article className="card metric" style={{ borderLeft: '3px solid var(--brand-lilac)' }}>
           <div>
             <span style={METRIC_LABEL}>Total Questions</span>
             <strong>{totalQuestions}</strong>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {s?.total_sql_questions ?? 0} SQL · {s?.total_erd_questions ?? 0} ERD
+            </span>
           </div>
-          <span className="badge brand-badge">SQL</span>
         </article>
 
-        <article className="card metric">
+        <article className="card metric" style={{ borderLeft: '3px solid var(--success)' }}>
           <div>
             <span style={METRIC_LABEL}>Registered Students</span>
             <strong>{registered ?? '—'}</strong>
@@ -76,15 +72,16 @@ export function OverviewTab() {
                   : `${signedIn} signed in`}
             </span>
           </div>
-          <span className="badge badge-success">Students</span>
         </article>
 
-        <article className="card metric">
+        <article className="card metric" style={{ borderLeft: '3px solid var(--warning)' }}>
           <div>
             <span style={METRIC_LABEL}>Total Attempts</span>
             <strong>{totalAttempts}</strong>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {s?.total_sql_attempts ?? 0} SQL · {s?.total_erd_submissions ?? 0} ERD
+            </span>
           </div>
-          <span className="badge badge-warn">Attempts</span>
         </article>
       </div>
 

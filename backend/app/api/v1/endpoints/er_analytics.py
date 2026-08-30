@@ -24,6 +24,7 @@ from app.services.er_analytics import (
     class_overview,
     list_class_groups,
     question_analytics,
+    student_engagement,
     student_submissions,
 )
 from app.services.er_score_override import (
@@ -277,6 +278,22 @@ def get_class_overview(
         Ns.ER_ANALYTICS,
         key=("overview", context, class_group or ""),
         producer=lambda: class_overview(db, context, class_group),
+    )
+
+
+@router.get("/analytics/students")
+def get_student_engagement(
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """Per-student ERD engagement (practice volume, assessment score, Baloo
+    usage), for the admin ERD tab."""
+    return cache_read(
+        db,
+        Ns.ER_ANALYTICS,
+        key=("students", class_group or ""),
+        producer=lambda: student_engagement(db, class_group),
     )
 
 

@@ -8,6 +8,8 @@ export const API_ENDPOINTS = {
   AUTH: {
     GOOGLE: '/auth/google',
     MICROSOFT: '/auth/microsoft',
+    /** Local development only — the backend 404s this unless DEV_LOGIN_ENABLED. */
+    DEV_LOGIN: '/auth/dev-login',
     ME: '/auth/me',
   },
   LOGIN_ACTIVITY: {
@@ -61,6 +63,8 @@ export const API_ENDPOINTS = {
     SUBMISSION_IMAGE: (submissionId: number) =>
       `/er-diagram/submissions/${submissionId}/image`,
     OVERVIEW: '/er-diagram/analytics/overview',
+    /** Per-student engagement across every ERD question (admin ERD tab). */
+    STUDENTS: '/er-diagram/analytics/students',
     CLASS_GROUPS: '/er-diagram/analytics/class-groups',
     /** A student's autosaved canvas, read as staff. */
     STUDENT_DRAFT: (id: number, studentId: number) =>

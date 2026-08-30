@@ -332,6 +332,14 @@ class AssessmentAnalyticsSummaryResponse(BaseModel):
     # here because /whitelist is admin-only while this dashboard is staff + admin.
     platform_registered: int
     platform_signed_in: int
+    # Bank (practice) questions only — assessment-owned clones stay out, matching
+    # what staff see in Problems.
+    total_sql_questions: int
+    total_erd_questions: int
+    # Graded attempts by students across the whole platform (staff test runs
+    # excluded), practice and assessment alike — the Overview activity card.
+    total_sql_attempts: int
+    total_erd_submissions: int
     assessments: List[AssessmentAnalyticsSummaryRow]
 
 

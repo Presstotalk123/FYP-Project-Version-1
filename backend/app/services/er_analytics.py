@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 
 from app.models.assessment_item import AssessmentItem
@@ -393,6 +394,165 @@ def student_submissions(db: Session, question_id: int, student_id: int) -> dict:
         "attempts": attempts,
         "chat": {"queries_asked": queries_asked, "topics": topics,
                  "messages": transcript},
+    }
+
+
+def student_engagement(db: Session, class_group: Optional[str] = None) -> dict:
+    """Per-student ERD usage across every question, for the admin ERD tab.
+
+    Students only — staff test attempts stay out of every number. Practice vs
+    assessment follows owner_assessment_id, as everywhere else. The assessment
+    score is the student's best percent per assessment question averaged over
+    the questions they attempted — the same best-attempt rule the assessment
+    mark uses (assessment_scoring.er_best_scores_bulk).
+
+    First activity reads submissions and Baloo query messages, not drafts:
+    drafts don't invalidate Ns.ER_ANALYTICS, so including them could serve a
+    stale cached timestamp.
+    """
+    student_q = db.query(User.id).filter(User.role == "student")
+    if class_group is not None:
+        student_q = student_q.filter(User.class_group == class_group)
+    student_ids = {row[0] for row in student_q.all()}
+
+    per: dict[int, dict] = {}
+
+    def slot(uid: int) -> dict:
+        return per.setdefault(uid, {
+            "user_id": uid,
+            "practice_submissions": 0,
+            "distinct_practice_questions": 0,
+            "practice_best_percent": None,
+            "practice_avg_percent": None,
+            "assessment_score_percent": None,
+            "baloo_queries": 0,
+            "_first": None,
+            "_best_overall": None,
+        })
+
+    def merge_first(entry: dict, ts) -> None:
+        if ts is not None and (entry["_first"] is None or ts < entry["_first"]):
+            entry["_first"] = ts
+
+    def merge_best(entry: dict, value) -> None:
+        if value is not None and (entry["_best_overall"] is None
+                                  or value > entry["_best_overall"]):
+            entry["_best_overall"] = value
+
+    practice_rows = (
+        db.query(
+            ErSubmission.user_id,
+            func.count(ErSubmission.id),
+            func.count(func.distinct(ErSubmission.er_diagram_question_id)),
+            func.max(ErSubmission.score_percent),
+            func.avg(ErSubmission.score_percent),
+            func.min(ErSubmission.created_at),
+        )
+        .join(ERDiagramQuestion,
+              ERDiagramQuestion.id == ErSubmission.er_diagram_question_id)
+        .filter(ERDiagramQuestion.is_deleted == 0,
+                ERDiagramQuestion.owner_assessment_id.is_(None),
+                ErSubmission.user_id.in_(student_ids))
+        .group_by(ErSubmission.user_id)
+        .all()
+    )
+    for uid, count, distinct_q, best, avg, first_at in practice_rows:
+        s = slot(uid)
+        s["practice_submissions"] = int(count)
+        s["distinct_practice_questions"] = int(distinct_q)
+        s["practice_best_percent"] = round(best, 1) if best is not None else None
+        s["practice_avg_percent"] = round(avg, 1) if avg is not None else None
+        merge_first(s, first_at)
+        merge_best(s, best)
+
+    # Best percent per (student, assessment question), then averaged per student.
+    best_per_q = (
+        db.query(
+            ErSubmission.user_id.label("uid"),
+            ErSubmission.er_diagram_question_id.label("qid"),
+            func.max(ErSubmission.score_percent).label("best"),
+            func.count(ErSubmission.id).label("attempts"),
+            func.min(ErSubmission.created_at).label("first_at"),
+        )
+        .join(ERDiagramQuestion,
+              ERDiagramQuestion.id == ErSubmission.er_diagram_question_id)
+        .filter(ERDiagramQuestion.is_deleted == 0,
+                ERDiagramQuestion.owner_assessment_id.isnot(None),
+                ErSubmission.user_id.in_(student_ids))
+        .group_by(ErSubmission.user_id, ErSubmission.er_diagram_question_id)
+        .subquery()
+    )
+    assessment_rows = db.query(
+        best_per_q.c.uid,
+        func.avg(best_per_q.c.best),
+        func.max(best_per_q.c.best),
+        func.sum(best_per_q.c.attempts),
+        func.min(best_per_q.c.first_at),
+    ).group_by(best_per_q.c.uid).all()
+    assessment_submission_total = 0
+    for uid, avg_best, max_best, attempts, first_at in assessment_rows:
+        s = slot(uid)
+        s["assessment_score_percent"] = (
+            round(avg_best, 1) if avg_best is not None else None
+        )
+        assessment_submission_total += int(attempts or 0)
+        merge_first(s, first_at)
+        merge_best(s, max_best)
+
+    chat_rows = (
+        db.query(
+            ErdTutorConversation.user_id,
+            func.count(ErdTutorMessage.id),
+            func.min(ErdTutorMessage.created_at),
+        )
+        .join(ErdTutorMessage,
+              ErdTutorMessage.conversation_id == ErdTutorConversation.id)
+        .join(ERDiagramQuestion,
+              ERDiagramQuestion.id == ErdTutorConversation.er_diagram_question_id)
+        .filter(ErdTutorMessage.role == "user",
+                ErdTutorMessage.mode == "query",
+                ERDiagramQuestion.is_deleted == 0,
+                ErdTutorConversation.user_id.in_(student_ids))
+        .group_by(ErdTutorConversation.user_id)
+        .all()
+    )
+    for uid, count, first_at in chat_rows:
+        s = slot(uid)
+        s["baloo_queries"] = int(count)
+        merge_first(s, first_at)
+
+    user_meta = {
+        uid: {"email": email, "name": name, "class_group": group}
+        for uid, email, name, group in (
+            db.query(User.id, User.email, User.name, User.class_group)
+            .filter(User.id.in_(per.keys()))
+            .all()
+        )
+    } if per else {}
+    students = [
+        {
+            **{k: v for k, v in s.items() if not k.startswith("_")},
+            "first_activity_at": s["_first"].isoformat() if s["_first"] else None,
+            "email": user_meta.get(uid, {}).get("email", ""),
+            "name": user_meta.get(uid, {}).get("name"),
+            "class_group": user_meta.get(uid, {}).get("class_group"),
+        }
+        # By user id, purely for a deterministic payload — the ERD tab re-sorts
+        # client-side, so no display order is promised here.
+        for uid, s in sorted(per.items())
+    ]
+
+    bests = [s["_best_overall"] for s in per.values() if s["_best_overall"] is not None]
+    return {
+        "totals": {
+            "practice_submissions": sum(s["practice_submissions"] for s in per.values()),
+            "assessment_submissions": assessment_submission_total,
+            "students_engaged": len(per),
+            "registered_students": len(student_ids),
+            "avg_best_percent": round(sum(bests) / len(bests), 1) if bests else None,
+            "baloo_queries": sum(s["baloo_queries"] for s in per.values()),
+        },
+        "students": students,
     }
 
 

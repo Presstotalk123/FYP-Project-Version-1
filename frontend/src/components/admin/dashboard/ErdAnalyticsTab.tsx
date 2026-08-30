@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { erAnalyticsService } from '@/services/er-analytics.service';
 import { queryKeys } from '@/services/query-keys';
+import type { StudentEngagementRow } from '@/types/er-analytics.types';
 
 const METRIC_LABEL: React.CSSProperties = {
   fontSize: 13,
@@ -18,9 +19,43 @@ const pct = (v: number | null): string => (v == null ? '—' : `${v}%`);
 const day = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleDateString() : '—';
 
+type SortKey =
+  | 'student'
+  | 'class_group'
+  | 'practice_submissions'
+  | 'distinct_practice_questions'
+  | 'practice_best_percent'
+  | 'practice_avg_percent'
+  | 'baloo_queries'
+  | 'first_activity_at';
+
+const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
+  { key: 'student', label: 'Student', numeric: false },
+  { key: 'class_group', label: 'Class', numeric: false },
+  { key: 'practice_submissions', label: 'Practice subs', numeric: true },
+  { key: 'distinct_practice_questions', label: 'Questions tried', numeric: true },
+  { key: 'practice_best_percent', label: 'Practice best', numeric: true },
+  { key: 'practice_avg_percent', label: 'Practice avg', numeric: true },
+  { key: 'baloo_queries', label: 'Baloo queries', numeric: true },
+  { key: 'first_activity_at', label: 'First activity', numeric: false },
+];
+
+/** What each column actually sorts on. Students sort by display name (falling
+ *  back to email); ISO timestamps compare fine as strings. */
+const sortValue = (s: StudentEngagementRow, key: SortKey): string | number | null => {
+  if (key === 'student') return (s.name || s.email).toLowerCase();
+  if (key === 'class_group') return s.class_group?.toLowerCase() ?? null;
+  return s[key];
+};
+
 export function ErdAnalyticsTab() {
   const router = useRouter();
   const [classGroup, setClassGroup] = useState('');
+  // Default mirrors the server order: most practice first.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({
+    key: 'practice_submissions',
+    dir: 'desc',
+  });
 
   const groupsQuery = useQuery({
     queryKey: ['erClassGroups'],
@@ -34,11 +69,37 @@ export function ErdAnalyticsTab() {
 
   const data = engagementQuery.data;
 
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        // Text/date columns start alphabetical/oldest-first; counts start biggest-first.
+        : { key, dir: COLUMNS.find((c) => c.key === key)?.numeric ? 'desc' : 'asc' },
+    );
+  };
+
+  const sortedStudents = useMemo(() => {
+    const rows = data?.students ?? [];
+    const sign = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = sortValue(a, sort.key);
+      const vb = sortValue(b, sort.key);
+      // Missing values sink to the bottom whichever direction is active.
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'string' && typeof vb === 'string') {
+        return sign * va.localeCompare(vb);
+      }
+      return sign * ((va as number) - (vb as number));
+    });
+  }, [data, sort]);
+
   return (
     <>
       <div className="page-head">
         <div>
-          <h2>ERD analytics</h2>
+          <h2>ERD Analytics</h2>
           <p>Per-student engagement across every ERD question.</p>
         </div>
         <select
@@ -123,18 +184,32 @@ export function ErdAnalyticsTab() {
               <table className="da-table">
                 <thead>
                   <tr>
-                    <th>Student</th>
-                    <th>Class</th>
-                    <th style={{ textAlign: 'right' }}>Practice subs</th>
-                    <th style={{ textAlign: 'right' }}>Questions tried</th>
-                    <th style={{ textAlign: 'right' }}>Practice best</th>
-                    <th style={{ textAlign: 'right' }}>Practice avg</th>
-                    <th style={{ textAlign: 'right' }}>Baloo queries</th>
-                    <th>First activity</th>
+                    {COLUMNS.map((c) => (
+                      <th
+                        key={c.key}
+                        onClick={() => toggleSort(c.key)}
+                        aria-sort={
+                          sort.key === c.key
+                            ? (sort.dir === 'asc' ? 'ascending' : 'descending')
+                            : undefined
+                        }
+                        style={{
+                          textAlign: c.numeric ? 'right' : 'left',
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {c.label}
+                        <span aria-hidden="true" style={{ marginLeft: 4, fontSize: 10, opacity: sort.key === c.key ? 1 : 0.35 }}>
+                          {sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : '▲▼'}
+                        </span>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {data.students.map((s) => (
+                  {sortedStudents.map((s) => (
                     <tr key={s.user_id}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{s.name || s.email}</div>

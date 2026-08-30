@@ -397,50 +397,14 @@ def student_submissions(db: Session, question_id: int, student_id: int) -> dict:
     }
 
 
-def _spearman_rho(xs: list, ys: list) -> Optional[float]:
-    """Spearman rank correlation with average ranks for ties. None when there
-    are fewer than 3 pairs or either side has no variance (rho is undefined)."""
-    n = len(xs)
-    if n < 3:
-        return None
-
-    def _ranks(values):
-        order = sorted(range(n), key=lambda i: values[i])
-        ranks = [0.0] * n
-        i = 0
-        while i < n:
-            j = i
-            while j + 1 < n and values[order[j + 1]] == values[order[i]]:
-                j += 1
-            avg = (i + j) / 2 + 1
-            for k in range(i, j + 1):
-                ranks[order[k]] = avg
-            i = j + 1
-        return ranks
-
-    rx, ry = _ranks(xs), _ranks(ys)
-    mx, my = sum(rx) / n, sum(ry) / n
-    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
-    dx = sum((a - mx) ** 2 for a in rx) ** 0.5
-    dy = sum((b - my) ** 2 for b in ry) ** 0.5
-    if dx == 0 or dy == 0:
-        return None
-    return round(num / (dx * dy), 3)
-
-
 def student_engagement(db: Session, class_group: Optional[str] = None) -> dict:
-    """Per-student ERD usage across every question, and how practice volume
-    relates to assessment outcome.
+    """Per-student ERD usage across every question, for the admin ERD tab.
 
     Students only — staff test attempts stay out of every number. Practice vs
     assessment follows owner_assessment_id, as everywhere else. The assessment
     score is the student's best percent per assessment question averaged over
     the questions they attempted — the same best-attempt rule the assessment
     mark uses (assessment_scoring.er_best_scores_bulk).
-
-    The correlation deliberately pairs PRACTICE volume with assessment score:
-    counting assessment attempts on the x-axis would correlate the score with
-    itself (more tries mechanically raises a best-of grade).
 
     First activity reads submissions and Baloo query messages, not drafts:
     drafts don't invalidate Ns.ER_ANALYTICS, so including them could serve a
@@ -580,13 +544,6 @@ def student_engagement(db: Session, class_group: Optional[str] = None) -> dict:
         )
     ]
 
-    scored = [s for s in per.values() if s["assessment_score_percent"] is not None]
-    points = [{
-        "user_id": s["user_id"],
-        "practice_submissions": s["practice_submissions"],
-        "assessment_score_percent": s["assessment_score_percent"],
-    } for s in sorted(scored, key=lambda s: s["user_id"])]
-
     bests = [s["_best_overall"] for s in per.values() if s["_best_overall"] is not None]
     return {
         "totals": {
@@ -598,14 +555,6 @@ def student_engagement(db: Session, class_group: Optional[str] = None) -> dict:
             "baloo_queries": sum(s["baloo_queries"] for s in per.values()),
         },
         "students": students,
-        "correlation": {
-            "n": len(points),
-            "spearman_rho": _spearman_rho(
-                [p["practice_submissions"] for p in points],
-                [p["assessment_score_percent"] for p in points],
-            ),
-            "points": points,
-        },
     }
 
 

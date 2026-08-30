@@ -149,12 +149,6 @@ export interface StudentEngagementRow {
   first_activity_at: string | null;
 }
 
-export interface EngagementPoint {
-  user_id: number;
-  practice_submissions: number;
-  assessment_score_percent: number;
-}
-
 export interface StudentEngagement {
   totals: {
     practice_submissions: number;
@@ -165,12 +159,6 @@ export interface StudentEngagement {
     baloo_queries: number;
   };
   students: StudentEngagementRow[];
-  correlation: {
-    n: number;
-    /** Null when fewer than 3 scored students, or no variance to rank. */
-    spearman_rho: number | null;
-    points: EngagementPoint[];
-  };
 }
 
 export interface ClassOverview {

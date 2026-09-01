@@ -11,6 +11,7 @@ python-multipart>=0.0.6
 httpx>=0.25.0
 psycopg2-binary>=2.9.0  # PostgreSQL driver for Supabase
 graphqlite
+sqlglot>=25.0.0  # MySQL->SQLite dialect transpile for silent query conversion
 google-auth>=2.0.0
 requests>=2.31.0
 openai>=1.0.0

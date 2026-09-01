@@ -21,6 +21,7 @@ import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
 import { useBlockBrowserBack } from '@/hooks/use-block-browser-back';
 import { useWarnBeforeUnload } from '@/hooks/use-warn-before-unload';
+import { checkSqlSyntax } from '@/utils/sqlSyntaxCheck';
 
 /* ── SVG icons ── */
 const IconLogout = () => (
@@ -144,6 +145,19 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
         color: 'yellow',
       });
       return;
+    }
+
+    // Catch obviously-broken SQL in the browser so it never round-trips to the backend (which,
+    // in a capped assessment, would waste one of the student's limited attempts). `block` is a
+    // hard stop for unambiguous breakage; `warn` is advisory only — we still submit.
+    const syntax = checkSqlSyntax(query);
+    if (syntax.block) {
+      notifications.show({ title: 'Check your SQL', message: syntax.block, color: 'red' });
+      return;
+    }
+    if (syntax.warn) {
+      notifications.show({ title: 'Possible syntax issue', message: syntax.warn, color: 'yellow' });
+      // fall through — the backend remains the source of truth for correctness
     }
 
     setIsExecuting(true);

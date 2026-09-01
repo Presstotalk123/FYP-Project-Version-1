@@ -5,6 +5,7 @@ import time
 from typing import Tuple, List, Dict, Any
 
 from app.core.query_deadline import attach_deadline
+from app.core.sql_dialect import to_sqlite
 
 
 class QueryTimeoutError(Exception):
@@ -207,9 +208,47 @@ class QueryExecutor:
         )
 
 
+def _format_success(columns: List[str], results: List[Tuple], execution_time: float) -> Dict[str, Any]:
+    """Shape a successful execution into the response dict the callers expect."""
+    result_dicts = []
+    for row in results:
+        row_dict = {columns[i]: row[i] for i in range(len(columns))}
+        result_dicts.append(row_dict)
+
+    return {
+        "success": True,
+        "columns": columns,
+        "results": result_dicts,
+        "raw_results": results,  # Keep raw tuples for hash generation
+        "execution_time_ms": execution_time,
+        "row_count": len(results),
+        "error_message": None,
+    }
+
+
+def _format_error(message: str, execution_time_ms: float = 0) -> Dict[str, Any]:
+    """Shape a failed execution into the response dict the callers expect."""
+    return {
+        "success": False,
+        "columns": [],
+        "results": [],
+        "raw_results": [],
+        "execution_time_ms": execution_time_ms,
+        "row_count": 0,
+        "error_message": message,
+    }
+
+
 def execute_student_query(db_path: str, query: str, timeout: int = 5) -> Dict[str, Any]:
     """
     Convenience function to execute a student query and return formatted results.
+
+    If the query fails with a SQL execution error, it may be MySQL-dialect syntax SQLite lacks
+    (e.g. `no such function: DATEDIFF`). In that case we transpile it to SQLite and silently
+    re-run once; if the rewrite succeeds, its result is returned instead. The rewrite is never
+    applied to a working query (it only runs after the original already failed), so correct
+    submissions are unaffected. Timeouts and unsafe-query rejections are NOT retried — those
+    aren't dialect problems, and a dialect error fails fast rather than timing out.
 
     Args:
         db_path: Path to the SQLite database
@@ -223,50 +262,18 @@ def execute_student_query(db_path: str, query: str, timeout: int = 5) -> Dict[st
 
     try:
         columns, results, execution_time = executor.execute_query(query)
-
-        # Convert results to list of dictionaries
-        result_dicts = []
-        for row in results:
-            row_dict = {columns[i]: row[i] for i in range(len(columns))}
-            result_dicts.append(row_dict)
-
-        return {
-            "success": True,
-            "columns": columns,
-            "results": result_dicts,
-            "raw_results": results,  # Keep raw tuples for hash generation
-            "execution_time_ms": execution_time,
-            "row_count": len(results),
-            "error_message": None
-        }
-
+        return _format_success(columns, results, execution_time)
     except UnsafeQueryError as e:
-        return {
-            "success": False,
-            "columns": [],
-            "results": [],
-            "raw_results": [],
-            "execution_time_ms": 0,
-            "row_count": 0,
-            "error_message": str(e)
-        }
+        return _format_error(str(e))
     except QueryTimeoutError as e:
-        return {
-            "success": False,
-            "columns": [],
-            "results": [],
-            "raw_results": [],
-            "execution_time_ms": timeout * 1000,
-            "row_count": 0,
-            "error_message": f"Query timeout: {str(e)}"
-        }
+        return _format_error(f"Query timeout: {str(e)}", execution_time_ms=timeout * 1000)
     except QueryExecutionError as e:
-        return {
-            "success": False,
-            "columns": [],
-            "results": [],
-            "raw_results": [],
-            "execution_time_ms": 0,
-            "row_count": 0,
-            "error_message": str(e)
-        }
+        # Possibly a MySQL-only construct. Try a silent SQLite rewrite and re-run once.
+        converted = to_sqlite(query)
+        if converted is not None:
+            try:
+                columns, results, execution_time = executor.execute_query(converted)
+                return _format_success(columns, results, execution_time)
+            except (UnsafeQueryError, QueryTimeoutError, QueryExecutionError):
+                pass  # rewrite didn't help — surface the student's original error below
+        return _format_error(str(e))

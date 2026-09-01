@@ -4,6 +4,7 @@ import threading
 from typing import Tuple, List, Dict, Any
 
 from app.core.query_deadline import attach_deadline
+from app.core.sql_dialect import to_sqlite
 
 
 class LabQueryTimeoutError(Exception):
@@ -118,10 +119,33 @@ class LabQueryExecutor:
         )
 
 
+def _lab_success(columns: List[str], results: List[Tuple], execution_time: float) -> Dict[str, Any]:
+    """Shape a successful lab execution into the response dict callers expect."""
+    result_dicts = []
+    for row in results:
+        row_dict = {columns[i]: row[i] for i in range(len(columns))}
+        result_dicts.append(row_dict)
+
+    return {
+        "success": True,
+        "columns": columns,
+        "results": result_dicts,
+        "execution_time_ms": execution_time,
+        "row_count": len(results),
+        "error_message": None,
+    }
+
+
 def execute_lab_query(db_path: str, query: str, timeout: int = 15) -> Dict[str, Any]:
     """
     Execute lab query and return formatted results.
     Convenience function for lab query execution.
+
+    If the query fails with a SQL execution error, it may use MySQL-dialect syntax SQLite lacks
+    (e.g. `no such function: DATEDIFF`). In that case we transpile it to SQLite and silently
+    re-run once; a successful rewrite is returned instead. The rewrite only runs after the
+    original already failed (a failed statement never committed), so working queries are
+    unaffected. Timeouts are not retried — those aren't dialect problems.
 
     Args:
         db_path: Path to the SQLite database
@@ -135,21 +159,7 @@ def execute_lab_query(db_path: str, query: str, timeout: int = 15) -> Dict[str, 
 
     try:
         columns, results, execution_time = executor.execute_query(query)
-
-        # Convert to dict format
-        result_dicts = []
-        for row in results:
-            row_dict = {columns[i]: row[i] for i in range(len(columns))}
-            result_dicts.append(row_dict)
-
-        return {
-            "success": True,
-            "columns": columns,
-            "results": result_dicts,
-            "execution_time_ms": execution_time,
-            "row_count": len(results),
-            "error_message": None
-        }
+        return _lab_success(columns, results, execution_time)
     except LabQueryTimeoutError as e:
         return {
             "success": False,
@@ -160,6 +170,14 @@ def execute_lab_query(db_path: str, query: str, timeout: int = 15) -> Dict[str, 
             "error_message": f"Query timeout: {str(e)}"
         }
     except LabQueryExecutionError as e:
+        # Possibly a MySQL-only construct. Try a silent SQLite rewrite and re-run once.
+        converted = to_sqlite(query)
+        if converted is not None:
+            try:
+                columns, results, execution_time = executor.execute_query(converted)
+                return _lab_success(columns, results, execution_time)
+            except (LabQueryTimeoutError, LabQueryExecutionError):
+                pass  # rewrite didn't help — surface the student's original error below
         return {
             "success": False,
             "columns": [],

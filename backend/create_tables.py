@@ -6,37 +6,50 @@ from sqlalchemy import create_engine, text
 from app.config import settings
 from app.database import Base
 
-# Import all models to register them
-from app.models.user import User
-from app.models.whitelist import WhitelistEntry
-from app.models.question import Question
-from app.models.er_diagram_question import ERDiagramQuestion
-from app.models.attempt import Attempt
-from app.models.progress import UserProgress
-from app.models.lab import Lab
-from app.models.lab_session import LabSession
-from app.models.lab_attempt import LabAttempt
-from app.models.lab_task import LabTask
-from app.models.lab_task_submission import LabTaskSubmission
+# Import all models to register them.
+# Kept in sync with everything under app/models/ (not just what main.py registers
+# for SQLite auto-create) — this script is the only path that provisions the
+# full current schema on a fresh PostgreSQL database. See main.py's comment on
+# why Postgres tables are pre-created here rather than via startup create_all.
+from app.models.app_setting import AppSetting
 from app.models.assessment import Assessment
-from app.models.assessment_item import AssessmentItem
-from app.models.assessment_session import AssessmentSession
-from app.models.assessment_item_visit import AssessmentItemVisit
+from app.models.assessment_analytics import AssessmentAnalytics
 from app.models.assessment_class_window import AssessmentClassWindow
-from app.models.er_lab import ErLab
-from app.models.er_lab_question import ErLabQuestion
-from app.models.er_lab_session import ErLabSession
-from app.models.er_lab_submission import ErLabSubmission
+from app.models.assessment_item import AssessmentItem
+from app.models.assessment_item_visit import AssessmentItemVisit
+from app.models.assessment_session import AssessmentSession
+from app.models.attempt import Attempt
+from app.models.concept_mastery import ConceptMastery
+from app.models.course_info import CourseInfo
+from app.models.er_diagram_draft import ErDiagramDraft
+from app.models.er_diagram_image_draft import ErDiagramImageDraft
+from app.models.er_diagram_question import ERDiagramQuestion
+from app.models.er_submission import ErSubmission
+from app.models.erd_prompt_version import ErdPromptVersion
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.models.erd_tutor_message import ErdTutorMessage
-from app.models.tutor_chat_conversation import TutorChatConversation
-from app.models.tutor_chat_message import TutorChatMessage
-from app.models.query_review import QueryReview
-from app.models.erd_prompt_version import ErdPromptVersion
-from app.models.course_info import CourseInfo
+from app.models.lab import Lab
+from app.models.lab_attempt import LabAttempt
+from app.models.lab_session import LabSession
+from app.models.lab_task import LabTask
+from app.models.lab_task_submission import LabTaskSubmission
+from app.models.learning_event import LearningEvent
 from app.models.login_activity import LoginActivity
 from app.models.platform_session import PlatformSession
-from app.models.assessment_analytics import AssessmentAnalytics
+from app.models.progress import UserProgress
+from app.models.query_review import QueryReview
+from app.models.question import Question
+from app.models.question_concept import QuestionConcept
+from app.models.solo_classification import SoloClassification
+from app.models.sql_concept import SqlConcept
+from app.models.sql_concept_prerequisite import SqlConceptPrerequisite
+from app.models.sql_tutor_conversation import SqlTutorConversation
+from app.models.sql_tutor_message import SqlTutorMessage
+from app.models.tutor_chat_conversation import TutorChatConversation
+from app.models.tutor_chat_message import TutorChatMessage
+from app.models.user import User
+from app.models.user_preference import UserPreference
+from app.models.whitelist import WhitelistEntry
 from app.core.cache import CacheVersion  # register cache_versions on Base
 
 def create_tables():

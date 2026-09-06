@@ -30,11 +30,15 @@ _STAGES = {
     # against this same budget). A 37-check rubric serialises to ~2200 tokens of
     # output alone, so the old 2000 cap truncated the tail of the array: the last
     # checks simply never arrived and scoring.py rendered them as
-    # "Missing check result from judge output." Sized for a large rubric with
-    # reasoning headroom.
+    # "Missing check result from judge output." 8000 still truncated when the
+    # model reasoned heavily: on q33 (26 checks) one run delivered 2 of 26
+    # checks and the submission graded 14% instead of ~74%. The cap only
+    # bounds the worst case — normal runs never approach it — so it is sized
+    # generously; grade_node additionally retries/raises on an incomplete
+    # checks array.
     "grade":    dict(deployment=lambda: settings.ERD_AZURE_OPENAI_GRADE_DEPLOYMENT,
                      params=dict(temperature=0.0, seed=42,
-                                 model_kwargs={"max_completion_tokens": 8000})),
+                                 model_kwargs={"max_completion_tokens": 20000})),
     "tutor":    dict(deployment=lambda: settings.ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT, params={}),  # gpt-5.4-nano (vision), per DSL
     "state":    dict(deployment=lambda: settings.ERD_AZURE_OPENAI_TUTOR_DEPLOYMENT, params={}),
 }

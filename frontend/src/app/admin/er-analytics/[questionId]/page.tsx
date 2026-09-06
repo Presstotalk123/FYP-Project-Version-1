@@ -168,6 +168,38 @@ export default function ErQuestionAnalyticsPage() {
     stopEditing();
   };
 
+  /** `erd-q3-jdoe-attempt-17`, safe as a filename on every platform. */
+  const attemptFilename = (d: SubmissionDetail): string => {
+    const email = data?.students.find((s) => s.user_id === d.user_id)?.email;
+    const who = (email ? email.split('@')[0] : `student-${d.user_id}`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    return `erd-q${questionId}-${who}-attempt-${d.id}`;
+  };
+
+  const triggerDownload = (url: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+  };
+
+  const downloadImage = async () => {
+    if (!attempt || !attemptImage) return;
+    // Students may upload a JPG rather than a PNG; the blob URL already holds the
+    // bytes, so read it back just for the content type and name the file to match.
+    const blob = await fetch(attemptImage).then((r) => r.blob());
+    const ext = blob.type === 'image/jpeg' ? 'jpg' : 'png';
+    triggerDownload(attemptImage, `${attemptFilename(attempt)}.${ext}`);
+  };
+
+  const downloadXml = () => {
+    if (!attempt?.submitted_xml) return;
+    const blob = new Blob([attempt.submitted_xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, `${attemptFilename(attempt)}.drawio`);
+    URL.revokeObjectURL(url);
+  };
+
   /** The attempt behind the number staff see: assessment scoring counts the best
    *  grade (er_best_scores_bulk scans with strictly-greater, so the earliest of a
    *  tie wins — mirrored here). An ungraded journey falls back to the latest. */
@@ -523,6 +555,19 @@ export default function ErQuestionAnalyticsPage() {
               <div className="page-head" style={{ flexShrink: 0 }}>
                 <h3>Attempt — {pct(attempt.score_percent)} ({attempt.score_label ?? 'ungraded'})</h3>
                 <div className="button-row">
+                  {/* PNG needs a picture on screen: present for a stored upload, and for
+                      an XML attempt once the client render lands. Image-only submissions
+                      have no XML, so only the image button shows for them. */}
+                  {attemptImage && (
+                    <button className="btn btn-secondary" onClick={downloadImage}>
+                      Download PNG
+                    </button>
+                  )}
+                  {attempt.submitted_xml && (
+                    <button className="btn btn-secondary" onClick={downloadXml}>
+                      Download .drawio
+                    </button>
+                  )}
                   {!editing && (
                     <button className="btn btn-secondary" onClick={() => startEditing(attempt.checks)}>
                       Adjust score

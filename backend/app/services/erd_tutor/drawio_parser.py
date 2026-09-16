@@ -26,6 +26,7 @@ NOTATION MAPPING (mxGraph style -> ERD construct)
   ellipse                            -> attribute; <u>...</u> marks a key
   triangle                           -> specialization (ISA)
   shape=mxgraph.basic.arc            -> curved endpoint cue ("many")
+  edge endArrow=halfCircle           -> curved endpoint cue ("many")
   edge endArrow/startArrow=open|...  -> sharp endpoint cue ("one")
   edgeLabel child / nearby text cell -> endpoint text marker (">=1", "0..1", ...)
 """
@@ -144,7 +145,11 @@ def _style_num(style, key):
 
 
 def _arrow_kind(style, which):
-    """which: 'end' or 'start'. Returns 'sharp' | None."""
+    """which: 'end' or 'start'. Returns 'curved' | 'sharp' | None.
+
+    ``style`` must already be lowercased (as `_Cell`/`_style_of` guarantee) —
+    draw.io writes ``halfCircle``, this function matches ``halfcircle``.
+    """
     m = re.search(rf"{which}arrow=([a-z]+)", style)
     if not m:
         # draw.io default endArrow is a filled block arrow when unspecified,
@@ -152,7 +157,11 @@ def _arrow_kind(style, which):
         # on the START side as "no arrow".
         return "sharp" if which == "end" and "endarrow" not in style else None
     kind = m.group(1)
-    return None if kind == "none" else "sharp"
+    if kind == "none":
+        return None
+    # The palette cardinality lines draw the course's "many" curve as the
+    # edge's own arrowhead, so it cannot be misplaced the way a loose arc can.
+    return "curved" if kind == "halfcircle" else "sharp"
 
 
 def parse_drawio(xml_text: str) -> dict:
@@ -356,13 +365,18 @@ def parse_drawio(xml_text: str) -> dict:
     out_endpoints = []
     for rel in relationships:
         for tgt_id, edge, side in participants[rel.id]:
-            # An arrowhead on the edge is a "sharp" cue at the end it points to.
+            # The edge's own arrowhead is a cue at the end it points to:
+            # halfCircle is the curved "many", any other named arrow is
+            # sharp "one".
             cue = "no_arrow_visible"
             if edge.id in arc_at:
                 cue = "curved_arrowhead"
             else:
                 which = "end" if side == "target" else "start"
-                if _arrow_kind(edge.style, which) == "sharp":
+                kind = _arrow_kind(edge.style, which)
+                if kind == "curved":
+                    cue = "curved_arrowhead"
+                elif kind == "sharp":
                     cue = "sharp_arrowhead"
             out_endpoints.append({
                 "relationship_id": rel_id[rel.id],
@@ -372,7 +386,7 @@ def parse_drawio(xml_text: str) -> dict:
                 "evidence": "Read from the draw.io source: "
                             + (f"arc cell {arc_at[edge.id]} at this endpoint"
                                if edge.id in arc_at
-                               else f"edge {edge.id} style {edge.style[:60]}"),
+                               else f"edge {edge.id} style {edge.style[:120]}"),
                 "confidence": "high",
             })
 

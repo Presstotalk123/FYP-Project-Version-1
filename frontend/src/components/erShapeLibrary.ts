@@ -17,7 +17,8 @@
 //
 // THE LIBRARY FILE: frontend/public/er-shapes.xml
 // It is an <mxlibrary> whose shapes' styles match, verbatim, what the backend parser
-// keys on (backend/app/services/erd_tutor/drawio_parser.py `_classify`/`_is_underlined`):
+// keys on (backend/app/services/erd_tutor/drawio_parser.py `_classify`/`_is_underlined`
+// /`_arrow_kind`):
 //   rounded=0;whitespace=wrap  -> entity                (rectangle)
 //   shape=ext + double=1       -> weak entity           (double border)
 //   rhombus                    -> relationship          (diamond)
@@ -25,11 +26,14 @@
 //   ellipse                    -> attribute
 //   ellipse + <u>…</u> label   -> key attribute         (underlined label, not style)
 //   triangle                   -> specialization (ISA)
-//   shape=mxgraph.basic.arc    -> arc
-// Regenerate er-shapes.xml with scripts/gen-er-library (Node): build one <mxGraphModel>
-// per shape from the table above and wrap them as {xml,w,h,aspect,title} entries inside
-// <mxlibrary>[…]</mxlibrary>. Changing a style there without changing the parser makes
-// that shape unreadable on submit.
+//   edge + endArrow=none       -> cardinality line "one"  (child edgeLabel 1..1 / 0..1)
+//   edge + endArrow=halfCircle -> cardinality line "many" (child edgeLabel 1..N / 0..N)
+// The parser still reads standalone arcs (shape=mxgraph.basic.arc) and loose text
+// markers from old drafts, but the palette no longer offers the Arc — the N-lines
+// carry the curve as their own arrowhead.
+// Regenerate er-shapes.xml with `node scripts/gen-er-library.mjs`; that script is the
+// single source of truth for the shape table. Changing a style there without changing
+// the parser makes that shape unreadable on submit.
 
 const ER_LIBRARY_URL =
   "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";

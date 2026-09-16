@@ -189,25 +189,23 @@ const FloatingLineFigure = () => (
   </Figure>
 );
 
-const CardinalityFigure = () => (
-  <Figure viewBox="0 0 340 80" maxWidth={340} label="Two endpoints marked in the course notation">
-    <rect x={6} y={22} width={64} height={36} />
-    <Label x={38} y={40}>A</Label>
-    <polygon points="170,12 210,40 170,68 130,40" />
-    <Label x={170} y={40}>R</Label>
-    <rect x={270} y={22} width={64} height={36} />
-    <Label x={302} y={40}>B</Label>
-    {/* A end: ">=1" text + curve at the entity, drawn "(—": its back to the
-        entity, its opening toward the diamond. */}
-    <line x1={70} y1={40} x2={130} y2={40} />
-    <path d="M 80 26 Q 61 40 80 54" stroke={ACCENT} strokeWidth={2} />
-    <Label x={104} y={30} color={ACCENT}>
-      {">=1"}
-    </Label>
-    {/* B end: ">=0" text, plain end */}
-    <line x1={210} y1={40} x2={270} y2={40} />
-    <Label x={236} y={30} color={ACCENT}>
-      {">=0"}
+type CardinalityLineFigureProps = { name: string; marker: string; curved: boolean };
+
+/** One palette cardinality line as it appears when dragged in: plain end on
+ *  the left (for the diamond), labelled — and for "many", curved — end on
+ *  the right (for the entity). The curved end is drawn as draw.io renders
+ *  endArrow=halfCircle: the arc's tips sit at the entity end, opening toward
+ *  the entity, with the line shortened to meet the arc's back. */
+const CardinalityLineFigure = ({ name, marker, curved }: CardinalityLineFigureProps) => (
+  <Figure
+    viewBox="0 0 160 44"
+    maxWidth={160}
+    label={`${name}: a line labelled ${marker} ${curved ? "ending in a curve at the entity" : "with a plain end"}`}
+  >
+    <line x1={8} y1={28} x2={curved ? 136 : 150} y2={28} />
+    {curved && <path d="M 150 42 Q 136 42 136 28 Q 136 14 150 14" stroke={ACCENT} strokeWidth={2} />}
+    <Label x={116} y={13} color={ACCENT}>
+      {marker}
     </Label>
   </Figure>
 );
@@ -337,54 +335,49 @@ function CardinalityStep() {
   return (
     <Stack gap="sm">
       <Text size="sm">
-        Mark each connector at the <b>entity end</b>, in the notation the course uses:
+        The <b>Shapes</b> panel has four ready-made <b>cardinality lines</b>. Drag the one whose
+        reading matches, then attach its ends: the <b>plain end on the diamond</b>, the{" "}
+        <b>labelled (and curved) end on the entity</b>.
       </Text>
-      <Paper withBorder radius="md" p="sm">
-        <Stack gap={6} align="center">
-          <CardinalityFigure />
-          <Group gap="lg" justify="center">
-            <Text size="xs" c="dimmed">
-              A end: <Code>{">=1"}</Code> + curve → 1..N, total
-            </Text>
-            <Text size="xs" c="dimmed">
-              B end: <Code>{">=0"}</Code>, plain → 0..1, partial
-            </Text>
-          </Group>
-        </Stack>
-      </Paper>
-      <Stack gap={4} align="center">
-        <Image
-          src="/erd-guide/arc-cue.png"
-          alt="Adding the curve in draw.io: type arc in the Shapes search box (1), drag the plain Arc shape (2) and drop it on the connector against the entity, opening toward the diamond (3)"
-          width={1300}
-          height={600}
-          style={{ width: "100%", maxWidth: 600, height: "auto", borderRadius: 8, border: "1px solid var(--mantine-color-gray-3)" }}
+      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
+        <ShapeCard
+          figure={<CardinalityLineFigure name="Exactly one" marker="1..1" curved={false} />}
+          name="Exactly one (1..1)"
+          hint="One, and it must take part."
         />
-        <Text size="xs" c="dimmed" ta="center">
-          Adding the curve: ① type <Code>arc</Code> in the Shapes search · ② drag the plain <b>Arc</b>{" "}
-          · ③ drop it on the line against the entity, opening toward the diamond
-        </Text>
-      </Stack>
+        <ShapeCard
+          figure={<CardinalityLineFigure name="At most one" marker="0..1" curved={false} />}
+          name="At most one (0..1)"
+          hint="One at most; taking part is optional."
+        />
+        <ShapeCard
+          figure={<CardinalityLineFigure name="One or more" marker="1..N" curved />}
+          name="One or more (1..N)"
+          hint="Many, and it must take part."
+        />
+        <ShapeCard
+          figure={<CardinalityLineFigure name="Zero or more" marker="0..N" curved />}
+          name="Zero or more (0..N)"
+          hint="Many; taking part is optional."
+        />
+      </SimpleGrid>
       <List size="sm" spacing={4}>
         <List.Item>
-          <b>Minimum / participation</b> — a text label on the line, next to the entity:{" "}
-          <Code>{">=1"}</Code> (total), <Code>{">=0"}</Code> (partial), <Code>{"<=1"}</Code>,{" "}
-          <Code>=1</Code>, or a range such as <Code>0..1</Code> or <Code>1..N</Code>. Double-click
-          the connector near that end and type.
+          The label rides the line and the curve is the line&apos;s own end — no separate Arc
+          shape, no floating text. To attach the line, drag each of its endpoints onto a shape
+          and drop when the shape lights up; test it by moving the shape (an attached line
+          follows).
         </List.Item>
         <List.Item>
-          <b>Many</b> — a curve at the entity end, like <Code>(—</Code> (pictured above). Type{" "}
-          <Code>arc</Code> in the Shapes search box, drag the plain <b>Arc</b> onto the line right
-          beside the entity, with its back to the entity and its opening toward the diamond — flip it
-          horizontally (Arrange ▸ Flip) for an entity on the right. The stock size is fine.
+          <b>Different bounds?</b> Double-click the line&apos;s label and retype it — for
+          example <Code>2..N</Code> or <Code>{">=2"}</Code>. A plain connector drawn without a
+          cardinality line still works the old way: its bare end reads as &ldquo;at most
+          one&rdquo;, and you can double-click it near an end to type a marker such as{" "}
+          <Code>{">=1"}</Code>, <Code>{">=0"}</Code> or <Code>=1</Code>.
         </List.Item>
         <List.Item>
-          <b>One</b> — leave the end plain. In this notation a plain line end already means
-          &ldquo;at most one&rdquo;.
-        </List.Item>
-        <List.Item>
-          <b>Weak entity / identifying relationship</b> — use the double-bordered shapes; the extra
-          border is what gets read.
+          <b>Weak entity / identifying relationship</b> — use the double-bordered shapes; the
+          extra border is what gets read.
         </List.Item>
       </List>
     </Stack>

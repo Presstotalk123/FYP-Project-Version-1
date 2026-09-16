@@ -363,11 +363,11 @@ function CardinalityStep() {
       </SimpleGrid>
       <List size="sm" spacing={4}>
         <List.Item>
-          The label rides the line, and on the <b>N</b> lines the curve is the line&apos;s own
-          end — a cup with its back to the entity, opening toward the diamond. It follows the
-          end wherever you attach or drag it. To attach the line, click it, then drag each
-          round endpoint onto a shape and drop when the shape lights up; test it by moving
-          the shape (an attached line follows).
+          The label rides the line, and on the <b>N</b> lines the endpoint sits at the tip of
+          the cup — the curve&apos;s back rests on the entity when attached, opening toward the
+          diamond. The cup follows the end wherever you attach or drag it. To attach the line,
+          click it, then drag each round endpoint onto a shape and drop when the shape lights
+          up; test it by moving the shape (an attached line follows).
         </List.Item>
         <List.Item>
           <b>Different bounds?</b> Double-click the line&apos;s label and retype it — for

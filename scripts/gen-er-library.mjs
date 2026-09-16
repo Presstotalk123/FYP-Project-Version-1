@@ -37,31 +37,36 @@ const vertex = (value, style, w, h) =>
 // missing endArrow as a sharp arrowhead. The label sits at relative x=-0.5
 // (75% of the way to the SOURCE end, the entity end).
 //
-// The "many" lines draw the course's arc cue as the edge's own START marker:
-// startArrow=halfCircle with a NEGATIVE startSize flips draw.io's half-circle
-// so the cup sits at the line's source end with its back to the entity,
-// opening toward the diamond — the course's hand-drawn notation. Being a
-// marker (not a separate cell), it follows the endpoint wherever it is
-// attached or dragged, rotates with the line, and steals no clicks. Students
-// attach the cup/labelled (source) end to the entity; the parser reads
-// halfCircle on either end as the curved "many" cue, so a backwards
-// attachment still grades right via the range label.
+// The "many" lines end in the course's cup — "----)" — drawn so the line's
+// REAL endpoint (the blue dot, the thing that attaches) is at the cup's
+// bulge: the cup is a small mxgraph.basic.arc CHILD of the edge, anchored to
+// the source terminal with its bulge exactly on it (edge children anchor
+// their top-left at point+offset, hence offset (-20,-40) for the 40x40 box;
+// the line runs through the cup's opening and ends at its belly). Attaching
+// the endpoint to a shape therefore lands the cup's back flush on the border
+// for BOTH floating and fixed-point connections — no perimeter spacing.
+// selectable/movable/pointerEvents=0 make the cup a pure decoration: it can
+// never be dislodged, and only its own small 40x40 box swallows clicks.
+// Trade-off: like the course's hand-placed arcs, the cup does not rotate
+// with the line's direction. The parser binds an arc child to its edge by
+// parent id — exact, like the label.
 const ONE_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=none;";
-// sourcePerimeterSpacing backs the terminal off the shape's border by the
-// cup's drawn depth, so an attached cup sits tangent to the entity instead of
-// poking inside it (15 measured flush for startSize -20).
-const MANY_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=halfCircle;startSize=-20;startFill=0;sourcePerimeterSpacing=15;";
+const CUP_STYLE = "shape=mxgraph.basic.arc;html=1;startAngle=0.29048393388344096;endAngle=0.6963434643902662;arcWidth=0.5;fillColor=none;selectable=0;movable=0;rotatable=0;resizable=0;pointerEvents=0;";
 
-const line = (style, label) =>
-  `<mxCell id="2" style="${style}" edge="1" parent="1">` +
+const line = (label) =>
+  `<mxCell id="2" style="${ONE_STYLE}" edge="1" parent="1">` +
   `<mxGeometry relative="1" as="geometry">` +
   `<mxPoint x="50" y="180" as="sourcePoint"/><mxPoint x="50" y="50" as="targetPoint"/>` +
   `</mxGeometry></mxCell>` +
   `<mxCell id="3" value="${esc(label)}" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="2">` +
   `<mxGeometry x="-0.5" y="0" relative="1" as="geometry"><mxPoint x="26" y="0" as="offset"/></mxGeometry></mxCell>`;
 
-const oneLine = (label) => line(ONE_STYLE, label);
-const manyLine = (label) => line(MANY_STYLE, label);
+const oneLine = (label) => line(label);
+const manyLine = (label) =>
+  line(label) +
+  `<mxCell id="4" value="" style="${CUP_STYLE}" vertex="1" connectable="0" parent="2">` +
+  `<mxGeometry x="-1" y="0" relative="1" width="40" height="40" as="geometry">` +
+  `<mxPoint x="-20" y="-40" as="offset"/></mxGeometry></mxCell>`;
 
 // Titles are what students see in the palette. Every node shape carries
 // points=[] — NO fixed connection points — so all attachments are floating:

@@ -37,34 +37,28 @@ const vertex = (value, style, w, h) =>
 // missing endArrow as a sharp arrowhead. The label sits at relative x=-0.5
 // (75% of the way to the SOURCE end, the entity end).
 //
-// The "many" lines add the course's arc cue in the professor's own notation:
-// a mxgraph.basic.arc cell whose cup sits at the line's bottom (source) end,
-// back to the entity, opening toward the diamond — angles taken verbatim from
-// a hand-drawn reference. The arc is a CHILD of the edge, anchored to the
-// source endpoint (relative x=-1; edge children anchor their TOP-LEFT at
-// point+offset, hence offset (-50,-100) to centre the 100x100 cup on the
-// endpoint), so it follows wherever that end is attached or dragged.
-// movable=0 stops students dislodging it; pointerEvents=0 stops its empty
-// bounding box swallowing clicks meant for the line. The parser binds arc
-// children to their edge by parent id — exact, like edge labels; loose arcs
-// from old drafts still bind by proximity.
-const LINE_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=none;";
-const ARC_STYLE = "shape=mxgraph.basic.arc;html=1;startAngle=0.29048393388344096;endAngle=0.6963434643902662;arcWidth=0.5;fillColor=none;movable=0;rotatable=0;resizable=0;pointerEvents=0;";
+// The "many" lines draw the course's arc cue as the edge's own START marker:
+// startArrow=halfCircle with a NEGATIVE startSize flips draw.io's half-circle
+// so the cup sits at the line's source end with its back to the entity,
+// opening toward the diamond — the course's hand-drawn notation. Being a
+// marker (not a separate cell), it follows the endpoint wherever it is
+// attached or dragged, rotates with the line, and steals no clicks. Students
+// attach the cup/labelled (source) end to the entity; the parser reads
+// halfCircle on either end as the curved "many" cue, so a backwards
+// attachment still grades right via the range label.
+const ONE_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=none;";
+const MANY_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=halfCircle;startSize=-20;startFill=0;";
 
-const lineCells = (label) =>
-  `<mxCell id="2" style="${LINE_STYLE}" edge="1" parent="1">` +
+const line = (style, label) =>
+  `<mxCell id="2" style="${style}" edge="1" parent="1">` +
   `<mxGeometry relative="1" as="geometry">` +
   `<mxPoint x="50" y="180" as="sourcePoint"/><mxPoint x="50" y="50" as="targetPoint"/>` +
   `</mxGeometry></mxCell>` +
   `<mxCell id="3" value="${esc(label)}" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="2">` +
   `<mxGeometry x="-0.5" y="0" relative="1" as="geometry"><mxPoint x="26" y="0" as="offset"/></mxGeometry></mxCell>`;
 
-const oneLine = (label) => lineCells(label);
-const manyLine = (label) =>
-  lineCells(label) +
-  `<mxCell id="4" value="" style="${ARC_STYLE}" vertex="1" connectable="0" parent="2">` +
-  `<mxGeometry x="-1" y="0" relative="1" width="100" height="100" as="geometry">` +
-  `<mxPoint x="-50" y="-100" as="offset"/></mxGeometry></mxCell>`;
+const oneLine = (label) => line(ONE_STYLE, label);
+const manyLine = (label) => line(MANY_STYLE, label);
 
 // Titles are what students see in the palette. Stock shapes are byte-for-byte
 // the models decoded from the previous er-shapes.xml. The old standalone Arc

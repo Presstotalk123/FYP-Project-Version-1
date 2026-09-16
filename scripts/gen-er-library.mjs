@@ -47,7 +47,10 @@ const vertex = (value, style, w, h) =>
 // halfCircle on either end as the curved "many" cue, so a backwards
 // attachment still grades right via the range label.
 const ONE_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=none;";
-const MANY_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=halfCircle;startSize=-20;startFill=0;";
+// sourcePerimeterSpacing backs the terminal off the shape's border by the
+// cup's drawn depth, so an attached cup sits tangent to the entity instead of
+// poking inside it (15 measured flush for startSize -20).
+const MANY_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=halfCircle;startSize=-20;startFill=0;sourcePerimeterSpacing=15;";
 
 const line = (style, label) =>
   `<mxCell id="2" style="${style}" edge="1" parent="1">` +

@@ -191,20 +191,20 @@ const FloatingLineFigure = () => (
 
 type CardinalityLineFigureProps = { name: string; marker: string; curved: boolean };
 
-/** One palette cardinality line as it appears when dragged in: plain end on
- *  the left (for the diamond), labelled — and for "many", curved — end on
- *  the right (for the entity). The curved end is drawn as draw.io renders
- *  endArrow=halfCircle: the arc's tips sit at the entity end, opening toward
- *  the entity, with the line shortened to meet the arc's back. */
+/** One palette cardinality line as it appears when dragged in: a vertical
+ *  line, plain top end (for the diamond), labelled bottom end (for the
+ *  entity). On the "many" lines an arc cup sits at the bottom end — its back
+ *  to the entity, its opening toward the diamond — exactly the course's
+ *  hand-drawn notation. */
 const CardinalityLineFigure = ({ name, marker, curved }: CardinalityLineFigureProps) => (
   <Figure
-    viewBox="0 0 160 44"
-    maxWidth={160}
-    label={`${name}: a line labelled ${marker} ${curved ? "ending in a curve at the entity" : "with a plain end"}`}
+    viewBox="0 0 90 130"
+    maxWidth={72}
+    label={`${name}: a vertical line labelled ${marker} ${curved ? "ending in a curve cupping the entity end" : "with a plain end"}`}
   >
-    <line x1={8} y1={28} x2={curved ? 136 : 150} y2={28} />
-    {curved && <path d="M 150 42 Q 136 42 136 28 Q 136 14 150 14" stroke={ACCENT} strokeWidth={2} />}
-    <Label x={116} y={13} color={ACCENT}>
+    <line x1={45} y1={8} x2={45} y2={curved ? 105 : 112} />
+    {curved && <path d="M 15 83 Q 45 127 75 83" stroke={ACCENT} strokeWidth={2} />}
+    <Label x={68} y={60} color={ACCENT}>
       {marker}
     </Label>
   </Figure>
@@ -363,10 +363,12 @@ function CardinalityStep() {
       </SimpleGrid>
       <List size="sm" spacing={4}>
         <List.Item>
-          The label rides the line and the curve is the line&apos;s own end — no separate Arc
-          shape, no floating text. To attach the line, drag each of its endpoints onto a shape
-          and drop when the shape lights up; test it by moving the shape (an attached line
-          follows).
+          The label rides the line, and the <b>N</b> lines come with the curve already placed:
+          a small arc cupping the entity end, its back to the entity and its opening toward
+          the diamond. To attach the line, drag each of its endpoints onto a shape and drop
+          when the shape lights up; test it by moving the shape (an attached line follows).
+          If you rearrange your diagram, keep the arc sitting on the line&apos;s entity end —
+          it is read from what is next to that end.
         </List.Item>
         <List.Item>
           <b>Different bounds?</b> Double-click the line&apos;s label and retype it — for

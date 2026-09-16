@@ -26,16 +26,26 @@
 //   ellipse                    -> attribute
 //   ellipse + <u>…</u> label   -> key attribute         (underlined label, not style)
 //   triangle                   -> specialization (ISA)
-//   edge + endArrow=none       -> cardinality line "one"  (child edgeLabel 1..1 / 0..1)
-//   edge + endArrow=halfCircle -> cardinality line "many" (child edgeLabel 1..N / 0..N)
-// The parser still reads standalone arcs (shape=mxgraph.basic.arc) and loose text
-// markers from old drafts, but the palette no longer offers the Arc — the N-lines
-// carry the curve as their own arrowhead.
+//   edge + endArrow=none       -> cardinality line (child edgeLabel 1..1/0..1/1..N/0..N)
+//   shape=mxgraph.basic.arc    -> "many" cue; the N-lines ship one as a loose sibling
+//                                 cell cupping the line's entity end (back to the
+//                                 entity, opening toward the diamond), bound to the
+//                                 nearest endpoint within 90px
+// The parser also reads loose text markers from old drafts, and an edge whose
+// endArrow=halfCircle as the same curved cue; the standalone Arc palette entry is
+// gone — the N-lines carry their arc with them.
 // Regenerate er-shapes.xml with `node scripts/gen-er-library.mjs`; that script is the
 // single source of truth for the shape table. Changing a style there without changing
 // the parser makes that shape unreadable on submit.
 
+// NEXT_PUBLIC_ER_SHAPES_URL (frontend/.env.local, dev only) previews another
+// branch's palette before it lands on main — e.g. point it at
+// .../FYP-Project-Version-1/<branch>/frontend/public/er-shapes.xml. draw.io
+// can only load the library from a host it treats as CORS-enabled, so a
+// localhost URL does NOT work; pushing the branch is the only preview path.
+// Never set the variable in a production build.
 const ER_LIBRARY_URL =
+  process.env.NEXT_PUBLIC_ER_SHAPES_URL ||
   "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
 
 /** draw.io embed configuration replied to the editor's `configure` request. */

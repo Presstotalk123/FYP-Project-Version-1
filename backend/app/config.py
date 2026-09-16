@@ -57,12 +57,6 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     GOOGLE_CLIENT_ID: str = ""
 
-    # Development-only login bypass (POST /auth/dev). NEVER enable in
-    # production: when True, anyone who can reach the API can sign in as any
-    # role. When False the endpoint answers 404 and is omitted from the OpenAPI
-    # schema; probes can still elicit 405/422 shapes, but nothing is granted.
-    DEV_LOGIN_ENABLED: bool = False
-
     # HMAC-SHA256 salt for anonymizing student ids in the research CSV export
     # (app/api/v1/endpoints/research_export.py). Required — the raw-csv endpoint
     # refuses to run (503) without it, so a forgotten env var can't ship a weakly

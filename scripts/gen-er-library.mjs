@@ -37,33 +37,39 @@ const vertex = (value, style, w, h) =>
 // missing endArrow as a sharp arrowhead. The label sits at relative x=-0.5
 // (75% of the way to the SOURCE end, the entity end).
 //
-// The "many" lines end in the course's cup — "----)" — drawn as the edge's
-// own START marker (startArrow=halfCircle with a NEGATIVE startSize, which
-// flips the cup to open toward the diamond). A marker is the ONLY cup that
-// ROTATES with the line's direction — a glued child cell cannot (tried; it
-// stays axis-aligned). The trade-offs of a marker, accepted deliberately:
-//  - the blue endpoint dot sits at the cup's tips, ~15px before the glyph's
-//    end (the cup is drawn just past the terminal);
-//  - attached, sourcePerimeterSpacing=15 backs the terminal off the border
-//    so the cup's back rests flush on the entity. This only works for
-//    FLOATING connections, which is why every node shape ships points=[]
-//    (no fixed connection points).
-// Students attach the cup/labelled (source) end to the entity; the parser
-// reads halfCircle on either end as the curved "many" cue, so a backwards
-// attachment still grades right via the range label.
+// The "many" lines end in the course's cup — "----)" — a small
+// mxgraph.basic.arc CHILD of the edge, glued to the source terminal with its
+// bulge exactly on it (edge children anchor their top-left at point+offset,
+// hence offset (-20,-40) for the 40x40 box; the line runs through the cup's
+// opening and ends at its belly). The blue endpoint dot IS the end of the
+// curve, and attaching lands the cup's back flush on the border for both
+// floating and fixed-point connections.
+//
+// The cup is a NORMAL selectable cell, by explicit request: it does not turn
+// by itself (edge children cannot auto-rotate; a marker can, but then the
+// endpoint sits before the curve — rejected), so on an angled line the
+// student clicks the cup — boxed outline, rotate handle — and turns or
+// nudges it to match, exactly like the course's hand-placed arcs. However
+// they adjust it, it stays a child of its line: it travels with the
+// endpoint, and the parser binds it to that line by parent id — exact, so
+// grading never depends on where the cup sits.
 const ONE_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=none;";
-const MANY_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=halfCircle;startSize=-20;startFill=0;sourcePerimeterSpacing=15;";
+const CUP_STYLE = "shape=mxgraph.basic.arc;html=1;startAngle=0.29048393388344096;endAngle=0.6963434643902662;arcWidth=0.5;fillColor=none;";
 
-const line = (style, label) =>
-  `<mxCell id="2" style="${style}" edge="1" parent="1">` +
+const line = (label) =>
+  `<mxCell id="2" style="${ONE_STYLE}" edge="1" parent="1">` +
   `<mxGeometry relative="1" as="geometry">` +
   `<mxPoint x="50" y="180" as="sourcePoint"/><mxPoint x="50" y="50" as="targetPoint"/>` +
   `</mxGeometry></mxCell>` +
   `<mxCell id="3" value="${esc(label)}" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="2">` +
   `<mxGeometry x="-0.5" y="0" relative="1" as="geometry"><mxPoint x="26" y="0" as="offset"/></mxGeometry></mxCell>`;
 
-const oneLine = (label) => line(ONE_STYLE, label);
-const manyLine = (label) => line(MANY_STYLE, label);
+const oneLine = (label) => line(label);
+const manyLine = (label) =>
+  line(label) +
+  `<mxCell id="4" value="" style="${CUP_STYLE}" vertex="1" connectable="0" parent="2">` +
+  `<mxGeometry x="-1" y="0" relative="1" width="40" height="40" as="geometry">` +
+  `<mxPoint x="-20" y="-40" as="offset"/></mxGeometry></mxCell>`;
 
 // Titles are what students see in the palette. Every node shape carries
 // points=[] — NO fixed connection points — so all attachments are floating:

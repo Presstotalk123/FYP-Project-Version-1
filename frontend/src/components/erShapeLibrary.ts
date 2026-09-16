@@ -27,13 +27,13 @@
 //   ellipse + <u>…</u> label   -> key attribute         (underlined label, not style)
 //   triangle                   -> specialization (ISA)
 //   edge + endArrow=none       -> cardinality line (child edgeLabel 1..1/0..1/1..N/0..N)
-//   shape=mxgraph.basic.arc    -> "many" cue; the N-lines ship one as a loose sibling
-//                                 cell cupping the line's entity end (back to the
-//                                 entity, opening toward the diamond), bound to the
-//                                 nearest endpoint within 90px
-// The parser also reads loose text markers from old drafts, and an edge whose
-// endArrow=halfCircle as the same curved cue; the standalone Arc palette entry is
-// gone — the N-lines carry their arc with them.
+//   shape=mxgraph.basic.arc    -> "many" cue; the N-lines ship one as a CHILD of the
+//                                 edge, glued to the entity endpoint (back to the
+//                                 entity, opening toward the diamond) — bound to its
+//                                 edge by parent id, exactly
+// The parser also reads loose arcs (within 90px of an endpoint) and loose text
+// markers from old drafts, and an edge whose endArrow=halfCircle as the same curved
+// cue; the standalone Arc palette entry is gone — the N-lines carry their arc.
 // Regenerate er-shapes.xml with `node scripts/gen-er-library.mjs`; that script is the
 // single source of truth for the shape table. Changing a style there without changing
 // the parser makes that shape unreadable on submit.

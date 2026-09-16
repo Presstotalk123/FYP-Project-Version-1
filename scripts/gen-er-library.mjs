@@ -38,14 +38,18 @@ const vertex = (value, style, w, h) =>
 // (75% of the way to the SOURCE end, the entity end).
 //
 // The "many" lines add the course's arc cue in the professor's own notation:
-// a loose mxgraph.basic.arc SIBLING cell whose cup sits at the line's bottom
-// (source) end, back to the entity, opening toward the diamond — the exact
-// cell geometry and angles come from a hand-drawn reference. It drops
-// together with the line; the parser binds loose arcs to the nearest
-// endpoint (within 90px), the same path legacy hand-placed arcs use, so a
-// student who moves things far apart must drag the cup back to the line end.
+// a mxgraph.basic.arc cell whose cup sits at the line's bottom (source) end,
+// back to the entity, opening toward the diamond — angles taken verbatim from
+// a hand-drawn reference. The arc is a CHILD of the edge, anchored to the
+// source endpoint (relative x=-1; edge children anchor their TOP-LEFT at
+// point+offset, hence offset (-50,-100) to centre the 100x100 cup on the
+// endpoint), so it follows wherever that end is attached or dragged.
+// movable=0 stops students dislodging it; pointerEvents=0 stops its empty
+// bounding box swallowing clicks meant for the line. The parser binds arc
+// children to their edge by parent id — exact, like edge labels; loose arcs
+// from old drafts still bind by proximity.
 const LINE_STYLE = "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;startArrow=none;";
-const ARC_STYLE = "shape=mxgraph.basic.arc;html=1;startAngle=0.29048393388344096;endAngle=0.6963434643902662;arcWidth=0.5;fillColor=none;";
+const ARC_STYLE = "shape=mxgraph.basic.arc;html=1;startAngle=0.29048393388344096;endAngle=0.6963434643902662;arcWidth=0.5;fillColor=none;movable=0;rotatable=0;resizable=0;pointerEvents=0;";
 
 const lineCells = (label) =>
   `<mxCell id="2" style="${LINE_STYLE}" edge="1" parent="1">` +
@@ -58,8 +62,9 @@ const lineCells = (label) =>
 const oneLine = (label) => lineCells(label);
 const manyLine = (label) =>
   lineCells(label) +
-  `<mxCell id="4" value="" style="${ARC_STYLE}" vertex="1" parent="1">` +
-  `<mxGeometry x="0" y="80" width="100" height="100" as="geometry"/></mxCell>`;
+  `<mxCell id="4" value="" style="${ARC_STYLE}" vertex="1" connectable="0" parent="2">` +
+  `<mxGeometry x="-1" y="0" relative="1" width="100" height="100" as="geometry">` +
+  `<mxPoint x="-50" y="-100" as="offset"/></mxGeometry></mxCell>`;
 
 // Titles are what students see in the palette. Stock shapes are byte-for-byte
 // the models decoded from the previous er-shapes.xml. The old standalone Arc

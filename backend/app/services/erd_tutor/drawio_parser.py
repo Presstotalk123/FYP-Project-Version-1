@@ -25,7 +25,9 @@ NOTATION MAPPING (mxGraph style -> ERD construct)
   shape=rhombus + double=1           -> identifying relationship
   ellipse                            -> attribute; <u>...</u> marks a key
   triangle                           -> specialization (ISA)
-  shape=mxgraph.basic.arc            -> curved endpoint cue ("many")
+  shape=mxgraph.basic.arc            -> curved endpoint cue ("many"); as a CHILD
+                                        of an edge (palette N-lines) it binds to
+                                        that edge exactly, else by proximity
   edge endArrow=halfCircle           -> curved endpoint cue ("many")
   edge endArrow/startArrow=open|...  -> sharp endpoint cue ("one")
   edgeLabel child / nearby text cell -> endpoint text marker (">=1", "0..1", ...)
@@ -345,8 +347,15 @@ def parse_drawio(xml_text: str) -> dict:
     # Everything below is keyed by edge id — one key per endpoint, including
     # both endpoints of a self-relationship.
 
-    # Free-floating arcs -> curved cue at their endpoint.
-    arc_at = {k: c.id for k, c in assign(arcs, limit=90.0).items()}
+    # Arcs riding an edge as its child (the palette "many" lines) bind to that
+    # edge exactly, like edge labels — their geometry is relative, so proximity
+    # math would misread it. Loose arcs (hand-placed, old drafts) still bind to
+    # the nearest endpoint.
+    edge_ids = {e.id for e in edges}
+    arc_at = {c.parent: c.id for c in arcs if c.parent in edge_ids}
+    loose_arcs = [c for c in arcs if c.parent not in edge_ids]
+    for k, c in assign(loose_arcs, limit=90.0).items():
+        arc_at.setdefault(k, c.id)
 
     # Edge labels bind to their own edge (exact, no geometry needed).
     marker_at = {}

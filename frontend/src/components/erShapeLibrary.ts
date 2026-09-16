@@ -45,9 +45,12 @@
 // can only load the library from a host it treats as CORS-enabled, so a
 // localhost URL does NOT work; pushing the branch is the only preview path.
 // Never set the variable in a production build.
-const ER_LIBRARY_URL =
-  process.env.NEXT_PUBLIC_ER_SHAPES_URL ||
-  "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
+// The dev override gets a cache-buster: raw.githubusercontent caches ~5 min
+// and the browser caches on top, which made every palette iteration look
+// broken until the caches expired. Prod (main) keeps the stable URL.
+const ER_LIBRARY_URL = process.env.NEXT_PUBLIC_ER_SHAPES_URL
+  ? `${process.env.NEXT_PUBLIC_ER_SHAPES_URL}?t=${Date.now()}`
+  : "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
 
 /** draw.io embed configuration replied to the editor's `configure` request. */
 export const ER_CONFIG = {

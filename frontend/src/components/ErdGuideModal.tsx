@@ -315,8 +315,8 @@ function ConnectStep() {
       </SimpleGrid>
       <List size="sm" spacing={4}>
         <List.Item>
-          Hover a shape and drag one of the <b>blue arrows</b> onto the target shape; drop when the
-          target lights up. Or drag from a connection point (<b>×</b>) on the shape&apos;s border.
+          Hover a shape and drag one of the <b>blue arrows</b> onto the target shape, or drag a
+          line&apos;s round endpoint onto a shape — drop when the whole shape lights up.
         </List.Item>
         <List.Item>
           <b>Test it:</b> move a shape. If the line follows, it is attached. If it stays behind, it

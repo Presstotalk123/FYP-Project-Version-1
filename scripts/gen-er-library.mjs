@@ -63,18 +63,20 @@ const line = (style, label) =>
 const oneLine = (label) => line(ONE_STYLE, label);
 const manyLine = (label) => line(MANY_STYLE, label);
 
-// Titles are what students see in the palette. Stock shapes are byte-for-byte
-// the models decoded from the previous er-shapes.xml. The old standalone Arc
-// entry is gone: the N-lines carry the curve themselves (the parser still
-// reads loose arcs, so old drafts keep grading).
+// Titles are what students see in the palette. Every node shape carries
+// points=[] — NO fixed connection points — so all attachments are floating:
+// draw.io only honours sourcePerimeterSpacing (the cup tangency) on floating
+// connections, and a fixed × point would bury the cup inside the shape. The
+// old standalone Arc entry is gone: the N-lines carry the curve themselves
+// (the parser still reads loose arcs, so old drafts keep grading).
 const SHAPES = [
-  { title: "Entity", w: 120, h: 60, xml: model(vertex("Entity", "rounded=0;whitespace=wrap;html=1;", 120, 60)) },
-  { title: "Weak Entity", w: 120, h: 60, xml: model(vertex("Weak Entity", "shape=ext;double=1;whitespace=wrap;html=1;", 120, 60)) },
-  { title: "Relationship", w: 120, h: 80, xml: model(vertex("Relationship", "rhombus;whitespace=wrap;html=1;", 120, 80)) },
-  { title: "Identifying Relationship", w: 120, h: 80, xml: model(vertex("Identifying", "rhombus;double=1;whitespace=wrap;html=1;", 120, 80)) },
-  { title: "Attribute", w: 120, h: 60, xml: model(vertex("Attribute", "ellipse;whitespace=wrap;html=1;", 120, 60)) },
-  { title: "Key Attribute", w: 120, h: 60, xml: model(vertex("<u>Key</u>", "ellipse;whitespace=wrap;html=1;", 120, 60)) },
-  { title: "Triangle", w: 80, h: 80, xml: model(vertex("", "triangle;whitespace=wrap;html=1;", 80, 80)) },
+  { title: "Entity", w: 120, h: 60, xml: model(vertex("Entity", "rounded=0;whitespace=wrap;html=1;points=[];", 120, 60)) },
+  { title: "Weak Entity", w: 120, h: 60, xml: model(vertex("Weak Entity", "shape=ext;double=1;whitespace=wrap;html=1;points=[];", 120, 60)) },
+  { title: "Relationship", w: 120, h: 80, xml: model(vertex("Relationship", "rhombus;whitespace=wrap;html=1;points=[];", 120, 80)) },
+  { title: "Identifying Relationship", w: 120, h: 80, xml: model(vertex("Identifying", "rhombus;double=1;whitespace=wrap;html=1;points=[];", 120, 80)) },
+  { title: "Attribute", w: 120, h: 60, xml: model(vertex("Attribute", "ellipse;whitespace=wrap;html=1;points=[];", 120, 60)) },
+  { title: "Key Attribute", w: 120, h: 60, xml: model(vertex("<u>Key</u>", "ellipse;whitespace=wrap;html=1;points=[];", 120, 60)) },
+  { title: "Triangle", w: 80, h: 80, xml: model(vertex("", "triangle;whitespace=wrap;html=1;points=[];", 80, 80)) },
   { title: "Exactly one (1..1)", w: 100, h: 180, xml: model(oneLine("1..1")) },
   { title: "At most one (0..1)", w: 100, h: 180, xml: model(oneLine("0..1")) },
   { title: "One or more (1..N)", w: 100, h: 180, xml: model(manyLine("1..N")) },

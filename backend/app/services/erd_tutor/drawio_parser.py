@@ -30,6 +30,17 @@ NOTATION MAPPING (mxGraph style -> ERD construct)
   edge endArrow/startArrow=open|...  -> sharp endpoint cue ("one")
   edgeLabel child / edge's own value / nearby text cell
                                      -> endpoint text marker (">=1", "0..1", ...)
+
+UNATTACHED LINE ENDS
+A line end that was never dropped onto a shape has no source/target reference,
+only coordinates — to draw.io it links nothing, however exactly it touches.
+Students do this constantly and a human marker still reads the connection, so
+such an end is snapped to the nearest shape OUTLINE within ``_SNAP_LIMIT`` and
+then counts fully. It is never a guess: a runner-up shape closer than
+``_SNAP_MARGIN`` behind the winner leaves the end unconnected. Every inference,
+and every end left unconnected, is reported in ``uncertain_items``.
+Coordinates are taken as absolute, as for loose arcs and text: shapes nested
+inside draw.io groups are not resolved.
 """
 
 import html
@@ -95,7 +106,7 @@ def _dist(a, b):
 
 class _Cell:
     __slots__ = ("id", "value", "style", "geom", "centre", "source", "target",
-                 "is_edge", "parent")
+                 "is_edge", "parent", "source_point", "target_point")
 
     def __init__(self, el):
         self.id = el.get("id")
@@ -107,6 +118,16 @@ class _Cell:
         self.target = el.get("target")
         self.is_edge = el.get("edge") == "1"
         self.parent = el.get("parent")
+        # Where an end sits when it is NOT attached to a shape.
+        self.source_point = self.target_point = None
+        geometry = el.find("mxGeometry")
+        for pt in (geometry.findall("mxPoint") if geometry is not None else ()):
+            role = {"sourcePoint": "source_point", "targetPoint": "target_point"}.get(pt.get("as"))
+            if role:
+                try:
+                    setattr(self, role, (float(pt.get("x") or 0.0), float(pt.get("y") or 0.0)))
+                except (TypeError, ValueError):
+                    pass
 
 
 def _classify(cell):
@@ -167,6 +188,97 @@ def _arrow_kind(style, which):
     return "curved" if kind == "halfcircle" else "sharp"
 
 
+_SNAP_LIMIT = 30.0    # px from a shape's outline within which a loose line end still connects
+_SNAP_MARGIN = 10.0   # px the runner-up must trail the winner by, or the end is not guessed
+_NODE_KINDS = ("entity", "relationship", "attribute", "specialization")
+
+
+def _segment_distance(p, a, b):
+    ax, ay = b[0] - a[0], b[1] - a[1]
+    length2 = ax * ax + ay * ay
+    t = 0.0 if not length2 else max(0.0, min(1.0, ((p[0] - a[0]) * ax + (p[1] - a[1]) * ay) / length2))
+    return math.hypot(p[0] - (a[0] + t * ax), p[1] - (a[1] + t * ay))
+
+
+def _outline_distance(cell, kind, point):
+    """Distance from a point to the shape as DRAWN; 0 when the point is inside it.
+
+    A diamond or ellipse fills only part of its bounding box: the box's corners
+    are empty space up to ~33px from a 120x80 diamond, further than the snap
+    limit. Measuring to the box would connect lines that visibly touch nothing.
+    """
+    x, y, w, h = cell.geom
+    cx, cy = x + w / 2.0, y + h / 2.0
+    dx, dy = point[0] - cx, point[1] - cy
+    if kind == "relationship" and w and h:
+        if abs(dx) / (w / 2.0) + abs(dy) / (h / 2.0) <= 1.0:
+            return 0.0
+        corners = [(cx, y), (x + w, cy), (cx, y + h), (x, cy)]
+        return min(_segment_distance(point, corners[i], corners[(i + 1) % 4]) for i in range(4))
+    if kind == "attribute" and w and h:
+        r = math.hypot(dx / (w / 2.0), dy / (h / 2.0))
+        # Measured along the ray from the centre: exact on the axes, a slight
+        # overestimate elsewhere — which errs toward not connecting.
+        return 0.0 if r <= 1.0 else (1.0 - 1.0 / r) * math.hypot(dx, dy)
+    return math.hypot(max(x - point[0], 0.0, point[0] - (x + w)),
+                      max(y - point[1], 0.0, point[1] - (y + h)))
+
+
+def _snap_loose_ends(edges, nodes):
+    """Attach each unattached line end to the one shape it clearly meets.
+
+    ``nodes`` is [(cell, kind)]. Sets ``source``/``target`` on the edge cells it
+    resolves, so everything downstream reads them like any attached line, and
+    returns one note per loose end: (edge, side, point, chosen, candidates)
+    where ``chosen`` is (cell, distance) or None and ``candidates`` lists the
+    shapes that were in range when none could be chosen.
+    """
+    notes = []
+    for edge in edges:
+        for side in ("source", "target"):
+            if getattr(edge, side):
+                continue
+            point = getattr(edge, side + "_point")
+            other_end = edge.target if side == "source" else edge.source
+            in_range = sorted(
+                ((d, cell) for cell, kind in nodes if cell.id != other_end
+                 for d in [_outline_distance(cell, kind, point)] if d <= _SNAP_LIMIT),
+                key=lambda t: t[0]) if point else []
+            clear = in_range and (len(in_range) == 1 or in_range[1][0] - in_range[0][0] >= _SNAP_MARGIN)
+            if clear:
+                setattr(edge, side, in_range[0][1].id)
+                notes.append((edge, side, point, (in_range[0][1], in_range[0][0]), []))
+            else:
+                notes.append((edge, side, point, None, [cell for _d, cell in in_range]))
+    return notes
+
+
+def _loose_end_note(note, output_id):
+    edge, side, point, chosen, candidates = note
+    where = f"its {side} end at ({point[0]:.0f},{point[1]:.0f})" if point else f"its {side} end"
+    name = lambda cell: _plain(cell.value) or cell.id
+    if chosen:
+        reason = (f"the line is not attached at {where}; it sits {chosen[1]:.0f}px from "
+                  f"{name(chosen[0])}, so the connection was inferred from proximity")
+        owners = [chosen[0]]
+    elif candidates:
+        reason = (f"the line is not attached at {where}, and "
+                  f"{' and '.join(name(c) for c in candidates)} are too close to tell apart, "
+                  f"so no connection was assumed")
+        owners = candidates
+    else:
+        reason = (f"the line is not attached at {where} and no shape lies within "
+                  f"{_SNAP_LIMIT:.0f}px of it, so it connects nothing")
+        owners = []
+    return {
+        "raw_text": _plain(edge.value) or f"line {edge.id}",
+        "suspected_type": "unattached_connector",
+        "possible_owner_ids": [output_id.get(c.id, c.id) for c in owners],
+        "reason": reason,
+        "evidence": f"draw.io edge {edge.id}, style {edge.style[:60]}",
+    }
+
+
 def parse_drawio(xml_text: str) -> dict:
     """Return an ObservationJSON-shaped dict, or raise ValueError if unusable."""
     if not xml_text or not xml_text.strip():
@@ -201,6 +313,14 @@ def parse_drawio(xml_text: str) -> dict:
     if not entities or not relationships:
         raise ValueError(f"no ERD structure found "
                          f"({len(entities)} entities, {len(relationships)} relationships)")
+
+    # Before anything reads source/target: see UNATTACHED LINE ENDS above.
+    loose_ends = _snap_loose_ends(
+        edges, [(c, kinds[c.id]) for c in cells if kinds[c.id] in _NODE_KINDS and c.geom])
+    inferred = {}
+    for edge, side, _point, chosen, _candidates in loose_ends:
+        if chosen:
+            inferred.setdefault(edge.id, []).append((side, chosen[0], chosen[1]))
 
     # ---- ids -------------------------------------------------------------
     ent_id, rel_id = {}, {}
@@ -252,6 +372,7 @@ def parse_drawio(xml_text: str) -> dict:
     out_attributes = []
     attr_cells = [c for c in cells if kinds[c.id] == "attribute" and c.geom]
     attr_cells.sort(key=lambda c: (_plain(c.value).lower(), c.id or ""))
+    attr_id = {c.id: f"A{i}" for i, c in enumerate(attr_cells, 1)}
     for i, c in enumerate(attr_cells, 1):
         owner_cell = None
         for e in edges:
@@ -398,8 +519,12 @@ def parse_drawio(xml_text: str) -> dict:
                 "evidence": "Read from the draw.io source: "
                             + (f"arc cell {arc_at[edge.id]} at this endpoint"
                                if edge.id in arc_at
-                               else f"edge {edge.id} style {edge.style[:60]}"),
-                "confidence": "high",
+                               else f"edge {edge.id} style {edge.style[:60]}")
+                            + "".join(
+                                f" The line was not attached at its {s} end; it sits {d:.0f}px from "
+                                f"{_plain(shape.value) or shape.id}, so the connection was inferred."
+                                for s, shape, d in inferred.get(edge.id, [])),
+                "confidence": "medium" if edge.id in inferred else "high",
             })
 
     # ---- specializations --------------------------------------------------
@@ -439,7 +564,7 @@ def parse_drawio(xml_text: str) -> dict:
         "attributes": out_attributes,
         "relationship_endpoints": out_endpoints,
         "specializations": out_specs,
-        "uncertain_items": [],
+        "uncertain_items": [_loose_end_note(n, {**ent_id, **rel_id, **attr_id}) for n in loose_ends],
         # Cells this parser could not place. Surfacing them keeps a coverage gap
         # visible downstream instead of silently dropping structure the student
         # actually drew — the failure mode that would make XML-first worse than

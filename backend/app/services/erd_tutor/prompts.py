@@ -1050,9 +1050,11 @@ Status policy:
      apply unclear_evidence_policy. Entity absent -> apply missing_policy.
    - identifying_relationship_correct: find the relationship joining the
      required participants; match by participants when the diamond is
-     unlabelled. relationship_kind "identifying" -> pass. "normal" -> fail, and
-     brief_reason says the diamond is drawn with a single border. "unknown" ->
-     apply unclear_evidence_policy. Relationship absent -> apply missing_policy.
+     unlabelled. relationship_kind "identifying" -> pass. "normal" -> partial
+     when partial_allowed is true (this is then the relationship's only check:
+     it is drawn, its border is wrong), otherwise fail; brief_reason says the
+     diamond is drawn with a single border. "unknown" -> apply
+     unclear_evidence_policy. Relationship absent -> apply missing_policy.
    - An entity that merely behaves like a weak or associative entity (a
      composite key, total participation, a name such as OrderLine) is NOT
      evidence that it is drawn weak. Only entity_kind / relationship_kind counts.

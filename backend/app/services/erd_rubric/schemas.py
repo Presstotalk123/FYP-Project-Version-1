@@ -66,6 +66,9 @@ class EquivalenceOption(BaseModel):
 
 class TargetEndpoint(BaseModel):
     entity: Optional[str] = None
+    # integrity_constraint_match only: what the line carries where it meets this
+    # entity. Graded by erd_tutor/integrity_checks.py against the parser's cue.
+    mark: Optional[Literal["plain", "arrow", "rounded_arrow"]] = None
     cardinality: Optional[str] = None
     participation: Optional[str] = None
     expected_cardinality: Optional[str] = None

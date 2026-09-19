@@ -15,6 +15,7 @@ from app.services.erd_tutor.state import GraphState
 from app.services.erd_tutor.nodes import observe_node, normalize_node, grade_node
 from app.services.erd_tutor.scoring import compute_grade
 from app.services.erd_tutor.deterministic_checks import apply_deterministic_overrides
+from app.services.erd_tutor.integrity_checks import apply_integrity_overrides
 from app.services.erd_tutor.name_matching import apply_naming_overrides
 from app.services.erd_tutor.structural_checks import apply_structural_overrides
 
@@ -31,6 +32,11 @@ def _score_node(state: dict) -> dict:
     # equivalences, unlocatable structure, unparseable values — keeps the
     # judge's verdict untouched.
     judge = apply_deterministic_overrides(state["judge"], rubric, canonical)
+    # Integrity constraints are the mark a line carries where it meets an entity
+    # (plain, pointed arrow, rounded arrow). The parser reads that mark exactly,
+    # so it is compared with the rubric's here. It needs the OBSERVATION: the
+    # canonical model keeps derived (min,max) values, not the mark itself.
+    judge = apply_integrity_overrides(judge, rubric, canonical, state.get("observation") or {})
     # And to how a thing is drawn. Whether an entity is weak, a relationship
     # identifying, or two entities joined by an ISA hierarchy is a field lookup
     # in the canonical model. Measured: the judge failed a drawn hierarchy as

@@ -71,7 +71,7 @@ def parse_marker(text):
     raw = str(text or "").strip()
     if not raw:
         return (None, None, "absent")
-    t = raw.lower()
+    t = raw.lower().replace("≥", ">=").replace("≤", "<=")   # the slides' glyphs
     t = t.rsplit(":", 1)[-1]                 # drop role prefixes ("as child: ...")
     t = t.replace(" ", "")
     if t in _EXPLICIT:
@@ -170,6 +170,9 @@ def derive(observation: dict):
         cards.append({
             "relationship_id": rid, "entity_id": eid,
             "raw_marker": marker or cue,
+            # raw_marker drops the cue whenever text was written; an
+            # integrity_constraint_match check is about the cue alone.
+            "endpoint_cue": cue,
             "normalized_cardinality": card,
             "evidence": f"Derived deterministically: {why}.",
             "confidence": "high" if card != "unknown" else "low",

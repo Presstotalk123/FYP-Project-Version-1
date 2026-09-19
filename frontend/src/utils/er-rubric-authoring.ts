@@ -57,6 +57,8 @@ const SELECT_OPTIONS: Record<string, string[]> = {
   requirement_level: ["must", "should", "optional", "not_applicable"],
   evidence: ["either", "diagram_llm_extraction", "explicit_diagram_evidence", "model_answer"],
   participation: ["total", "partial"],
+  // integrity_constraint_match: what the line carries where it meets the entity
+  mark: ["plain", "arrow", "rounded_arrow"],
   ambiguous_label_policy: ["fail", "partial", "accept"],
   missing_policy: ["fail", "partial", "ignore"],
   unclear_evidence_policy: ["fail", "partial", "accept"],
@@ -102,7 +104,7 @@ const PREFERRED_KEY_ORDER: Record<string, string[]> = {
     "label",
     "note",
   ],
-  "checks.*.target.endpoints.*": ["entity", "cardinality", "participation", "expected_cardinality", "expected_participation"],
+  "checks.*.target.endpoints.*": ["entity", "mark", "cardinality", "participation", "expected_cardinality", "expected_participation"],
   "checks.*.target.keys_required.*": ["entity", "primary_key", "rule", "description", "label", "note"],
   "checks.*.equivalence_options.*": ["type", "description", "notes"],
   "checks.*.decision_policy": [
@@ -140,6 +142,7 @@ const createEmptyCanonicalEndpoint = (): RubricJsonObject => ({
 
 const createEmptyTargetEndpoint = (): RubricJsonObject => ({
   entity: null,
+  mark: null,
   cardinality: null,
   participation: null,
   expected_cardinality: null,

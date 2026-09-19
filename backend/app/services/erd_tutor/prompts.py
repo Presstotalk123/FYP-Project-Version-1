@@ -1067,6 +1067,23 @@ Status policy:
      relationship joining the two is NOT a hierarchy -> fail. Whatever other
      relationships the subtype takes part in are irrelevant to this check.
 
+14g. integrity_constraint_match compares the MARK each relationship line carries
+   where it meets an entity with the mark the rubric requires there
+   (target.endpoints[].mark). Find the relationship by its participants, never
+   by its label, then read each end's mark from that endpoint's endpoint_cue in
+   cv_current_erd_model.cardinalities:
+   - no_arrow_visible -> "plain"
+   - sharp_arrowhead  -> "arrow" (a pointed arrowhead)
+   - curved_arrowhead -> "rounded_arrow"
+   Every end carries the required mark -> pass. Any end differs -> fail, and
+   brief_reason names that end, the required mark and the drawn one. There is no
+   partial. Do NOT translate marks into cardinalities and compare those: a
+   pointed arrow and a plain end may share a maximum yet are different marks.
+   When source_mode is "image", no_arrow_visible means the mark was not
+   detected, not that the end is plain: apply unclear_evidence_policy to an end
+   that requires "plain" or whose cue is unknown. Relationship absent -> apply
+   missing_policy.
+
 Problem statement policy:
 15. Problem_Statement defines the target semantics.
    - It does NOT replace missing student evidence unless the rubric explicitly allows that equivalence.

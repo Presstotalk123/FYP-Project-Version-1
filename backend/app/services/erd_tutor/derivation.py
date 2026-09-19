@@ -170,6 +170,9 @@ def derive(observation: dict):
         cards.append({
             "relationship_id": rid, "entity_id": eid,
             "raw_marker": marker or cue,
+            # raw_marker drops the cue whenever text was written; an
+            # integrity_constraint_match check is about the cue alone.
+            "endpoint_cue": cue,
             "normalized_cardinality": card,
             "evidence": f"Derived deterministically: {why}.",
             "confidence": "high" if card != "unknown" else "low",

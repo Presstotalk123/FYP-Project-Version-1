@@ -25,14 +25,47 @@
 //   ellipse                    -> attribute
 //   ellipse + <u>…</u> label   -> key attribute         (underlined label, not style)
 //   triangle                   -> specialization (ISA)
-//   shape=mxgraph.basic.arc    -> arc
-// Regenerate er-shapes.xml with scripts/gen-er-library (Node): build one <mxGraphModel>
-// per shape from the table above and wrap them as {xml,w,h,aspect,title} entries inside
-// <mxlibrary>[…]</mxlibrary>. Changing a style there without changing the parser makes
-// that shape unreadable on submit.
+//   edge + endArrow=none       -> the three connectors; the glyph is the edge's own START
+//                                 marker, read at whichever end touches the entity. Each
+//                                 carries a child edgeLabel reading "Cardinality" for the
+//                                 student to overwrite with the bound; the parser binds it by
+//                                 parent id and ignores it while it still reads "Cardinality":
+//     startArrow=none          ->   plain end   (no cue: "at most one")
+//     startArrow=open          ->   arrow       (sharp cue: "one")
+//     startArrow=halfCircle    ->   curve       (curved cue: "many"; a NEGATIVE startSize
+//                                   flips it to open toward the diamond; its
+//                                   endArrow=erdpad draws nothing and reads as no arrow —
+//                                   it only sizes the palette thumbnail)
+// Every node shape also carries points=[] (floating connections only): draw.io honours the
+// curve's sourcePerimeterSpacing — what rests it on the border — only on those.
+// The parser still reads a loose Arc shape (shape=mxgraph.basic.arc, within 90px of an
+// endpoint) and loose text markers, so drafts drawn before the connectors keep grading; the
+// standalone Arc palette entry is gone.
+// Regenerate er-shapes.xml with `node scripts/gen-er-library.mjs`; that script is the single
+// source of truth for the shape table. Changing a style there without changing the parser
+// makes that shape unreadable on submit.
 
-const ER_LIBRARY_URL =
-  "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
+// NEXT_PUBLIC_ER_SHAPES_URL (frontend/.env.local, dev only) previews a palette before it
+// lands on main. Never set it in a production build. Two ways:
+//  - a pushed branch: .../FYP-Project-Version-1/<branch>/frontend/public/er-shapes.xml
+//  - the local file, no push: serve frontend/public with CORS (`npx http-server
+//    frontend/public -p 8099 --cors`) and point the variable at
+//    http://localhost:8099/er-shapes.xml. draw.io only fetches hosts it treats as
+//    CORS-enabled, so NEXT_PUBLIC_DRAWIO_ORIGIN must also carry
+//    `&cors=<url-encoded regex matching that URL>`. The browser also blocks a public
+//    site's iframe from reaching localhost ("Access Denied" in the Shapes panel) until the
+//    iframe is delegated local-network-access and you click Allow on Chrome's one-time
+//    prompt — DrawioBoard adds that delegation only while ER_LIBRARY_IS_LOCAL is true.
+// The override gets a cache-buster: raw.githubusercontent caches ~5 min and the browser
+// caches on top, which makes a regenerated palette look unchanged until they expire.
+const ER_LIBRARY_URL = process.env.NEXT_PUBLIC_ER_SHAPES_URL
+  ? `${process.env.NEXT_PUBLIC_ER_SHAPES_URL}?t=${Date.now()}`
+  : "https://raw.githubusercontent.com/Presstotalk123/FYP-Project-Version-1/main/frontend/public/er-shapes.xml";
+
+/** True only for the local palette preview; never in a production build. */
+export const ER_LIBRARY_IS_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(
+  process.env.NEXT_PUBLIC_ER_SHAPES_URL ?? "",
+);
 
 /** draw.io embed configuration replied to the editor's `configure` request. */
 export const ER_CONFIG = {

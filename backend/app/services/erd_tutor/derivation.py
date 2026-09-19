@@ -71,7 +71,7 @@ def parse_marker(text):
     raw = str(text or "").strip()
     if not raw:
         return (None, None, "absent")
-    t = raw.lower()
+    t = raw.lower().replace("≥", ">=").replace("≤", "<=")   # the slides' glyphs
     t = t.rsplit(":", 1)[-1]                 # drop role prefixes ("as child: ...")
     t = t.replace(" ", "")
     if t in _EXPLICIT:

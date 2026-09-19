@@ -26,8 +26,10 @@ NOTATION MAPPING (mxGraph style -> ERD construct)
   ellipse                            -> attribute; <u>...</u> marks a key
   triangle                           -> specialization (ISA)
   shape=mxgraph.basic.arc            -> curved endpoint cue ("many")
+  edge endArrow/startArrow=halfCircle-> curved endpoint cue ("many")
   edge endArrow/startArrow=open|...  -> sharp endpoint cue ("one")
-  edgeLabel child / nearby text cell -> endpoint text marker (">=1", "0..1", ...)
+  edgeLabel child / edge's own value / nearby text cell
+                                     -> endpoint text marker (">=1", "0..1", ...)
 """
 
 import html
@@ -144,7 +146,11 @@ def _style_num(style, key):
 
 
 def _arrow_kind(style, which):
-    """which: 'end' or 'start'. Returns 'sharp' | None."""
+    """which: 'end' or 'start'. Returns 'curved' | 'sharp' | None.
+
+    ``style`` is already lowercased, so draw.io's ``halfCircle`` arrives as
+    ``halfcircle``.
+    """
     m = re.search(rf"{which}arrow=([a-z]+)", style)
     if not m:
         # draw.io default endArrow is a filled block arrow when unspecified,
@@ -152,7 +158,13 @@ def _arrow_kind(style, which):
         # on the START side as "no arrow".
         return "sharp" if which == "end" and "endarrow" not in style else None
     kind = m.group(1)
-    return None if kind == "none" else "sharp"
+    # "erdpad" is the curved connector's END marker: a name draw.io does not
+    # draw, there only so the palette thumbnail gets a usable bounding box.
+    if kind in ("none", "erdpad"):
+        return None
+    # The palette's curved connector draws the "many" curve as the line's own
+    # marker, so it cannot be misplaced the way a loose Arc shape can.
+    return "curved" if kind == "halfcircle" else "sharp"
 
 
 def parse_drawio(xml_text: str) -> dict:
@@ -331,7 +343,9 @@ def parse_drawio(xml_text: str) -> dict:
 
     def marker_text(v):
         t = _plain(v)
-        return t if re.search(r"[<>=]|\.\.|^\s*[0-9NnMm]\s*$", t) else ""
+        # The lecture slides write bounds with the real glyphs ("≥ 1");
+        # derivation normalises them to ">=" / "<=".
+        return t if re.search(r"[<>=≥≤]|\.\.|^\s*[0-9NnMm]\s*$", t) else ""
 
     # Everything below is keyed by edge id — one key per endpoint, including
     # both endpoints of a self-relationship.
@@ -348,6 +362,14 @@ def parse_drawio(xml_text: str) -> dict:
             continue
         marker_at.setdefault(parent.id, text)
 
+    # Text typed straight onto a connector (double-click mid-line) is the
+    # edge's own value, not a child cell. One edge has one entity endpoint, so
+    # it binds as exactly as a child label does.
+    for e in edges:
+        text = marker_text(e.value)
+        if text:
+            marker_at.setdefault(e.id, text)
+
     # Free-floating text markers -> nearest free endpoint.
     free = [t for t in texts if marker_text(t.value)]
     for edge_id, cell in assign(free, limit=120.0).items():
@@ -356,13 +378,17 @@ def parse_drawio(xml_text: str) -> dict:
     out_endpoints = []
     for rel in relationships:
         for tgt_id, edge, side in participants[rel.id]:
-            # An arrowhead on the edge is a "sharp" cue at the end it points to.
+            # The edge's own marker is a cue at the end it sits on: a
+            # halfCircle is the curved "many", any other named arrow is sharp.
             cue = "no_arrow_visible"
             if edge.id in arc_at:
                 cue = "curved_arrowhead"
             else:
                 which = "end" if side == "target" else "start"
-                if _arrow_kind(edge.style, which) == "sharp":
+                kind = _arrow_kind(edge.style, which)
+                if kind == "curved":
+                    cue = "curved_arrowhead"
+                elif kind == "sharp":
                     cue = "sharp_arrowhead"
             out_endpoints.append({
                 "relationship_id": rel_id[rel.id],

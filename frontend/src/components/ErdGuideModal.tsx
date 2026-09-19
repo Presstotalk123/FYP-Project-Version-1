@@ -212,6 +212,33 @@ const CardinalityFigure = () => (
   </Figure>
 );
 
+type ConnectorFigureProps = { name: string; end: "plain" | "arrow" | "curve" };
+
+const CONNECTOR_END_LABEL = {
+  plain: "with a plain end",
+  arrow: "ending in an arrowhead that points at the entity",
+  curve: "ending in a curve with its back to the entity, opening toward the diamond",
+};
+
+/** One palette connector as it lands on the canvas: a vertical line whose top
+ *  end goes on the diamond and whose bottom, marked end goes on the entity,
+ *  with its editable "Cardinality" label sitting on the line near that end. */
+const ConnectorFigure = ({ name, end }: ConnectorFigureProps) => (
+  <Figure
+    viewBox="0 0 90 130"
+    maxWidth={64}
+    label={`${name}: a vertical line ${CONNECTOR_END_LABEL[end]}, carrying a label that reads Cardinality`}
+  >
+    <line x1={45} y1={8} x2={45} y2={66} />
+    <line x1={45} y1={84} x2={45} y2={end === "curve" ? 112 : 120} />
+    <Label x={45} y={75} size={10} color={ACCENT}>
+      Cardinality
+    </Label>
+    {end === "arrow" && <path d="M 35 104 L 45 120 L 55 104" stroke={ACCENT} strokeWidth={2} />}
+    {end === "curve" && <path d="M 21 86 Q 45 138 69 86" stroke={ACCENT} strokeWidth={2} />}
+  </Figure>
+);
+
 // ---------------------------------------------------------------------------
 // Steps
 // ---------------------------------------------------------------------------
@@ -317,8 +344,8 @@ function ConnectStep() {
       </SimpleGrid>
       <List size="sm" spacing={4}>
         <List.Item>
-          Hover a shape and drag one of the <b>blue arrows</b> onto the target shape; drop when the
-          target lights up. Or drag from a connection point (<b>×</b>) on the shape&apos;s border.
+          Hover a shape and drag one of the <b>blue arrows</b> onto the target shape, or drag a
+          line&apos;s round endpoint onto a shape — drop when the whole shape lights up.
         </List.Item>
         <List.Item>
           <b>Test it:</b> move a shape. If the line follows, it is attached. If it stays behind, it
@@ -352,35 +379,42 @@ function CardinalityStep() {
           </Group>
         </Stack>
       </Paper>
-      <Stack gap={4} align="center">
-        <Image
-          src="/erd-guide/arc-cue.png"
-          alt="Adding the curve in draw.io: type arc in the Shapes search box (1), drag the plain Arc shape (2) and drop it on the connector against the entity, opening toward the diamond (3)"
-          width={1300}
-          height={600}
-          style={{ width: "100%", maxWidth: 600, height: "auto", borderRadius: 8, border: "1px solid var(--mantine-color-gray-3)" }}
+      <Text size="sm">
+        The <b>Shapes</b> panel has three ready-made connectors. Put the <b>marked end on the
+        entity</b> and the other end on the diamond:
+      </Text>
+      <SimpleGrid cols={3} spacing="xs">
+        <ShapeCard
+          figure={<ConnectorFigure name="Plain line" end="plain" />}
+          name="Plain line (one)"
+          hint="A plain end already means at most one."
         />
-        <Text size="xs" c="dimmed" ta="center">
-          Adding the curve: ① type <Code>arc</Code> in the Shapes search · ② drag the plain <b>Arc</b>{" "}
-          · ③ drop it on the line against the entity, opening toward the diamond
-        </Text>
-      </Stack>
+        <ShapeCard
+          figure={<ConnectorFigure name="Arrow line" end="arrow" />}
+          name="Arrow line (one)"
+          hint="At most one, drawn with the lectures' arrow."
+        />
+        <ShapeCard
+          figure={<ConnectorFigure name="Curved line" end="curve" />}
+          name="Curved line (many)"
+          hint="Many: the curve, like the A end above."
+        />
+      </SimpleGrid>
       <List size="sm" spacing={4}>
         <List.Item>
-          <b>Minimum / participation</b> — a text label on the line, next to the entity:{" "}
-          <Code>{">=1"}</Code> (total), <Code>{">=0"}</Code> (partial), <Code>{"<=1"}</Code>,{" "}
-          <Code>=1</Code>, or a range such as <Code>0..1</Code> or <Code>1..N</Code>. Double-click
-          the connector near that end and type.
+          <b>Attach it</b> — click the line, then drag each round endpoint onto a shape and drop
+          when the <b>whole shape</b> lights up. The arrow and the curve turn with the line and
+          rest on the entity&apos;s border by themselves; move the entity to check the line
+          follows. An older drawing&apos;s shapes may still show blue <b>×</b> points: drop the
+          curved end on the shape&apos;s body, not on a ×, or the curve lands half inside the
+          shape (it is still read correctly either way).
         </List.Item>
         <List.Item>
-          <b>Many</b> — a curve at the entity end, like <Code>(—</Code> (pictured above). Type{" "}
-          <Code>arc</Code> in the Shapes search box, drag the plain <b>Arc</b> onto the line right
-          beside the entity, with its back to the entity and its opening toward the diamond — flip it
-          horizontally (Arrange ▸ Flip) for an entity on the right. The stock size is fine.
-        </List.Item>
-        <List.Item>
-          <b>One</b> — leave the end plain. In this notation a plain line end already means
-          &ldquo;at most one&rdquo;.
+          <b>Minimum / participation</b> — every connector carries a <b>Cardinality</b> label near
+          its marked end. Double-click it and type the marker over it: <Code>{">=1"}</Code>{" "}
+          (total), <Code>{">=0"}</Code> (partial), <Code>{"<=1"}</Code>, <Code>=1</Code>, or a range
+          such as <Code>0..1</Code> or <Code>1..N</Code>. Left reading &ldquo;Cardinality&rdquo;,
+          it states nothing and only the line&apos;s end is read.
         </List.Item>
         <List.Item>
           <b>Weak entity / identifying relationship</b> — use the double-bordered shapes; the extra

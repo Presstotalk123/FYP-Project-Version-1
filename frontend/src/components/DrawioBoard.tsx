@@ -7,7 +7,7 @@ import {
   useRef,
 } from "react";
 import { Box, Button, Group } from "@mantine/core";
-import { ER_CONFIG } from "./erShapeLibrary";
+import { ER_CONFIG, ER_LIBRARY_IS_LOCAL } from "./erShapeLibrary";
 
 export type DrawioBoardHandle = {
   submit: () => void;
@@ -30,7 +30,7 @@ type DrawioBoardProps = {
 };
 
 // `configure=1` makes the editor request a configuration on startup (answered with
-// ER_CONFIG), which is what locks the sidebar to the seven stock ER shapes. With the
+// ER_CONFIG), which is what locks the sidebar to the stock ER shapes and connectors. With the
 // config controlling libraries, the `libs=` parameter is no longer used.
 const DRAWIO_URL = process.env.NEXT_PUBLIC_DRAWIO_ORIGIN?.trim() ?? "https://embed.diagrams.net/?embed=1&spin=1&ui=min&configure=1&proto=json";
 
@@ -392,6 +392,8 @@ export const DrawioBoard = forwardRef<DrawioBoardHandle, DrawioBoardProps>(funct
           ref={iframeRef}
           title="Draw.io"
           src={DRAWIO_URL}
+          // Dev-only: lets the hosted editor fetch a palette served from localhost.
+          allow={ER_LIBRARY_IS_LOCAL ? "local-network-access" : undefined}
           onLoad={() => {
             sendLoad();
             startRetry();

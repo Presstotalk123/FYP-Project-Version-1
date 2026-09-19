@@ -36,6 +36,15 @@ logger = logging.getLogger(__name__)
 # outcome; their presence is what marks a check as naming-sensitive.
 NAMING_FLAGS = ("exact_name_required", "semantic_alias_allowed", "abbreviation_allowed")
 
+# Checks on HOW a thing is drawn, which a name match cannot decide. They need
+# naming by type because the flags above do not set them apart - the rubric
+# schema writes all three onto every check - and because "entities" is their
+# dimension, which sent weak_entity_correct down the entity_presence branch:
+# the judge failed a single-bordered AUTHORING, this module found an entity
+# named AUTHORING, and the fail became a pass.
+_STRUCTURAL_TYPES = {"weak_entity_correct", "identifying_relationship_correct",
+                     "hierarchy_supertype_subtype_correct"}
+
 _TRUE = {"true", "yes", "1"}
 _FALSE = {"false", "no", "0"}
 
@@ -146,6 +155,9 @@ def _requirements(check):
     ctype = str(check.get("type") or "")
     dimension = str(check.get("dimension") or "")
     out = []
+
+    if ctype in _STRUCTURAL_TYPES:
+        return out
 
     if ctype == "attribute_presence" or (dimension == "attributes"
                                          and not ctype.startswith("relationship")):

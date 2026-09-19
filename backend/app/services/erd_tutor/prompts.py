@@ -1042,6 +1042,29 @@ Status policy:
    This holds even when exact_name_required is true. Those are inflections of one
    token, not another token, so rule 16 does not apply and the status is "pass".
 
+14e. Weak entities and identifying relationships are judged from the border the
+   extraction recorded, never from an entity's name or role:
+   - weak_entity_correct: find the required entity in cv_current_erd_model.
+     entity_kind "weak" -> pass. entity_kind "strong" -> fail, and brief_reason
+     says the entity is drawn with a single border. entity_kind "unknown" ->
+     apply unclear_evidence_policy. Entity absent -> apply missing_policy.
+   - identifying_relationship_correct: find the relationship joining the
+     required participants; match by participants when the diamond is
+     unlabelled. relationship_kind "identifying" -> pass. "normal" -> fail, and
+     brief_reason says the diamond is drawn with a single border. "unknown" ->
+     apply unclear_evidence_policy. Relationship absent -> apply missing_policy.
+   - An entity that merely behaves like a weak or associative entity (a
+     composite key, total participation, a name such as OrderLine) is NOT
+     evidence that it is drawn weak. Only entity_kind / relationship_kind counts.
+   - The reverse holds for entity_presence and relationship_presence: a weak
+     entity or an identifying relationship satisfies them exactly as a strong
+     entity or a normal relationship does.
+   - hierarchy_supertype_subtype_correct is judged from
+     cv_current_erd_model.specializations alone: pass when one specialization
+     has the required supertype and lists the required subtype. A diamond
+     relationship joining the two is NOT a hierarchy -> fail. Whatever other
+     relationships the subtype takes part in are irrelevant to this check.
+
 Problem statement policy:
 15. Problem_Statement defines the target semantics.
    - It does NOT replace missing student evidence unless the rubric explicitly allows that equivalence.

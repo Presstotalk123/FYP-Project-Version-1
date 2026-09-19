@@ -247,6 +247,9 @@ def _apply(judge_result, rubric, canonical):
         jc = by_id.get(cid)
         if jc is None or jc.get("status") not in {"fail", "partial"}:
             continue        # only ever an upgrade
+        if jc.get("decided_by") == "deterministic":
+            continue        # a computed verdict is final: relationships match here by
+                            # label, and "for" on another diamond is not this one drawn
         reqs = _requirements(rc)
         if not reqs:
             continue

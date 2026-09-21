@@ -29,7 +29,11 @@
 //                                 marker, read at whichever end touches the entity. Each
 //                                 carries a child edgeLabel reading "Cardinality" for the
 //                                 student to overwrite with the bound; the parser binds it by
-//                                 parent id and ignores it while it still reads "Cardinality":
+//                                 parent id and ignores it while it still reads "Cardinality".
+//                                 The quoted readings below are the PARSER's cue frame
+//                                 (derivation.py); the palette TITLES carry the course's
+//                                 reading instead — plain = many, sharp arrow = may be one,
+//                                 curved arrow = must be one:
 //     startArrow=none          ->   plain end   (no cue: "at most one")
 //     startArrow=open          ->   arrow       (sharp cue: "one")
 //     startArrow=halfCircle    ->   curve       (curved cue: "many"; a NEGATIVE startSize
@@ -69,6 +73,14 @@ export const ER_LIBRARY_IS_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.te
 
 /** draw.io embed configuration replied to the editor's `configure` request. */
 export const ER_CONFIG = {
+  // draw.io keeps the student's sidebar libraries in localStorage (`.drawio-config`,
+  // on the embed origin) and reopens THEM on every load: `defaultLibraries` below only
+  // seeds that value when nothing is saved. A browser that saved the stock libraries
+  // (General, Misc, ...) before the lock would otherwise keep opening them forever.
+  // draw.io discards saved settings whose stored version differs from this one, then
+  // re-seeds them from `defaultLibraries`. BUMP THIS whenever the palette must be
+  // forced onto browsers that already hold saved settings.
+  version: "2",
   // Only our custom entry opens in the sidebar...
   defaultLibraries: "erd",
   // ...and it is the ONLY library allowed anywhere (sidebar + "More Shapes"). Every

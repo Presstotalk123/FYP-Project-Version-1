@@ -90,9 +90,12 @@ const connector = (style) =>
   `<mxGeometry x="-0.5" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry></mxCell>`;
 
 // Titles are what students see in the palette; the connector titles carry the
-// platform's reading of the bare end (derivation.py). There is no standalone
-// Arc entry: the curved connector replaces hand-placing one (the parser still
-// reads loose arcs, so old drafts keep grading).
+// COURSE's reading of the mark at the entity end: no arrow = many, pointed
+// arrow = may be one (at most one), curved arrow = must be one (exactly one).
+// That is the lectures' frame, NOT derivation.py's cue table (curve -> N,
+// arrow/plain -> 1), which is unchanged. There is no standalone Arc entry: the
+// curved connector replaces hand-placing one (the parser still reads loose
+// arcs, so old drafts keep grading).
 const SHAPES = [
   { title: "Entity", w: 120, h: 60, xml: model(vertex("Entity", "rounded=0;whitespace=wrap;html=1;", 120, 60)) },
   { title: "Weak Entity", w: 120, h: 60, xml: model(vertex("Weak Entity", "shape=ext;double=1;whitespace=wrap;html=1;", 120, 60)) },
@@ -101,9 +104,9 @@ const SHAPES = [
   { title: "Attribute", w: 120, h: 60, xml: model(vertex("Attribute", "ellipse;whitespace=wrap;html=1;", 120, 60)) },
   { title: "Key Attribute", w: 120, h: 60, xml: model(vertex("<u>Key</u>", "ellipse;whitespace=wrap;html=1;", 120, 60)) },
   { title: "Triangle", w: 80, h: 80, xml: model(vertex("", "triangle;whitespace=wrap;html=1;", 80, 80)) },
-  { title: "Plain line (one)", w: 100, h: 180, xml: model(connector(PLAIN_STYLE)) },
-  { title: "Arrow line (one)", w: 100, h: 180, xml: model(connector(ARROW_STYLE)) },
-  { title: "Curved line (many)", w: 100, h: 180, xml: model(connector(CURVED_STYLE)) },
+  { title: "Plain line (many)", w: 100, h: 180, xml: model(connector(PLAIN_STYLE)) },
+  { title: "Sharp arrow (may be one)", w: 100, h: 180, xml: model(connector(ARROW_STYLE)) },
+  { title: "Curved arrow (must be one)", w: 100, h: 180, xml: model(connector(CURVED_STYLE)) },
 ];
 
 const encode = (xml) => deflateRawSync(Buffer.from(encodeURIComponent(xml), "utf8")).toString("base64");

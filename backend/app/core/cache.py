@@ -271,6 +271,8 @@ def _model_namespaces(obj: Any) -> set[str]:
     from app.models.lab_attempt import LabAttempt
     from app.models.lab_task_submission import LabTaskSubmission
     from app.models.query_review import QueryReview
+    from app.models.question_concept import QuestionConcept
+    from app.models.sql_concept import SqlConcept
     from app.models.tutor_chat_conversation import TutorChatConversation
     from app.models.tutor_chat_message import TutorChatMessage
     from app.models.whitelist import WhitelistEntry
@@ -291,6 +293,10 @@ def _model_namespaces(obj: Any) -> set[str]:
     # tutor-chat usage and user class groups.
     if isinstance(obj, (Attempt, UserProgress, QueryReview,
                         TutorChatConversation, TutorChatMessage, User)):
+        namespaces.add(Ns.SQL_ANALYTICS)
+    # The class overview's weakness-by-concept folds in the concept taxonomy and
+    # the staff-set question→concept tags, so re-tagging must refresh it too.
+    if isinstance(obj, (QuestionConcept, SqlConcept)):
         namespaces.add(Ns.SQL_ANALYTICS)
     # Lab analytics aggregate lab attempts/submissions, persisted query reviews,
     # tutor-chat usage and user class groups.

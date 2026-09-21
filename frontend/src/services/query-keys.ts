@@ -33,6 +33,10 @@ export const queryKeys = {
   // keyed by class group so each cohort caches separately.
   erdEngagement: (classGroup: string | null) =>
     ['erdEngagement', classGroup] as const,
+  // Admin SQL tab: per-student engagement across every SQL practice question,
+  // keyed by class group so each cohort caches separately.
+  sqlEngagement: (classGroup: string | null) =>
+    ['sqlEngagement', classGroup] as const,
 
   // Student-scoped keys. SQL Questions and SQL Labs hit the same endpoints as the
   // staff pages (the backend role-filters), so students get their own keys to

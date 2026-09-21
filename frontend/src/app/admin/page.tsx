@@ -7,13 +7,15 @@ import { UserRole } from '@/types/user.types';
 import { OverviewTab } from '@/components/admin/dashboard/OverviewTab';
 import { AssessmentAnalyticsTab } from '@/components/admin/dashboard/AssessmentAnalyticsTab';
 import { ErdAnalyticsTab } from '@/components/admin/dashboard/ErdAnalyticsTab';
+import { SqlAnalyticsTab } from '@/components/admin/dashboard/SqlAnalyticsTab';
 
-type DashboardTab = 'overview' | 'assessments' | 'erd';
+type DashboardTab = 'overview' | 'assessments' | 'erd' | 'sql';
 
 const TABS: { key: DashboardTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'assessments', label: 'Assessments' },
   { key: 'erd', label: 'ERD' },
+  { key: 'sql', label: 'SQL' },
 ];
 
 export default function AdminDashboard() {
@@ -84,7 +86,8 @@ export default function AdminDashboard() {
           <div style={{ flex: 1, minWidth: 0 }}>
             {tab === 'overview' ? <OverviewTab />
               : tab === 'assessments' ? <AssessmentAnalyticsTab />
-              : <ErdAnalyticsTab />}
+              : tab === 'erd' ? <ErdAnalyticsTab />
+              : <SqlAnalyticsTab />}
           </div>
         </div>
       </DashboardLayout>

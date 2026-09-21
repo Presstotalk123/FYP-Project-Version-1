@@ -80,6 +80,9 @@ export const API_ENDPOINTS = {
     QUESTION: (id: number) => `/questions/${id}/analytics`,
     STUDENT: (id: number, studentId: number) =>
       `/questions/${id}/students/${studentId}/detail`,
+    OVERVIEW: '/questions/analytics/overview',
+    STUDENTS: '/questions/analytics/students',
+    CLASS_GROUPS: '/questions/analytics/class-groups',
   },
   LAB_ANALYTICS: {
     LAB: (id: number) => `/labs/${id}/analytics`,

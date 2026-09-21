@@ -386,18 +386,18 @@ function CardinalityStep() {
       <SimpleGrid cols={3} spacing="xs">
         <ShapeCard
           figure={<ConnectorFigure name="Plain line" end="plain" />}
-          name="Plain line (one)"
-          hint="A plain end already means at most one."
+          name="Plain line (many)"
+          hint="Many: no arrow, no limit."
         />
         <ShapeCard
-          figure={<ConnectorFigure name="Arrow line" end="arrow" />}
-          name="Arrow line (one)"
-          hint="At most one, drawn with the lectures' arrow."
+          figure={<ConnectorFigure name="Sharp arrow" end="arrow" />}
+          name="Sharp arrow (may be one)"
+          hint="May be one: at most one, the lectures' pointed arrow."
         />
         <ShapeCard
-          figure={<ConnectorFigure name="Curved line" end="curve" />}
-          name="Curved line (many)"
-          hint="Many: the curve, like the A end above."
+          figure={<ConnectorFigure name="Curved arrow" end="curve" />}
+          name="Curved arrow (must be one)"
+          hint="Must be one: exactly one, the lectures' rounded arrow."
         />
       </SimpleGrid>
       <List size="sm" spacing={4}>

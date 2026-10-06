@@ -1,6 +1,6 @@
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-sqlalchemy>=2.0.0
+sqlalchemy>=2.0.0,<2.1  # 2.1 defaults postgresql:// to psycopg 3; we ship psycopg2
 alembic>=1.12.0
 pydantic>=2.6.0
 email-validator>=2.0.0

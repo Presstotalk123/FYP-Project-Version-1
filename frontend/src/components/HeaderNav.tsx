@@ -124,7 +124,7 @@ export function HeaderNav() {
       <div className="user-tools">
         {isAuthenticated ? (
           <>
-            <span>{user?.email}</span>
+            <span className="pii">{user?.email}</span>
             <button
               className="btn btn-ghost"
               onClick={handleLogout}

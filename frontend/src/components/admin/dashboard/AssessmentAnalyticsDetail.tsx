@@ -134,8 +134,8 @@ function QuestionStudentList({
               <tbody>
                 {sortedStudents.map((row) => (
                   <tr key={row.email}>
-                    <td>{row.name || '—'}</td>
-                    <td>{row.email}</td>
+                    <td>{row.name ? <span className="pii">{row.name}</span> : '—'}</td>
+                    <td><span className="pii">{row.email}</span></td>
                     <td>{row.class_group ?? '—'}</td>
                     <td>{renderCell(row)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>

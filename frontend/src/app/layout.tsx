@@ -31,6 +31,14 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <ColorSchemeScript defaultColorScheme="light" />
+        {/* Re-apply the admin "Hide names and emails" demo toggle before first
+            paint, so a reload never flashes real student data. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{if(localStorage.getItem('dbassist-hide-identities')==='1')document.documentElement.classList.add('hide-pii')}catch(e){}",
+          }}
+        />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <Providers>

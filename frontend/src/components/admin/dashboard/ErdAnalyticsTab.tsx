@@ -254,9 +254,9 @@ export function ErdAnalyticsTab() {
                   {sortedStudents.map((s) => (
                     <tr key={s.user_id}>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{s.name || s.email}</div>
+                        <div style={{ fontWeight: 600 }}><span className="pii">{s.name || s.email}</span></div>
                         {s.name && (
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.email}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}><span className="pii">{s.email}</span></div>
                         )}
                       </td>
                       <td>{s.class_group || '—'}</td>

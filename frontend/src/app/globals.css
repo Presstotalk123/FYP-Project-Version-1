@@ -1433,3 +1433,24 @@ a {
   border-bottom: 1px solid var(--border);
   font-size: 14px;
 }
+
+/* Demo mode (admin Settings → "Hide names and emails"): every student name or
+   email is rendered inside .pii, and is drawn as a fixed-width ***** while
+   <html> carries hide-pii. The box keeps the surrounding font size and its
+   fixed width stops the real text's length from showing through. */
+html.hide-pii .pii {
+  display: inline-block;
+  position: relative;
+  width: 5ch;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  visibility: hidden;
+}
+
+html.hide-pii .pii::after {
+  content: "*****";
+  position: absolute;
+  inset: 0;
+  visibility: visible;
+}

@@ -915,7 +915,7 @@ export function LabWorkspace({
         <div className="da-alert alert-info" role="alert">
           <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <IconInfoCircle />
-            Reviewing Student Activity: {studentEmail}
+            Reviewing Student Activity: <span className="pii">{studentEmail}</span>
           </strong>
           <span>
             You are reviewing this student&apos;s query history. Use &quot;Execute Next&quot; in the Student Queries tab to step through their queries sequentially. Each query builds on the previous ones to recreate the student&apos;s database progression.

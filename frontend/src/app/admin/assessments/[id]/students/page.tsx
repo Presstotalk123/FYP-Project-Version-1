@@ -586,10 +586,10 @@ export default function AssessmentStudentsPage() {
                     {sortedStudents.map((student) => (
                       <Table.Tr key={student.user_id}>
                         <Table.Td>
-                          <Text size="sm" fw={500}>{student.email}</Text>
+                          <Text size="sm" fw={500}><span className="pii">{student.email}</span></Text>
                         </Table.Td>
                         <Table.Td>
-                          <Text size="sm">{student.name || '—'}</Text>
+                          <Text size="sm">{student.name ? <span className="pii">{student.name}</span> : '—'}</Text>
                         </Table.Td>
                         <Table.Td>
                           <Text size="sm">{student.class_group ?? '—'}</Text>
@@ -654,7 +654,7 @@ export default function AssessmentStudentsPage() {
         >
           <Stack gap="md">
             <Text size="sm">
-              This permanently erases <b>{resetStudent?.email}</b>&rsquo;s work on this assessment
+              This permanently erases <b><span className="pii">{resetStudent?.email}</span></b>&rsquo;s work on this assessment
               (all submissions, query history, and progress) and removes their session, giving them a
               clean slate to retake it. Their standalone practice is not affected. This cannot be undone.
             </Text>
@@ -701,7 +701,7 @@ export default function AssessmentStudentsPage() {
           onClose={closeActivityDrawer}
           title={
             <Text fw={600}>
-              Activity — {activityStudent?.email}
+              Activity — <span className="pii">{activityStudent?.email}</span>
             </Text>
           }
           position="right"

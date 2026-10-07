@@ -440,8 +440,8 @@ export default function ErQuestionAnalyticsPage() {
                 <tbody>
                   {data.students.map((s) => (
                     <tr key={s.user_id} onClick={() => openJourney(s.user_id)} style={{ cursor: 'pointer' }}>
-                      <td>{s.email}</td>
-                      <td>{s.name || '—'}</td>
+                      <td><span className="pii">{s.email}</span></td>
+                      <td>{s.name ? <span className="pii">{s.name}</span> : '—'}</td>
                       <td>{s.class_group ?? '—'}</td>
                       <td>{s.attempts}</td>
                       <td>{pct(s.best_percent)}</td>
@@ -469,7 +469,7 @@ export default function ErQuestionAnalyticsPage() {
             {openStudent !== null && journey && (
               <>
                 <h3 ref={journeyHeadingRef} style={{ marginTop: 24 }}>
-                  Journey — {data.students.find((s) => s.user_id === openStudent)?.email}
+                  Journey — <span className="pii">{data.students.find((s) => s.user_id === openStudent)?.email}</span>
                   {'  '}({journey.chat.queries_asked} questions asked to Baloo
                   {journey.chat.topics.length > 0 &&
                     `; asked about: ${journey.chat.topics.join(', ')}`})
@@ -581,7 +581,7 @@ export default function ErQuestionAnalyticsPage() {
                 <div className="da-alert alert-info" style={{ fontSize: 12 }}>
                   <span>
                     Overridden from {pct(attempt.override.original_score.percent)} by{' '}
-                    {attempt.override.by_email ?? 'staff'} on{' '}
+                    {attempt.override.by_email ? <span className="pii">{attempt.override.by_email}</span> : 'staff'} on{' '}
                     {new Date(attempt.override.at).toLocaleString()} — “{attempt.override.reason}”
                   </span>
                 </div>

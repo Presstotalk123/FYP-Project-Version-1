@@ -106,7 +106,7 @@ export function StudentReportDrawer({ student, onClose }: StudentReportDrawerPro
     <Drawer
       opened={student !== null}
       onClose={onClose}
-      title={<Text fw={600}>Report — {student?.name}</Text>}
+      title={<Text fw={600}>Report — <span className="pii">{student?.name}</span></Text>}
       position="right"
       size="lg"
       scrollAreaComponent={ScrollArea.Autosize}

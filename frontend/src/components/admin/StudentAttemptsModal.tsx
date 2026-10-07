@@ -133,7 +133,7 @@ export function StudentAttemptsModal({
                 {filteredStudents.map((student) => (
                   <Table.Tr key={student.user_id}>
                     <Table.Td>
-                      <Text size="md" fw={500}>{student.email}</Text>
+                      <Text size="md" fw={500}><span className="pii">{student.email}</span></Text>
                     </Table.Td>
                     <Table.Td>
                       <Badge color="green" variant="light" size="lg">

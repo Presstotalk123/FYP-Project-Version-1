@@ -86,7 +86,7 @@ export function ActiveUsersCard() {
             <ul className="presence-list">
               {onlineQuery.data.map((u) => (
                 <li key={u.id}>
-                  <span>{u.name || u.email}</span>
+                  <span className="pii">{u.name || u.email}</span>
                   <span style={{ color: 'var(--text-muted)' }}>
                     {u.role}
                     {u.class_group ? ` · ${u.class_group}` : ''} · {lastSeen(u.seconds_ago)}

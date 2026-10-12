@@ -152,6 +152,7 @@ export const API_ENDPOINTS = {
     START: (id: number) => `/assessments/${id}/start`,
     STOP: (id: number) => `/assessments/${id}/stop`,
     STUDENTS: (id: number) => `/assessments/${id}/students`,
+    STUDENTS_EXPORT: (id: number) => `/assessments/${id}/students/export`,
     STUDENT_SCORES: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/component-scores`,
     ITEM_ANALYTICS: (id: number) => `/assessments/${id}/item-analytics`,
     ANALYTICS_SUMMARY: '/assessments/analytics/summary',

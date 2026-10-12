@@ -32,6 +32,7 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconArrowsSort,
+  IconDownload,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { AddErSubmissionModal } from '@/components/admin/AddErSubmissionModal';
@@ -99,6 +100,8 @@ export default function AssessmentStudentsPage() {
   // End-and-refresh confirmation (shown only when students are still active).
   const [recomputeOpen, setRecomputeOpen] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
 
   const fetchStudents = async () => {
     try {
@@ -186,6 +189,29 @@ export default function AssessmentStudentsPage() {
       });
     } finally {
       setRecomputing(false);
+    }
+  };
+
+  // Download the gradebook as .xlsx, scoped to the current class-group filter.
+  const handleExport = async () => {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const blob = await assessmentService.exportAssessmentScores(assessmentId, selectedClassGroup);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${data.assessment_title}${selectedClassGroup ? `-${selectedClassGroup}` : ''}-scores.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      notifications.show({
+        color: 'red',
+        title: 'Export failed',
+        message: 'Could not export scores.',
+      });
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -417,13 +443,24 @@ export default function AssessmentStudentsPage() {
             >
               Back
             </Button>
-            <Button
-              leftSection={<IconRefresh size={16} />}
-              loading={recomputing}
-              onClick={() => (activeCount > 0 ? setRecomputeOpen(true) : handleRecompute())}
-            >
-              End and refresh
-            </Button>
+            <Group gap="sm">
+              <Button
+                variant="light"
+                leftSection={<IconDownload size={16} />}
+                loading={exporting}
+                disabled={!data || data.students.length === 0}
+                onClick={handleExport}
+              >
+                Export to Excel
+              </Button>
+              <Button
+                leftSection={<IconRefresh size={16} />}
+                loading={recomputing}
+                onClick={() => (activeCount > 0 ? setRecomputeOpen(true) : handleRecompute())}
+              >
+                End and refresh
+              </Button>
+            </Group>
           </Group>
 
           {loading && (

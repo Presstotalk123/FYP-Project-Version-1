@@ -15,8 +15,10 @@ stage is skipped. Image uploads (and any XML this parser cannot make sense of) s
 go through vision — see ``nodes.observe_node``.
 
 CONTRACT
-``parse_drawio`` returns a dict matching ``schemas.ObservationJSON`` exactly, so
-everything downstream (normalize, grade, score) is unchanged.
+``parse_drawio`` returns a dict matching ``schemas.ObservationJSON``, plus one key
+the vision stage has no equivalent for: ``bare_lines``, the lines that join two
+entity boxes with no diamond between them (see the end of ``parse_drawio``).
+Everything downstream (normalize, grade, score) reads the rest unchanged.
 
 NOTATION MAPPING (mxGraph style -> ERD construct)
   rectangle                          -> entity
@@ -556,6 +558,25 @@ def parse_drawio(xml_text: str) -> dict:
             "confidence": "high",
         })
 
+    # ---- bare lines ---------------------------------------------------------
+    # A line that joins two entity boxes with nothing between them is not an ER
+    # construct: a relationship is a diamond. Nothing above reads such a line, a
+    # human marker still sees it, and it is wrong. It is reported so that the
+    # grader can charge it as an extra (extras.bare_line_extras). A snapped end
+    # counts, as everywhere else.
+    out_bare_lines = []
+    for e in edges:
+        if e.source in ent_id and e.target in ent_id:
+            out_bare_lines.append({
+                "id": f"L{len(out_bare_lines) + 1}",
+                "raw_name": _plain(e.value),
+                "participant_entity_ids": [ent_id[e.source], ent_id[e.target]],
+                "evidence": f"line (cell {e.id}) joins {_plain(by_id[e.source].value) or e.source} "
+                            f"and {_plain(by_id[e.target].value) or e.target} with no "
+                            f"relationship diamond between them",
+                "confidence": "medium" if e.id in inferred else "high",
+            })
+
     return {
         "source_mode": "xml",     # parsed from source, not read from pixels
         "stage": "observation_extraction",
@@ -564,6 +585,7 @@ def parse_drawio(xml_text: str) -> dict:
         "attributes": out_attributes,
         "relationship_endpoints": out_endpoints,
         "specializations": out_specs,
+        "bare_lines": out_bare_lines,
         "uncertain_items": [_loose_end_note(n, {**ent_id, **rel_id, **attr_id}) for n in loose_ends],
         # Cells this parser could not place. Surfacing them keeps a coverage gap
         # visible downstream instead of silently dropping structure the student

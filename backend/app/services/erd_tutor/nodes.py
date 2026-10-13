@@ -23,6 +23,9 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from app.services.erd_tutor.llm import make_llm
 from app.services.erd_tutor import prompts
 from app.services.erd_tutor.drawio_parser import parse_drawio
+from app.services.erd_tutor.extras import (
+    carry_bare_lines, public_candidates, unaccounted_elements, unruled_candidates,
+)
 from app.services.erd_tutor.derivation import derive
 from app.services.erd_tutor.description_claims import (
     apply_endpoint_claims, merge_objects, read_claims, restamp_provenance,
@@ -73,8 +76,13 @@ async def normalize_node(state: dict) -> dict:
     claims = await read_claims(state.get("submission_description"), observation)
     observation, provenance = merge_objects(observation, claims)
 
+    # Bare lines (entity to entity, no diamond: drawio_parser) are the parser's
+    # finding, not the normalizer's. Shown to the LLM they would come back as
+    # relationships, so they are kept out of what it sees and carried onto the
+    # canonical model afterwards, where scoring charges them (extras).
+    shown = {k: v for k, v in observation.items() if k != "bare_lines"}
     msg = prompts.NORMALIZE_USER.format(problem_statement=state["problem_statement"],
-                                        observation_json=json.dumps(observation, ensure_ascii=False))
+                                        observation_json=json.dumps(shown, ensure_ascii=False))
     llm = make_llm("normalize").with_structured_output(CanonicalERD)
     can = await llm.ainvoke([SystemMessage(prompts.NORMALIZE_SYSTEM), HumanMessage(msg)])
     out = can.model_dump()
@@ -82,6 +90,7 @@ async def normalize_node(state: dict) -> dict:
     # merge_objects wrote; put the provenance back deterministically, so a mark
     # taken on the student's word stays traceable to the words it came from.
     out = restamp_provenance(out, provenance)
+    out["bare_lines"] = carry_bare_lines(observation, out)
 
     # Cardinality and participation are a lookup table over the observed marks,
     # not a judgement — so they are computed, not asked for. The LLM keeps the
@@ -129,12 +138,32 @@ def _unreturned_scoring_checks(judge: dict, rubric_json) -> list[str]:
     return missing
 
 
+def _unaddressed_candidates(judge: dict, candidates: list) -> list[str]:
+    """Ids of the computed candidate extras the judge ruled on neither way: the
+    element is not listed in its extras under its own kind (an entry that only
+    names a mark on it, or gives it the wrong kind, does not count) and is not in
+    its accounted_candidates. A mark candidate shows as "id:mark" and is ruled on
+    by a mark entry for that mark."""
+    return [c["canonical_id"] + (f":{c.get('mark')}" if c["kind"] == "mark" else "")
+            for c in unruled_candidates(judge, candidates)]
+
+
 async def grade_node(state: dict) -> dict:
+    # The judge only reports the extras it notices, and a missed one costs the
+    # student nothing, so the elements no check accounts for are worked out here
+    # and handed to it as candidates it has to rule on.
+    try:
+        rubric = state["rubric_json"]
+        rubric = rubric if isinstance(rubric, dict) else json.loads(rubric or "{}")
+    except (TypeError, ValueError):
+        rubric = {}
+    candidates = unaccounted_elements(rubric, state.get("canonical_erd") or {})
     msg = prompts.GRADE_USER.format(
         problem_statement=state["problem_statement"], rubric_json=state["rubric_json"],
         canonical_erd=json.dumps(state["canonical_erd"], ensure_ascii=False),
         last_submit_report=json.dumps(state.get("last_submit_report", {}), ensure_ascii=False),
-        ibl_stage=state["ibl_stage"], hint_level=state["hint_level"])
+        ibl_stage=state["ibl_stage"], hint_level=state["hint_level"],
+        candidate_extras=json.dumps(public_candidates(candidates), ensure_ascii=False))
     llm = make_llm("grade").with_structured_output(JudgeResult)
     messages = [SystemMessage(get_prompt("grade_system")), HumanMessage(msg)]
     judge = (await llm.ainvoke(messages)).model_dump()
@@ -147,16 +176,48 @@ async def grade_node(state: dict) -> dict:
     # a second incomplete result raises, which the runner turns into an SSE
     # error: the student is asked to resubmit, nothing is persisted, and a
     # regrade keeps the row's previous grade.
+    #
+    # A candidate extra the judge ruled on neither way is a smaller lapse of the
+    # same kind and shares the one retry. It never fails the grade, and it never
+    # costs a complete result: the grade is refused only when no complete result
+    # exists (both results omit scoring checks, or the first does and the retry
+    # call fails). A complete first result is kept when the retry omits checks,
+    # leaves more candidates unruled, or raises (a timeout after the client's own
+    # retries, a 429, a length or refusal error from the structured parser); the
+    # retry replaces it otherwise (a tie goes to the retry). Candidates still
+    # unruled are treated as extras in scoring.
     missing = _unreturned_scoring_checks(judge, state["rubric_json"])
-    if missing:
-        logger.warning("grade: judge omitted %d scoring check(s) (%s); retrying once",
-                       len(missing), ", ".join(missing))
-        judge = (await llm.ainvoke(messages)).model_dump()
-        missing = _unreturned_scoring_checks(judge, state["rubric_json"])
+    unaddressed = _unaddressed_candidates(judge, candidates)
+    if missing or unaddressed:
+        lapses = []
         if missing:
-            raise RuntimeError(
-                "Grading failed: the judge returned an incomplete result twice "
-                f"(missing checks: {', '.join(missing)}). Please submit again.")
+            lapses.append(f"omitted {len(missing)} scoring check(s) ({', '.join(missing)})")
+        if unaddressed:
+            lapses.append(f"left {len(unaddressed)} candidate extra(s) unruled "
+                          f"({', '.join(unaddressed)})")
+        logger.warning("grade: judge %s; retrying once", " and ".join(lapses))
+        try:
+            retry = (await llm.ainvoke(messages)).model_dump()
+        except Exception as exc:
+            if missing:
+                raise
+            logger.warning("grade: the retry failed (%r); keeping the first result", exc)
+        else:
+            retry_missing = _unreturned_scoring_checks(retry, state["rubric_json"])
+            retry_unaddressed = _unaddressed_candidates(retry, candidates)
+            if missing and retry_missing:
+                raise RuntimeError(
+                    "Grading failed: the judge returned an incomplete result twice "
+                    f"(missing checks: {', '.join(retry_missing)}). Please submit again.")
+            if retry_missing:
+                logger.warning("grade: the retry omitted %d scoring check(s) (%s); keeping "
+                               "the first result", len(retry_missing), ", ".join(retry_missing))
+            elif missing or len(retry_unaddressed) <= len(unaddressed):
+                judge, unaddressed = retry, retry_unaddressed
+        if unaddressed:
+            logger.warning("grade: judge still left %d candidate extra(s) unruled after the "
+                           "retry (%s); they will be treated as extras",
+                           len(unaddressed), ", ".join(unaddressed))
     return {"judge": judge}
 
 

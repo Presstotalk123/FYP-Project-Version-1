@@ -1534,6 +1534,7 @@ def _persist_erd_state_fresh_session(
                     # transcript failure can never lose the graded attempt.
                     if submission_context is not None:
                         from app.models.er_submission import ErSubmission
+                        from app.services.erd_tutor.scoring import deductions_json
 
                         def _flt(v):
                             try:
@@ -1552,6 +1553,7 @@ def _persist_erd_state_fresh_session(
                             score_label=(str(score.get("label") or "").strip() or None),
                             checks_json=(json.dumps(checks, ensure_ascii=False)
                                          if isinstance(checks, list) else None),
+                            deductions_json=deductions_json(score),
                             submitted_image_storage_key=submission_context.get("image_key"),
                             submitted_xml=submission_context.get("xml_text"),
                             submission_description=submission_context.get("description"),

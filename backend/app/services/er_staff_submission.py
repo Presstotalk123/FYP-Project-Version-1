@@ -29,6 +29,7 @@ from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.er_submission import ErSubmission
 from app.services import assessment_scoring
 from app.services.erd_tutor import persistence as erd_persistence
+from app.services.erd_tutor.scoring import deductions_json
 from app.services.erd_tutor import runner as erd_runner
 
 logger = logging.getLogger(__name__)
@@ -226,6 +227,7 @@ async def grade_and_record(
             checks_json=(
                 json.dumps(checks, ensure_ascii=False) if isinstance(checks, list) else None
             ),
+            deductions_json=deductions_json(score),
             submitted_image_storage_key=image_storage_key,
             submitted_xml=xml_text,
             # The reason is stored, never graded: submission_description feeds

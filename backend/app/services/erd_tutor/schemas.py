@@ -18,17 +18,55 @@ class IBL(BaseModel):
     hint_level_used: int = Field(ge=1, le=4)
     next_hint_level: int = Field(ge=1, le=4)
 
+class ExtraElement(BaseModel):
+    """A drawn element the rubric does not ask for, as the judge lists it.
+
+    extras.confirm_extras drops ids not drawn in the canonical model, copies the
+    rubric already accounts for, marks the rubric asks for or the carrier is not
+    drawn with, and duplicates; scoring.price_extras prices the rest.
+    """
+    canonical_id: str
+    kind: Literal["entity", "relationship", "attribute", "mark"]
+    mark: Optional[Literal["key", "weak", "identifying", "hierarchy", "cardinality"]] = None
+    label: str = ""
+    brief_reason: str = ""
+
+class AccountedCandidate(BaseModel):
+    """A computed candidate the judge rules NOT extra, with the rule that explains it.
+
+    The candidates are extras.unaccounted_elements: drawn elements no rubric
+    check accounts for by name, owner or participants, and marks no check asks
+    for. One the judge neither lists in extras (as the element, under its own
+    kind: a mark entry or a wrong-kind entry does not count) nor accounts for
+    here is treated as extra. mark names the mark candidate this entry accounts
+    for, and a mark candidate is accounted for only by an entry that names it.
+    Without a mark the entry accounts for the element candidate with that id and
+    for nothing else: not for a mark the element carries, and, when no element
+    candidate has that id, for nothing at all. One element can carry several
+    mark candidates, and accounting for one does not rule on the others.
+    """
+    canonical_id: str
+    mark: Optional[Literal["key", "weak", "identifying", "hierarchy", "cardinality"]] = None
+    brief_reason: str = ""
+
 class JudgeResult(BaseModel):
     checks: List[JudgeCheck]
+    # Default empty: a judge driven by an older admin-stored prompt, or a
+    # truncated result, still validates. An empty list means no extras listed;
+    # the candidates the judge left unaddressed are added in scoring.
+    extras: List[ExtraElement] = Field(default_factory=list)
+    accounted_candidates: List[AccountedCandidate] = Field(default_factory=list)
     ibl: IBL
     student_message: str
 
 # ---- Submit: deterministic score (SubmitResult) — DSL node "Parse & Calc grade" ----
 class Score(BaseModel):
-    earned_points: float
+    earned_points: float  # net of deductions
     total_points: float
     percent: int
     label: str  # "pass" | "partial" | "needs work"
+    deducted_points: float = 0.0
+    deductions: List[dict] = Field(default_factory=list)
 
 class SubmitResult(BaseModel):
     score: Score

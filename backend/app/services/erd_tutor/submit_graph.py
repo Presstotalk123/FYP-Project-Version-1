@@ -48,8 +48,8 @@ def _score_node(state: dict) -> dict:
     # Only exact-after-normalization matches are decided here; a true synonym
     # ("client" for "customer") keeps the judge's verdict.
     judge = apply_naming_overrides(judge, rubric, canonical)
-    return {"result": compute_grade(judge, rubric,
-                                    state.get("last_submit_report", {}))}
+    return {"result": compute_grade(judge, rubric, state.get("last_submit_report", {}),
+                                    canonical=canonical)}
 
 
 def _as_dict(rubric_json):

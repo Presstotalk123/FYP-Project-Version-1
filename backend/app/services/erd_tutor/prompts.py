@@ -1170,6 +1170,8 @@ Output rules:
 
 31. Return ONLY these top-level fields:
    - checks
+   - extras
+   - accounted_candidates
    - ibl
    - student_message
 
@@ -1181,7 +1183,7 @@ Output rules:
    - earned_points
    - total_points
    - percent
-   - any extra fields
+   - any other fields
 
 33. Do not omit any rubric check, even if it passes.
 
@@ -1191,7 +1193,10 @@ Output rules:
 
 36. If all checks pass, student_message should still provide a concise reflective prompt or refinement suggestion without contradicting the passing results.
 
-37. If a check fails due to unclear evidence, brief_reason must say that the evidence is unclear or unknown rather than claiming a definite contradiction unless the contradiction is explicit."""
+37. If a check fails due to unclear evidence, brief_reason must say that the evidence is unclear or unknown rather than claiming a definite contradiction unless the contradiction is explicit.
+
+Extra elements policy:
+38. The user message carries an "Extra elements" section. Follow its rules and return its result in the top-level "extras" array. Extras never change a check's status; they are priced downstream. The user message also lists computed candidate extras; rule on every one of them."""
 
 
 GRADE_USER = """Problem statement:
@@ -1209,6 +1214,26 @@ Previous submit report (may be empty object):
 Current tutoring state:
 - IBL stage: {ibl_stage}
 - Hint level: {hint_level}
+
+Extra elements:
+After the checks, list in "extras" every drawn element in the student ERD model that the rubric does not ask for. Apply these rules:
+- An element is required when a rubric check names it: an entity by name; a relationship by name or by its set of participants; an attribute by its owner and name; a key, a weak border, a double diamond or a hierarchy by its structural check (key_presence, weak_entity_correct, identifying_relationship_correct, hierarchy_supertype_subtype_correct).
+- An element is also not extra when an equivalence_option on a check allows it, or when it is a synonym, an abbreviation, an inflection or a composite part of a required element under the naming rules you apply to the checks.
+- One required element is satisfied by one drawn element. A second drawn element that claims the same required element is extra.
+- An element is extra only for a kind of element the rubric has a check for: where the rubric has no attribute check at all (attribute_presence or relationship_attribute_presence), drawn attributes are not extra; the same for entities (entity_presence) and relationships (relationship_presence or identifying_relationship_correct).
+- The problem statement is not a source of requirements here. An element the problem statement mentions, but no check requires, is extra.
+- A mark is extra when an element carries it and no check asks for it: an underlined attribute with no key_presence check for it, a double-bordered entity with no weak_entity_correct check, a double diamond with no identifying_relationship_correct check, a specialization with no hierarchy check, a cardinality label on a relationship with no cardinality, participation, endpoints or integrity check. A mark is extra only for a kind of mark the rubric has a check for: where the rubric has no check of that kind at all, drawing the mark is not extra. A mark on an element that is itself extra is not listed again.
+- Each drawn element counts once. The attributes and relationships of an extra entity are extras in their own right, but not those of a second copy of a required entity: what the rubric requires of that entity is not extra, wherever it is drawn.
+- Never list uncertain_items or unclassified_labels; they are not drawn elements.
+- bare_lines in the student ERD model are lines that join two entities with no relationship diamond. A bare line is not a relationship: it satisfies no check, so a check that asks for a relationship between those entities fails when only a bare line joins them. The grader charges each bare line as an extra itself; do not list it.
+- For each extra give: canonical_id (the element's id in the student ERD model; for a mark, the id of the element that carries it; for a hierarchy, the id of the specialization), kind (entity | relationship | attribute | mark), mark (key | weak | identifying | hierarchy | cardinality; null unless kind is mark), label (the drawn label, or the participants of an unlabelled diamond), brief_reason.
+- When there are no extras, return an empty array.
+
+Candidate extras (computed by the grader): elements and marks of the student ERD model that no rubric check accounts for by name, by owner or by participants:
+{candidate_extras}
+For EACH candidate do one of two things: list it in "extras" as an entity, relationship or attribute entry (a mark entry alone does not rule on the element), or, when an equivalence_option on a check, or a synonym, abbreviation, inflection or composite part of a required element, explains it, put it in "accounted_candidates" with the rule that explains it. A candidate left out of both is treated as extra. "extras" may also name elements the candidates missed, such as marks.
+Each candidate carries a "why": that no check names it, that it is a surplus copy (the rubric asks for fewer copies of the name than are drawn), that the rubric asks for it on an entity that is not drawn, or, for a mark, that no check asks for it. A surplus copy is extra, whatever rule might explain it: list it; an accounted_candidates entry does not rule on it. A ruling must use the candidate's canonical_id and kind. A canonical_id is an id of the student ERD model, never a rubric check id: the candidate with id R1 is the student's element R1, not rubric check R1.
+Candidates may also be marks: a key underline, a weak border, a double diamond, a hierarchy or a cardinality label that no check asks for. A mark candidate has kind "mark" and says which mark it is; it is ruled on with an "extras" entry of kind "mark" and the same "mark", or with an "accounted_candidates" entry that gives the same "mark". To account for a mark, give its "mark" in the accounted_candidates entry, one entry per mark candidate. Account for a mark (a key underline, a weak border, a double diamond, a hierarchy or a cardinality label) only when a check on that mark could mean its carrier under a naming rule; when every check on that mark names an element that is drawn, the mark is extra: list it. An attribute or a relationship of an entity you list as extra is extra too: list it; accounting for it does not rule on it. Account for an element only when a check names something that is not drawn and could be it under a naming rule; when every entity, relationship and attribute the rubric asks for is drawn by name, an element no check names is extra: list it. An accounted_candidates entry without a "mark" accounts for an element candidate only: it never rules on a mark, not even one on that element, and with no element candidate of that id it rules on nothing.
 
 Now grade strictly according to rubric_json and produce the required JSON output.
 """

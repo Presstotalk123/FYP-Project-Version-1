@@ -32,6 +32,8 @@ from app.services.er_score_override import (
     is_latest_attempt,
     apply_override,
     revert_override,
+    deducted_total,
+    stored_deductions,
     with_earned_points,
 )
 
@@ -161,6 +163,7 @@ def get_submission_detail(
     _staff: User = Depends(require_staff_role),
 ):
     row = _submission_or_404(db, submission_id)
+    deductions = stored_deductions(row)
     return {
         "id": row.id,
         "user_id": row.user_id,
@@ -171,6 +174,10 @@ def get_submission_detail(
         "score_percent": row.score_percent,
         "score_label": row.score_label,
         "checks": _enriched_checks(db, row, json.loads(row.checks_json) if row.checks_json else []),
+        # Extra-element deductions already taken off score_earned; the attempt
+        # header names the total and the override preview subtracts it.
+        "deducted_points": deducted_total(deductions),
+        "deductions": deductions,
         "submission_description": row.submission_description,
         "submitted_xml": row.submitted_xml,
         "has_image": bool(row.submitted_image_storage_key),

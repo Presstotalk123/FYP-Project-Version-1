@@ -18,6 +18,7 @@ import {
   revertSubmissionScore,
 } from '@/services/er-analytics.service';
 import { getApiErrorMessage } from '@/utils/api-error';
+import { formatScoreValue } from '@/utils/er-rubric-results';
 import type {
   AnalyticsContext,
   AttemptSummary,
@@ -26,11 +27,57 @@ import type {
   SubmissionCheck,
   SubmissionDetail,
 } from '@/types/er-analytics.types';
+import type { ERSubmissionDeduction } from '@/types/er-diagram.types';
 
 const pct = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : `${Math.round(v)}%`;
 
 const rate = (v: number): string => `${Math.round(v * 100)}%`;
+
+/** Python's round(): an exact half goes to the even neighbour (12.5 -> 12), where
+ *  Math.round sends it up (13). The server rounds the stored percent with round(),
+ *  so the preview has to as well for the two to agree on a half. */
+const roundHalfEven = (x: number): number => {
+  const rounded = Math.round(x);
+  return Math.abs(x - rounded) === 0.5 ? 2 * Math.round(x / 2) : rounded;
+};
+
+/** What the stored extra-element deductions come to against the earnings a
+ *  correction would leave: the server's re-cap (scoring.py `reapply_deductions` ->
+ *  `_apply_cap`, run by a save) ported across, so the preview shows the figure the
+ *  save will store.
+ *
+ *  One spending ledger per dimension. Each deduction, in stored order, is capped at
+ *  its price (not at its stored points, which are only what the last cap allowed),
+ *  and at the room left in the dimensions that pay for it: the sum of what each has
+ *  earned and not yet spent on an earlier deduction. What it costs is then spent
+ *  from those dimensions in the order they are listed. With no dimensions recorded
+ *  it draws on every dimension that earned. */
+function recapDeductions(
+  deductions: ERSubmissionDeduction[],
+  earnedByDimension: Map<string, number>,
+): number {
+  const spent = new Map<string, number>();
+  const unspent = (dimension: string) =>
+    Math.max(0, (earnedByDimension.get(dimension) ?? 0) - (spent.get(dimension) ?? 0));
+
+  let total = 0;
+  for (const d of deductions) {
+    const own = d.cap_dimensions ?? [];
+    const dimensions = own.length > 0 ? own : Array.from(earnedByDimension.keys());
+    const room = dimensions.reduce((sum, dimension) => sum + unspent(dimension), 0);
+    // An entry stored before prices were recorded has none; its points stand in.
+    const cost = Math.min(Math.max(0, d.price ?? d.points), room);
+    total += cost;
+    let left = cost;
+    for (const dimension of dimensions) {
+      const take = Math.min(left, unspent(dimension));
+      spent.set(dimension, (spent.get(dimension) ?? 0) + take);
+      left -= take;
+    }
+  }
+  return total;
+}
 
 function RateBar({ fail, partial }: { fail: number; partial: number }) {
   // Plain CSS bar: red = fail share, yellow = partial share, rest = pass.
@@ -256,15 +303,30 @@ export default function ErQuestionAnalyticsPage() {
     let earned = 0;
     let total = 0;
     let valid = true;
+    // What each dimension would earn: the deduction cap reads these, not the total.
+    const earnedByDimension = new Map<string, number>();
     for (const c of checks) {
       if (!isScoring(c)) continue;
       const points = c.points ?? 0;
       const n = Number(awards[c.id]);
       total += points;
-      if (!Number.isFinite(n) || n < 0 || n > points) valid = false;
-      else earned += n;
+      if (!Number.isFinite(n) || n < 0 || n > points) {
+        valid = false;
+      } else {
+        earned += n;
+        const dimension = c.dimension ?? '';
+        earnedByDimension.set(dimension, (earnedByDimension.get(dimension) ?? 0) + n);
+      }
     }
-    return { earned, total, percent: total > 0 ? Math.round((100 * earned) / total) : 0, valid };
+    // The stored extra-element deductions come off the re-totalled checks, re-capped
+    // against those earnings the way the server does on save. Their stored points
+    // are what the last cap allowed, so they are not subtracted as they stand.
+    const deducted = recapDeductions(attempt?.deductions ?? [], earnedByDimension);
+    const net = Math.max(0, earned - deducted);
+    return {
+      earned: net, deducted, total,
+      percent: total > 0 ? roundHalfEven((100 * net) / total) : 0, valid,
+    };
   };
 
   /** Refresh the aggregates behind this page — an override changes them. */
@@ -553,7 +615,14 @@ export default function ErQuestionAnalyticsPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="page-head" style={{ flexShrink: 0 }}>
-                <h3>Attempt — {pct(attempt.score_percent)} ({attempt.score_label ?? 'ungraded'})</h3>
+                <h3>
+                  Attempt — {pct(attempt.score_percent)} ({attempt.score_label ?? 'ungraded'})
+                  {(attempt.deducted_points ?? 0) > 0 && (
+                    <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+                      {' '}· {formatScoreValue(attempt.deducted_points)} deducted for extra elements
+                    </span>
+                  )}
+                </h3>
                 <div className="button-row">
                   {/* PNG needs a picture on screen: present for a stored upload, and for
                       an XML attempt once the client render lands. Image-only submissions
@@ -741,8 +810,13 @@ export default function ErQuestionAnalyticsPage() {
                     }}
                   >
                     <div style={{ fontWeight: 700 }}>
-                      New score: {p.earned} / {p.total} = {p.percent}%{' '}
+                      New score: {formatScoreValue(p.earned)} / {p.total} = {p.percent}%{' '}
                       <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+                        {/* The deduction is re-capped, so it can differ from the one in
+                            the header: it belongs to the new score, not to "was". */}
+                        {p.deducted > 0
+                          ? `after ${formatScoreValue(p.deducted)} deducted for extra elements `
+                          : ''}
                         (was {pct(attempt.score_percent)})
                       </span>
                     </div>

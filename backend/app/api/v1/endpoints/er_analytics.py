@@ -22,6 +22,7 @@ from app.services import er_regrade, er_staff_submission
 from app.utils.er_storage import get_er_storage_provider
 from app.services.er_analytics import (
     class_overview,
+    export_logs,
     list_class_groups,
     question_analytics,
     student_engagement,
@@ -302,6 +303,20 @@ def get_student_engagement(
         key=("students", class_group or ""),
         producer=lambda: student_engagement(db, class_group),
     )
+
+
+@router.get("/analytics/export-logs")
+def get_export_logs(
+    class_group: Optional[str] = None,
+    group_by: Literal["student", "problem"] = "student",
+    hide_name: bool = False,
+    hide_email: bool = False,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """Raw ERD log (submissions with image path and score, Baloo chat) per
+    student and problem, for the ERD tab's JSON export. Read-only; not cached."""
+    return export_logs(db, class_group, group_by, hide_name, hide_email)
 
 
 class RegradeRequest(BaseModel):

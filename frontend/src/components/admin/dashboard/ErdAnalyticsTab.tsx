@@ -80,6 +80,46 @@ export function ErdAnalyticsTab() {
     dir: 'desc',
   });
 
+  // Export logs dialog.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [arrangeBy, setArrangeBy] = useState<'student' | 'problem'>('student');
+  const [hideName, setHideName] = useState(false);
+  const [hideEmail, setHideEmail] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const openExport = () => {
+    // Demo mode (Settings → "Hide names and emails") hides identities by default,
+    // so a demo never leaks them through the export without a deliberate untick.
+    const demo = document.documentElement.classList.contains('hide-pii');
+    setHideName(demo);
+    setHideEmail(demo);
+    setExportOpen(true);
+  };
+
+  const runExport = async () => {
+    setExporting(true);
+    try {
+      const data = await erAnalyticsService.exportLogs({
+        groupBy: arrangeBy,
+        classGroup: classGroup || undefined,
+        hideName,
+        hideEmail,
+      });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `erd-logs-by-${arrangeBy}${classGroup ? `-${classGroup}` : ''}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+    } catch {
+      alert('Failed to export ERD logs.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const groupsQuery = useQuery({
     queryKey: ['erClassGroups'],
     queryFn: () => erAnalyticsService.classGroups(),
@@ -160,7 +200,64 @@ export function ErdAnalyticsTab() {
         >
           Export CSV
         </button>
+        <button className="btn btn-secondary" onClick={openExport}>
+          Export logs
+        </button>
       </div>
+
+      {exportOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="erd-export-logs-title">
+          <div className="modal">
+            <h3 id="erd-export-logs-title">Export logs (JSON)</h3>
+            <p style={{ color: 'var(--text-muted)' }}>
+              Every submission (image path, score) and Baloo chat, for{' '}
+              {classGroup || 'all classes'}.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Arrange by</span>
+                {(['student', 'problem'] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    className={`btn ${arrangeBy === opt ? 'btn-brand' : 'btn-secondary'}`}
+                    aria-pressed={arrangeBy === opt}
+                    onClick={() => setArrangeBy(opt)}
+                    disabled={exporting}
+                  >
+                    {opt === 'student' ? 'Student' : 'Problem'}
+                  </button>
+                ))}
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={hideName}
+                  onChange={(e) => setHideName(e.target.checked)}
+                  disabled={exporting}
+                />
+                Hide student name
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={hideEmail}
+                  onChange={(e) => setHideEmail(e.target.checked)}
+                  disabled={exporting}
+                />
+                Hide student email
+              </label>
+            </div>
+            <div className="button-row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setExportOpen(false)} disabled={exporting}>
+                Cancel
+              </button>
+              <button className="btn btn-brand" onClick={runExport} disabled={exporting}>
+                {exporting ? 'Exporting…' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {engagementQuery.isLoading ? (
         <div className="loading-center">

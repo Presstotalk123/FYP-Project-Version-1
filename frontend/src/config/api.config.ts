@@ -65,6 +65,8 @@ export const API_ENDPOINTS = {
     OVERVIEW: '/er-diagram/analytics/overview',
     /** Per-student engagement across every ERD question (admin ERD tab). */
     STUDENTS: '/er-diagram/analytics/students',
+    /** Raw per-student, per-problem log (submissions + Baloo chat) as JSON. */
+    EXPORT_LOGS: '/er-diagram/analytics/export-logs',
     CLASS_GROUPS: '/er-diagram/analytics/class-groups',
     /** A student's autosaved canvas, read as staff. */
     STUDENT_DRAFT: (id: number, studentId: number) =>
@@ -152,6 +154,7 @@ export const API_ENDPOINTS = {
     START: (id: number) => `/assessments/${id}/start`,
     STOP: (id: number) => `/assessments/${id}/stop`,
     STUDENTS: (id: number) => `/assessments/${id}/students`,
+    STUDENTS_EXPORT: (id: number) => `/assessments/${id}/students/export`,
     STUDENT_SCORES: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/component-scores`,
     ITEM_ANALYTICS: (id: number) => `/assessments/${id}/item-analytics`,
     ANALYTICS_SUMMARY: '/assessments/analytics/summary',

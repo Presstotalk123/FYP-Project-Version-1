@@ -196,11 +196,20 @@ def get_submission_detail(
     }
 
 
+class DeductionKey(BaseModel):
+    """One stored extra-element deduction: the element's id and, for a mark on
+    it, which mark."""
+    canonical_id: str
+    mark: Optional[str] = None
+
+
 class ScoreOverrideRequest(BaseModel):
     """Points awarded per check id. Only the checks being changed need sending;
-    the rest keep what the grader awarded."""
+    the rest keep what the grader awarded. `waived` names the extra-element
+    deductions to drop, the whole set each time."""
     checks: dict[str, float] = Field(default_factory=dict)
     reason: str = ""
+    waived: list[DeductionKey] = Field(default_factory=list)
 
 
 @router.put("/submissions/{submission_id}/score")
@@ -220,7 +229,8 @@ def override_submission_score(
     """
     row = _submission_or_404(db, submission_id)
     try:
-        result = apply_override(db, row, body.checks, body.reason, staff.id)
+        result = apply_override(db, row, body.checks, body.reason, staff.id,
+                                waived=[w.model_dump() for w in body.waived])
     except ScoreOverrideError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return {

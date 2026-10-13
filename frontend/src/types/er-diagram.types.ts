@@ -129,6 +129,9 @@ export interface ERSubmissionDeduction {
    *  every dimension. */
   cap_dimensions?: string[];
   brief_reason: string;
+  /** Dropped by a staff correction: costs nothing until the correction is
+   *  reverted or a later one leaves it out. */
+  waived?: boolean;
 }
 
 export interface ERSubmissionScore {

@@ -32,7 +32,9 @@ from app.models.er_submission import ErSubmission
 from app.core.cache import Ns, bump_version
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.services import assessment_scoring
-from app.services.erd_tutor.scoring import _label, deductions_json, reapply_deductions
+from app.services.erd_tutor.scoring import (
+    _label, deductions_json, reapply_deductions, with_deduction_sentence,
+)
 
 SCORING_LEVELS = {"must", "should"}
 
@@ -144,6 +146,11 @@ def _sync_conversation(db: Session, submission: ErSubmission, grade: dict) -> bo
         report = {}
     report["score"] = grade["score"]
     report["checks"] = grade["checks"]
+    # The one sentence the grader appended to name the deductions is rebuilt,
+    # not kept: a waived or re-capped entry changes what it should say. The
+    # narrative around it is left alone.
+    report["student_message"] = with_deduction_sentence(
+        report.get("student_message"), grade["score"].get("deductions"))
     conversation.last_submit_report = json.dumps(report, ensure_ascii=False)
     return True
 
@@ -282,17 +289,45 @@ def score_from_awards(
     }
 
 
+def _deduction_key(entry) -> tuple[str, Optional[str]]:
+    """What identifies a stored deduction: the element's id and, for a mark,
+    which mark (an element and a mark on it are two entries)."""
+    mark = entry.get("mark")
+    return (str(entry.get("canonical_id") or "").strip(),
+            str(mark).strip() if isinstance(mark, str) and mark.strip() else None)
+
+
+def waived_deductions(stored: list[dict], waived) -> list[dict]:
+    """The stored deductions with the waiver staff asked for: the entries whose
+    key is in `waived` carry waived=True and cost nothing (scoring._apply_cap),
+    every other entry is charged again. So each correction states the whole
+    waiver, as it states the awards."""
+    keys = {_deduction_key(d) for d in stored}
+    wanted = set()
+    for w in waived or []:
+        key = _deduction_key(w if isinstance(w, dict) else {})
+        if key not in keys:
+            raise ScoreOverrideError(
+                f"Unknown deduction: {key[0] or '?'}" + (f" ({key[1]})" if key[1] else ""))
+        wanted.add(key)
+    return [{**{k: v for k, v in d.items() if k != "waived"},
+             **({"waived": True} if _deduction_key(d) in wanted else {})} for d in stored]
+
+
 def apply_override(
     db: Session,
     submission: ErSubmission,
     awards: dict[str, float],
     reason: str,
     staff_id: int,
+    waived=None,
 ) -> dict[str, Any]:
     """Re-score a submission from points staff awarded per check.
 
     `awards` maps check id -> points earned and may cover only the checks being
-    changed; anything omitted keeps what the grader awarded.
+    changed; anything omitted keeps what the grader awarded. `waived` lists the
+    extra-element deductions to drop, each as {canonical_id, mark}: a wrongly
+    charged extra costs nothing, and the student's sentence no longer names it.
     """
     # Optional: who and when are recorded regardless, and demanding a sentence on
     # every edit is friction on the common case where the change is self-evident.
@@ -327,13 +362,15 @@ def apply_override(
         if awarded < 0 or awarded > points:
             raise ScoreOverrideError(f"{cid}: points must be between 0 and {points:g}.")
 
+    # Checked before anything is written, like the awards above.
+    deductions = waived_deductions(stored_deductions(submission), waived)
+
     # Freeze the grader's result before the first correction, never after: the
     # question "what did the AI say" must keep one answer across re-corrections.
     if submission.original_grade_json is None:
         submission.original_grade_json = _snapshot(submission)
 
-    grade = score_from_awards(stored, {k: float(v) for k, v in awards.items()},
-                              stored_deductions(submission))
+    grade = score_from_awards(stored, {k: float(v) for k, v in awards.items()}, deductions)
 
     # Attribute the checks staff actually moved, so the student is not told the
     # grader found something it never did. Without a reason the attribution still

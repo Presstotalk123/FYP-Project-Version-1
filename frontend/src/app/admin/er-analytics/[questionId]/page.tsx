@@ -29,6 +29,20 @@ import type {
 } from '@/types/er-analytics.types';
 import type { ERSubmissionDeduction } from '@/types/er-diagram.types';
 
+/** What identifies a deduction to the server: the element's id and, for a mark
+ *  on it, which mark. */
+const deductionKey = (d: ERSubmissionDeduction): string => `${d.canonical_id}:${d.mark ?? ''}`;
+
+/** What kind of extra a deduction is, the way the student's own sentence puts
+ *  it ("key underline on name"): a mark by its mark, a bare line as "line". */
+const deductionKind = (d: ERSubmissionDeduction): string => {
+  const marks: Record<string, string> = {
+    key: 'key underline', weak: 'weak border', identifying: 'double diamond',
+    hierarchy: 'hierarchy', cardinality: 'cardinality label',
+  };
+  return d.kind === 'mark' ? (marks[d.mark ?? ''] ?? 'mark') : d.kind;
+};
+
 const pct = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : `${Math.round(v)}%`;
 
@@ -56,6 +70,7 @@ const roundHalfEven = (x: number): number => {
 function recapDeductions(
   deductions: ERSubmissionDeduction[],
   earnedByDimension: Map<string, number>,
+  waived: Set<string> = new Set(),
 ): number {
   const spent = new Map<string, number>();
   const unspent = (dimension: string) =>
@@ -63,6 +78,8 @@ function recapDeductions(
 
   let total = 0;
   for (const d of deductions) {
+    // Waived by staff: costs nothing and leaves its room to the next entry.
+    if (waived.has(deductionKey(d))) continue;
     const own = d.cap_dimensions ?? [];
     const dimensions = own.length > 0 ? own : Array.from(earnedByDimension.keys());
     const room = dimensions.reduce((sum, dimension) => sum + unspent(dimension), 0);
@@ -114,6 +131,8 @@ export default function ErQuestionAnalyticsPage() {
   /** check id -> points, as typed. Strings, so clearing a box does not snap to 0
    *  under the cursor mid-edit. */
   const [awards, setAwards] = useState<Record<string, string>>({});
+  /** The extra-element deductions ticked as wrongly charged (deductionKey). */
+  const [waived, setWaived] = useState<Set<string>>(new Set());
   /** The submitted diagram, opened over the modal to check detail while marking. */
   const [imageZoomed, setImageZoomed] = useState(false);
   const [reason, setReason] = useState('');
@@ -277,6 +296,7 @@ export default function ErQuestionAnalyticsPage() {
   const stopEditing = () => {
     setEditing(false);
     setAwards({});
+    setWaived(new Set());
     setReason('');
     setOverrideError(null);
   };
@@ -294,7 +314,17 @@ export default function ErQuestionAnalyticsPage() {
       if (isScoring(c)) seed[c.id] = String(c.earned_points ?? 0);
     }
     setAwards(seed);
+    setWaived(new Set((attempt?.deductions ?? []).filter((d) => d.waived).map(deductionKey)));
     setEditing(true);
+  };
+
+  const toggleWaived = (d: ERSubmissionDeduction) => {
+    setWaived((prev) => {
+      const next = new Set(prev);
+      const key = deductionKey(d);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
   /** Running total, so the consequence of an edit is visible before saving. The
@@ -321,7 +351,7 @@ export default function ErQuestionAnalyticsPage() {
     // The stored extra-element deductions come off the re-totalled checks, re-capped
     // against those earnings the way the server does on save. Their stored points
     // are what the last cap allowed, so they are not subtracted as they stand.
-    const deducted = recapDeductions(attempt?.deductions ?? [], earnedByDimension);
+    const deducted = recapDeductions(attempt?.deductions ?? [], earnedByDimension, waived);
     const net = Math.max(0, earned - deducted);
     return {
       earned: net, deducted, total,
@@ -343,7 +373,10 @@ export default function ErQuestionAnalyticsPage() {
       const payload = Object.fromEntries(
         Object.entries(awards).map(([id, v]) => [id, Number(v)]),
       );
-      await overrideSubmissionScore(attempt.id, payload, reason);
+      const waivedKeys = (attempt.deductions ?? [])
+        .filter((d) => waived.has(deductionKey(d)))
+        .map((d) => ({ canonical_id: d.canonical_id, mark: d.mark ?? null }));
+      await overrideSubmissionScore(attempt.id, payload, reason, waivedKeys);
       const fresh = await erAnalyticsService.submissionDetail(attempt.id);
       setAttempt(fresh);
       stopEditing();
@@ -794,6 +827,66 @@ export default function ErQuestionAnalyticsPage() {
                         );
                       })}
                     </tbody>
+                    {/* What the deducted total is made of, below the checks it comes
+                        off: one row per extra, the grader's reason under it. While
+                        adjusting, a tick waives the entry; the save sends the whole
+                        set and the server re-caps the rest. */}
+                    {(attempt.deductions?.length ?? 0) > 0 && (
+                      <tbody>
+                        <tr>
+                          <td
+                            colSpan={4}
+                            style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', paddingTop: 12 }}
+                          >
+                            Extra elements the rubric does not ask for
+                            {editing ? ' — tick an entry to waive it' : ''}
+                          </td>
+                        </tr>
+                        {(attempt.deductions ?? []).map((d) => {
+                          const key = deductionKey(d);
+                          const off = editing ? waived.has(key) : Boolean(d.waived);
+                          return (
+                            <tr key={key}>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                extra
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                  {deductionKind(d)}
+                                </div>
+                              </td>
+                              <td style={{ fontSize: 13 }}>
+                                <span style={off ? { textDecoration: 'line-through' } : undefined}>
+                                  {d.label}
+                                </span>
+                                {d.brief_reason && (
+                                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                    Grader: {d.brief_reason}
+                                  </div>
+                                )}
+                              </td>
+                              <td>
+                                {editing ? (
+                                  <label style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    <input type="checkbox" checked={off} onChange={() => toggleWaived(d)} />
+                                    {' '}waive
+                                  </label>
+                                ) : (
+                                  <span className={`badge ${off ? 'neutral' : 'badge-error'}`}>
+                                    {off ? 'waived' : 'deducted'}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {off ? (
+                                  <span style={{ color: 'var(--text-muted)' }}>0</span>
+                                ) : (
+                                  <>−{formatScoreValue(editing ? (d.price ?? d.points) : d.points)}</>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    )}
                   </table>
                 </div>
               </div>

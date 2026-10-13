@@ -144,7 +144,11 @@ def _apply_cap(entries, final_checks):
                 or list(earned_by_dim))
         left = {d: max(0.0, earned_by_dim.get(d, 0.0) - spent[d]) for d in dims}
         price = max(0.0, _safe_float(e.get("price")))
-        points = min(price, sum(left.values()))
+        # A deduction staff waived costs nothing and spends no room: the room
+        # stays for the entries after it. The flag rides with the entry, so a
+        # later re-cap keeps the waiver; a revert drops it with the snapshot.
+        waived = bool(e.get("waived"))
+        points = 0.0 if waived else min(price, sum(left.values()))
         rest = points
         for d in dims:
             take = min(rest, left[d])
@@ -157,13 +161,14 @@ def _apply_cap(entries, final_checks):
         reason = str(e.get("brief_reason") or "").strip()
         if reason.endswith("[cap reached]"):
             reason = reason[:-len("[cap reached]")].rstrip()
-        if price - points > 1e-9:
+        if not waived and price - points > 1e-9:
             reason = (reason + " [cap reached]").strip()
         total += points
         out.append({"canonical_id": e.get("canonical_id"), "kind": e.get("kind"),
                     "mark": e.get("mark"), "label": e.get("label", ""),
                     "brief_reason": reason, "price": price,
-                    "cap_dimensions": dims, "points": points})
+                    "cap_dimensions": dims, "points": points,
+                    **({"waived": True} if waived else {})})
     return out, total
 
 
@@ -187,6 +192,33 @@ def _label_for_entry(candidate):
         return label
     joined = [p for p in candidate.get("participants") or [] if p]
     return " \u2013 ".join(joined) if joined else str(candidate.get("canonical_id") or "")
+
+
+_SENTENCE = "Deducted for elements the rubric does not ask for:"
+
+
+def deduction_sentence(deductions) -> str:
+    """The one sentence that names the deductions that cost points, in the order
+    they were charged; "" when none did. compute_grade appends it to the
+    student message, and a staff correction rebuilds it (er_score_override): a
+    waived or re-capped entry changes what it should say."""
+    named = [_name_for_student(d) for d in _to_list(deductions)
+             if isinstance(d, dict) and _safe_float(d.get("points")) > 1e-9]
+    return f"{_SENTENCE} {', '.join(named)}." if named else ""
+
+
+def with_deduction_sentence(message, deductions):
+    """`message` with its deduction sentence brought up to date: the one it
+    carries (compute_grade puts it last) is cut, the current one appended when
+    there is one. A message with neither is returned as it is."""
+    text = str(message or "")
+    at = text.find(_SENTENCE)
+    sentence = deduction_sentence(deductions)
+    if at < 0 and not sentence:
+        return message
+    if at >= 0:
+        text = text[:at]
+    return f"{text.rstrip()} {sentence}".strip() if sentence else text.strip()
 
 
 def _name_for_student(candidate):
@@ -392,11 +424,7 @@ def compute_grade(judge_result: dict, rubric: dict, prev: dict, canonical=None) 
     # rule on, so a message the judge wrote could name an extra that was dropped
     # and miss one that was added. Only the deductions that cost points (a cap can
     # take one to 0), in the order they were charged.
-    student_message = judge.get("student_message", "")
-    named = [_name_for_student(d) for d in deductions if d["points"] > 1e-9]
-    if named:
-        student_message = (f"{str(student_message or '').rstrip()} Deducted for elements "
-                           f"the rubric does not ask for: {', '.join(named)}.").strip()
+    student_message = with_deduction_sentence(judge.get("student_message", ""), deductions)
 
     return {
         "score": {"label": _label(percent), "earned_points": earned_points,

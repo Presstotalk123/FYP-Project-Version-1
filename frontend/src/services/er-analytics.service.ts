@@ -77,10 +77,11 @@ export async function overrideSubmissionScore(
   submissionId: number,
   checks: Record<string, number>,
   reason: string,
+  waived: { canonical_id: string; mark: string | null }[] = [],
 ): Promise<ScoreOverrideResult> {
   const r = await api.put<ScoreOverrideResult>(
     API_ENDPOINTS.ER_ANALYTICS.SUBMISSION_SCORE(submissionId),
-    { checks, reason },
+    { checks, reason, waived },
   );
   return r.data;
 }

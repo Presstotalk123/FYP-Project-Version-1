@@ -35,7 +35,9 @@ Thumbs.db
 
 .lavish/
 .understand-anything/
-backend/tests/
+# Inherited tests stay untracked (HANDOFF §10); the FYP suite under tests/fyp is tracked.
+backend/tests/*
+!backend/tests/fyp/
 frontend/.npm-cache/
 docs/ 
 

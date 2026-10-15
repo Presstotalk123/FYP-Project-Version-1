@@ -1,0 +1,87 @@
+// Relational-algebra grammar (FYP Design Document 02, §4.2).
+//
+// Every operator has a Unicode form and an ASCII form that parse to the same tree:
+//   σ[age > 20](Student)        \select_{age > 20} Student
+//   π[name](Student)            \project_{name} Student
+//   ρ[S(id, n)](Student)        \rename_{S(id, n)} Student
+//   R ⋈ S   R ⋈[cond] S         R \join S   R \join_{cond} S
+//   R × S   R ∪ S   R ∩ S   R − S   R ÷ S
+//   T ← expr;   (or  T := expr;)
+//
+// Precedence, tightest first: σ π ρ, then ⋈ × ÷, then ∪ ∩ −. Binary operators are
+// left-associative.
+
+start: (assignment ";")* expr ";"?
+
+assignment: NAME ASSIGN expr
+
+?expr: setexpr
+
+?setexpr: setexpr UNION joinexpr        -> union
+        | setexpr INTERSECT joinexpr    -> intersect
+        | setexpr MINUS joinexpr        -> difference
+        | joinexpr
+
+?joinexpr: joinexpr JOIN unary              -> natural_join
+         | joinexpr JOIN cond_param unary   -> theta_join
+         | joinexpr CROSS unary             -> product
+         | joinexpr DIVIDE unary            -> division
+         | unary
+
+?unary: SELECT cond_param unary     -> select
+      | PROJECT attr_param unary    -> project
+      | RENAME rename_param unary   -> rename
+      | atom
+
+?atom: NAME             -> relation
+     | "(" expr ")"
+
+cond_param: "[" condition "]"
+          | "_{" condition "}"
+attr_param: "[" attr_list "]"
+          | "_{" attr_list "}"
+rename_param: "[" rename_spec "]"
+            | "_{" rename_spec "}"
+
+attr_list: attr ("," attr)*
+rename_spec: NAME ("(" NAME ("," NAME)* ")")?
+attr: NAME ("." NAME)?
+
+?condition: or_cond
+?or_cond: or_cond OR and_cond      -> or_
+        | and_cond
+?and_cond: and_cond AND not_cond   -> and_
+         | not_cond
+?not_cond: NOT not_cond            -> not_
+         | comparison
+         | "(" condition ")"
+comparison: operand COMP operand
+?operand: attr
+        | SIGNED_NUMBER            -> number
+        | STRING                   -> string
+
+SELECT: "σ" | "\\select"
+PROJECT: "π" | "\\project"
+RENAME: "ρ" | "\\rename"
+JOIN: "⋈" | "\\join"
+CROSS: "×" | "\\cross"
+DIVIDE: "÷" | "\\divide"
+UNION: "∪" | "\\union"
+INTERSECT: "∩" | "\\intersect"
+MINUS: "−" | "-" | "\\diff"
+ASSIGN: "←" | ":="
+
+// Keywords outrank NAME but only as whole words, so "nothing" or "order" stay names.
+AND.2: "∧" | /and\b/i
+OR.2: "∨" | /or\b/i
+NOT.2: "¬" | /not\b/i
+COMP: "<=" | ">=" | "<>" | "!=" | "≠" | "≤" | "≥" | "=" | "<" | ">"
+
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+STRING: /'(?:[^']|'')*'/
+COMMENT: /--[^\n]*/
+
+%import common.SIGNED_NUMBER
+%import common.WS
+%ignore WS
+%ignore COMMENT

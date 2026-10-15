@@ -103,7 +103,7 @@ class _Translator:
             if qual not in in_scope:
                 scope = ", ".join(sorted({qq for a, _ in env for qq in a.quals}))
                 raise RAError(E.UNKNOWN_RELATION,
-                              f"“{ref.qualifier}” is not a relation available {where}.",
+                              f"“{ref.qualifier}” is not a relation available in {where}.",
                               ref.pos.line, ref.pos.col, f"Relations in scope: {scope}.")
             matches = [(a, sql) for a, sql in matches if qual in {qq.casefold() for qq in a.quals}]
         if not matches:
@@ -115,7 +115,7 @@ class _Translator:
                           ref.pos.line, ref.pos.col, hint)
         if len(matches) > 1:
             options = " or ".join(a.qualified() for a, _ in matches)
-            raise RAError(E.AMBIGUOUS_ATTRIBUTE, f"“{ref}” is ambiguous {where}: use {options}.",
+            raise RAError(E.AMBIGUOUS_ATTRIBUTE, f"“{ref}” is ambiguous in {where}: use {options}.",
                           ref.pos.line, ref.pos.col)
         return matches[0]
 

@@ -25,3 +25,4 @@ langgraph>=0.2.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0
 pytest>=8.0.0
+hypothesis>=6.0  # property-based tests in tests/fyp

@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime, timezone
-import sqlite3
 import os
 import logging
 
@@ -31,13 +30,11 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.utils.lab_db_manager import (
-    create_lab_template, copy_template_to_session, delete_session_database,
-    delete_lab_template, get_lab_template_path, get_schema_info, LabDatabaseError
+    copy_template_to_session, delete_session_database,
+    delete_lab_template, get_lab_template_path, LabDatabaseError
 )
-from app.utils.graph_db_manager import create_graph_template, get_graph_schema_info
 from app.utils.lab_cleanup import terminate_all_lab_sessions
-from app.core.lab_query_executor import execute_lab_query
-from app.core.graph_query_executor import execute_graph_query
+from app.core.lab_engines import get_lab_engine
 from app.core.answer_validator import generate_hash
 from app.services.assessment_timer import (
     get_active_assessment_session,
@@ -102,20 +99,13 @@ def create_lab(
     db.add(lab)
     db.flush()  # Get the lab ID
 
-    # Create template database (dispatch on lab_type)
+    # Create template database with the lab type's builder
     try:
-        if lab_data.lab_type == "graph":
-            template_path = create_graph_template(
-                lab.id,
-                lab_data.schema_sql,
-                lab_data.sample_data_sql
-            )
-        else:
-            template_path = create_lab_template(
-                lab.id,
-                lab_data.schema_sql,
-                lab_data.sample_data_sql
-            )
+        get_lab_engine(lab_data.lab_type).create_template(
+            lab.id,
+            lab_data.schema_sql,
+            lab_data.sample_data_sql
+        )
         lab.template_db_path = f"lab_{lab.id}_template.db"
         db.commit()
     except LabDatabaseError as e:
@@ -319,13 +309,10 @@ def update_lab(
     if lab_data.sample_data_sql:
         lab.sample_data_sql = lab_data.sample_data_sql
 
-    # Regenerate template if SQL/Cypher changed (dispatch on lab_type)
+    # Regenerate template if SQL/Cypher changed
     if sql_changed:
         try:
-            if lab.lab_type == "graph":
-                create_graph_template(lab.id, lab.schema_sql, lab.sample_data_sql)
-            else:
-                create_lab_template(lab.id, lab.schema_sql, lab.sample_data_sql)
+            get_lab_engine(lab.lab_type).create_template(lab.id, lab.schema_sql, lab.sample_data_sql)
         except LabDatabaseError as e:
             db.rollback()
             raise HTTPException(
@@ -939,12 +926,9 @@ def execute_query(
 
     # try/finally so the query time is credited even if execution raises (e.g. timeout).
     try:
-        # Execute query on student's database (dispatch on lab_type) — no Postgres
+        # Execute query on student's database with the lab type's executor — no Postgres
         # transaction is held here.
-        if lab_type == "graph":
-            result = execute_graph_query(session_db_path, execute_request.query, timeout=15)
-        else:
-            result = execute_lab_query(session_db_path, execute_request.query, timeout=15)
+        result = get_lab_engine(lab_type).execute(session_db_path, execute_request.query, timeout=15)
 
         # Save attempt to history (skip in review mode)
         if not execute_request.is_review_mode:
@@ -1188,55 +1172,14 @@ def get_session_database_state(
     # Get the lab to check its type
     lab = db.query(Lab).filter(Lab.id == session.lab_id).first()
 
-    if lab and lab.lab_type == "graph":
-        # Graph lab: use graphqlite schema info (includes sample data)
-        try:
-            return get_graph_schema_info(session.db_file_path)
-        except LabDatabaseError as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to read graph database: {str(e)}"
-            )
-
-    # SQL lab: original behaviour
-    from app.utils.lab_db_manager import get_schema_info
-    schema_data = get_schema_info(session.db_file_path)
-
-    # For each table, get row count and sample data
-    tables_with_data = []
-    conn = sqlite3.connect(f"file:{session.db_file_path}?mode=ro", uri=True)
-
+    engine = get_lab_engine(lab.lab_type if lab else None)
     try:
-        for table_info in schema_data["tables"]:
-            table_name = table_info["name"]
-            cursor = conn.cursor()
-
-            # Get row count
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-            row_count = cursor.fetchone()[0]
-
-            # Get sample data (first 20 rows)
-            cursor.execute(f"SELECT * FROM {table_name} LIMIT 20")
-            rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-
-            tables_with_data.append({
-                "name": table_name,
-                "columns": table_info["columns"],
-                "create_sql": table_info["create_sql"],
-                "row_count": row_count,
-                "sample_data": {
-                    "columns": columns,
-                    "rows": [dict(zip(columns, row)) for row in rows]
-                }
-            })
-
-            cursor.close()
-
-    finally:
-        conn.close()
-
-    return {"tables": tables_with_data}
+        return engine.database_state(session.db_file_path)
+    except LabDatabaseError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read {engine.lab_type} database: {str(e)}"
+        )
 
 
 @router.post("/{lab_id}/session/reset")
@@ -1364,13 +1307,10 @@ def preview_schema(
                 detail="Lab not found"
             )
 
-    # Get schema info from template database (dispatch on lab_type)
+    # Get schema info from template database with the lab type's reader
     template_path = get_lab_template_path(lab_id)
     try:
-        if lab.lab_type == "graph":
-            schema_info = get_graph_schema_info(template_path)
-        else:
-            schema_info = get_schema_info(template_path)
+        schema_info = get_lab_engine(lab.lab_type).schema_info(template_path)
         return SchemaPreview(tables=schema_info["tables"])
     except LabDatabaseError as e:
         raise HTTPException(
@@ -1522,14 +1462,12 @@ def assign_task_answer(
             detail="Task not found"
         )
 
-    # Execute query on template database to generate hash (dispatch on lab_type)
+    # Execute query on template database to generate hash
     try:
         template_path = get_lab_template_path(lab_id)
         lab_for_task = db.query(Lab).filter(Lab.id == lab_id).first()
-        if lab_for_task and lab_for_task.lab_type == "graph":
-            result = execute_graph_query(template_path, assign_data.query, timeout=15)
-        else:
-            result = execute_lab_query(template_path, assign_data.query, timeout=15)
+        engine = get_lab_engine(lab_for_task.lab_type if lab_for_task else None)
+        result = engine.execute(template_path, assign_data.query, timeout=15)
 
         if not result["success"]:
             raise HTTPException(
@@ -1668,10 +1606,8 @@ def update_lab_task(
             try:
                 template_path = get_lab_template_path(lab_id)
                 lab_for_task = db.query(Lab).filter(Lab.id == lab_id).first()
-                if lab_for_task and lab_for_task.lab_type == "graph":
-                    result = execute_graph_query(template_path, task.correct_query, timeout=15)
-                else:
-                    result = execute_lab_query(template_path, task.correct_query, timeout=15)
+                engine = get_lab_engine(lab_for_task.lab_type if lab_for_task else None)
+                result = engine.execute(template_path, task.correct_query, timeout=15)
 
                 if not result["success"]:
                     raise HTTPException(
@@ -1805,10 +1741,7 @@ def validate_task_answer(
     db.commit()
 
     try:
-        if lab_type == "graph":
-            result = execute_graph_query(session_db_path, validate_request.user_query, timeout=15)
-        else:
-            result = execute_lab_query(session_db_path, validate_request.user_query, timeout=15)
+        result = get_lab_engine(lab_type).execute(session_db_path, validate_request.user_query, timeout=15)
     finally:
         if query_start is not None:
             credit_query_time(db, assessment_session, query_start)

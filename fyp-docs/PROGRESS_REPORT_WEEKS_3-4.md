@@ -1,10 +1,10 @@
 # FYP Progress Report — Weeks 3–4
 
 **Project:** Extending Akela with Relational Algebra and Vector Database modules
-**Branch:** `fyp/weeks-3-4-foundations` (from `main` at the hand-over commit, tagged `baseline-inherited`)
+**Branch:** `fyp/relational-algebra` (from `main` at the hand-over commit, tagged `baseline-inherited`)
 **Plan reference:** Document 04, §6 “Plan for the next two weeks (W3–W4)”
 
-`git diff baseline-inherited..fyp/weeks-3-4-foundations` shows everything added for the FYP on this branch.
+`git diff baseline-inherited..fyp/relational-algebra` shows everything added for the FYP on this branch.
 
 > **AI assistance:** the code on this branch was written with Claude Code (an AI coding assistant).
 > Each commit carries a `Co-Authored-By` line saying so.

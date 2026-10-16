@@ -3,7 +3,7 @@
 Running log of FYP changes on top of the inherited Akela codebase (tag `baseline-inherited`).
 Requirement IDs refer to the design documents in `fyp-docs/design/`.
 
-## 2026-10-16 — branch `fyp/weeks-3-4-foundations`
+## 2026-10-16 — branch `fyp/relational-algebra`
 
 - **Regression tests for labs** — `backend/tests/fyp/test_lab_regression.py` pins SQL and Graph lab
   behaviour before refactoring. `.gitignore` now tracks `backend/tests/fyp/` (other inherited tests stay ignored).

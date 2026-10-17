@@ -6,7 +6,7 @@ question's text, so an edited schema or model answer is simply a new entry.
 """
 import threading
 from collections import OrderedDict
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from app.core.ra import EvalOptions
 from app.core.ra.grader import PreparedQuestion
@@ -17,20 +17,26 @@ _cache: "OrderedDict[tuple, PreparedQuestion]" = OrderedDict()
 _lock = threading.Lock()
 
 
-def prepared(schema_sql: str, model_answer: str, data_sql: str = "", *,
-             options: EvalOptions = EvalOptions()) -> PreparedQuestion:
-    """The prepared question for this text. Raises RAError for a bad schema or model answer."""
-    key = (schema_sql, data_sql or "", model_answer, options)
+def cached(key: tuple, build: Callable[[], PreparedQuestion]) -> PreparedQuestion:
+    """The prepared question for ``key``, built with ``build()`` on a miss."""
     with _lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    question = PreparedQuestion(schema_sql, model_answer, data_sql, options=options)
+    question = build()
     with _lock:
         _cache[key] = question
         while len(_cache) > _CACHE_SIZE:
             _cache.popitem(last=False)
     return question
+
+
+def prepared(schema_sql: str, model_answer: str, data_sql: str = "", *,
+             options: EvalOptions = EvalOptions()) -> PreparedQuestion:
+    """The prepared question for this text (the playground). Raises RAError for a bad
+    schema or model answer."""
+    return cached(("text", schema_sql, data_sql or "", model_answer, options),
+                  lambda: PreparedQuestion(schema_sql, model_answer, data_sql, options=options))
 
 
 def structure_database(question: PreparedQuestion) -> Tuple[Database, str]:

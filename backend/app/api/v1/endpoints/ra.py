@@ -7,6 +7,7 @@
   POST /ra/playground/grade       grade an answer against a model answer, with the
                                   verdict, a counterexample, step-by-step feedback and
                                   how strong the generated test databases are
+  /ra/questions/…                 RA questions: see ra_questions.py
 
 The playground is a free practice space (like RelaX): nothing is saved. Any
 signed-in user may use it. The schema SQL runs in a private in-memory SQLite with file
@@ -27,6 +28,7 @@ from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, PlaygroundGradeIn, Pl
                             SuiteSummaryOut)
 from app.services.ra import grading
 from app.services.ra.examples import EXAMPLES
+from app.api.v1.endpoints import ra_questions
 
 router = APIRouter(prefix="/ra", tags=["relational-algebra"])
 
@@ -104,6 +106,10 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
         out.structure_source = source
         out.structure_relations = [RelationOut(**r) for r in db.to_dict()]
     return out
+
+
+# RA questions: /ra/questions/… (see ra_questions.py), all behind the RA_ENABLED switch.
+router.include_router(ra_questions.router, dependencies=[Depends(require_ra_enabled)])
 
 
 def _ms(started: float) -> float:

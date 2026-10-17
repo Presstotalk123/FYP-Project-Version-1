@@ -138,3 +138,107 @@ class PlaygroundGradeOut(BaseModel):
     structure: Optional[EvalOut] = None
     structure_source: Optional[Literal["sample", "generated"]] = None
     structure_relations: List[RelationOut] = []
+
+
+# ── RA questions ─────────────────────────────────────────────────────────────
+class CheckpointIn(BaseModel):
+    statement: Optional[str] = Field(None, max_length=64)   # a model step's name; None = the final answer
+    label: str = Field(..., min_length=1, max_length=200)    # shown to students, e.g. "the CE courses"
+
+
+class RAQuestionIn(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(..., min_length=1, max_length=20_000)
+    difficulty: Literal["easy", "medium", "hard"] = "medium"
+    schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
+    data_sql: str = Field("", max_length=MAX_SQL_CHARS)
+    model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    checkpoints: Optional[List[CheckpointIn]] = None       # None = every step of the model answer
+    show_step_direction: bool = True
+    compare_bags: bool = False
+    hide_correctness: bool = False
+    is_published: bool = False
+
+
+class RAQuestionValidateIn(BaseModel):
+    schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
+    data_sql: str = Field("", max_length=MAX_SQL_CHARS)
+    model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    checkpoints: Optional[List[CheckpointIn]] = None
+    compare_bags: bool = False
+
+
+class RAQuestionValidateOut(BaseModel):
+    """Is the question valid, and how strong are its generated test databases?"""
+    ok: bool
+    error_source: Optional[Literal["schema", "data", "model_answer", "checkpoints"]] = None
+    error: Optional[RAErrorOut] = None
+    relations: List[RelationOut] = []
+    suite: Optional[SuiteSummaryOut] = None
+    # The model answer's steps on the question's data, or on a generated example database.
+    model_result: Optional[EvalOut] = None
+    model_result_source: Optional[Literal["sample", "generated"]] = None
+    checkpoints: List[CheckpointIn] = []                    # the effective checkpoints
+
+
+class RAQuestionListItem(BaseModel):
+    id: int
+    title: str
+    difficulty: str
+    is_published: bool
+    has_data: bool
+    attempts: int = 0
+    solved: bool = False
+
+
+class RAQuestionOut(BaseModel):
+    """What a student sees. Never the model answer, its steps or the test databases."""
+    id: int
+    title: str
+    description: str
+    difficulty: str
+    relations: List[RelationOut]
+    has_data: bool
+    show_step_direction: bool
+    hide_correctness: bool
+    attempts: int = 0
+    solved: bool = False
+
+
+class RAQuestionStaffOut(RAQuestionOut):
+    schema_sql: str
+    data_sql: str
+    model_answer: str
+    checkpoints: Optional[List[CheckpointIn]] = None
+    compare_bags: bool
+    is_published: bool
+    suite: Optional[SuiteSummaryOut] = None
+
+
+class RAAnswerIn(BaseModel):
+    answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+
+
+class RACheckOut(BaseModel):
+    """An answer evaluated step by step, not graded and not recorded."""
+    ok: bool
+    error: Optional[RAErrorOut] = None
+    result: Optional[EvalOut] = None
+    source: Optional[Literal["sample", "generated"]] = None
+    relations: List[RelationOut] = []
+
+
+class RASubmitOut(BaseModel):
+    attempt_id: int
+    # None when the question hides correctness: the student only learns it was submitted.
+    grade: Optional[GradeOut] = None
+    structure: Optional[EvalOut] = None
+    structure_source: Optional[Literal["sample", "generated"]] = None
+
+
+class RAAttemptOut(BaseModel):
+    id: int
+    answer: str
+    verdict: Optional[str] = None        # None when the question hides correctness
+    is_correct: Optional[bool] = None
+    created_at: Any

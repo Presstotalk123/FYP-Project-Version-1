@@ -21,7 +21,13 @@ is merged into `main` or deployed.
    ```
    In Google Cloud Console, `http://localhost:3000` must be an *Authorised JavaScript origin*.
 3. **Your email must be whitelisted** in your local database, or Google sign-in is refused
-   ("not whitelisted") even with a valid key.
+   ("not whitelisted") even with a valid key. The seed script does it (and adds the
+   Tutorial 5.5 questions), from `backend/`:
+   ```
+   ../.venv/bin/python scripts/seed_ra_local.py --admin-email <your Google email>
+   ```
+   Add `--student-email <another Google email>` to also sign in as a student. The
+   script refuses to run against anything but a local SQLite database.
 4. **Python packages.** From the repo root (the `.venv` was made with `uv`, so it has no
    `pip`): `uv pip install --python .venv/bin/python -r backend/requirements.txt`
    (the RA module needs `lark`; it is already installed in your `.venv`).
@@ -58,6 +64,7 @@ is merged into `main` or deployed.
 | `backend/requirements.txt` | `lark==1.2.2` appended |
 | `.gitignore` | `backend/tests/` → `backend/tests/*` + `!backend/tests/ra/`, so only the RA tests are tracked |
 | `frontend/src/components/HeaderNav.tsx` | "Relational Algebra" link, shown only while RA is enabled |
+| `backend/app/models/__init__.py` | 4 lines appended: import the two RA models so their tables are created |
 
 ---
 
@@ -165,3 +172,44 @@ Grading takes 2–5 ms per answer (Q5, with its triple ×, 45 ms).
 9. Try your own: paste any tutorial model answer into *Model answer*, write an answer,
    press **Check** (or Ctrl/⌘+Enter). The first check of a new model answer takes up to
    a few seconds while its test databases are built.
+
+---
+
+## Step 3: RA questions in the database, and their API (17 Oct 2026)
+
+Commit: "Store RA questions and attempts, with staff and student endpoints"
+(`git log --oneline` shows its hash).
+
+**What was built**
+- Two new tables (no existing table changed):
+  - `ra_questions` (`backend/app/models/ra_question.py`): title, description, difficulty,
+    schema SQL, optional data SQL, model answer, optional checkpoints, the generated test
+    databases and their self-test report, and the switches *show step direction*,
+    *compare as bags*, *hide correctness*, *published*.
+  - `ra_attempts` (`backend/app/models/ra_attempt.py`): every submission with its verdict
+    and the grader's full result, plus columns for a later staff override.
+- `backend/run_ra_tables_migration.py`: creates the two tables on PostgreSQL (only needed
+  on a server; SQLite creates them at startup).
+- `backend/app/services/ra/questions.py`: saving (validates everything first and builds the
+  test databases once; editing only the title keeps them), what each role may see,
+  grading and recording attempts, and the two feedback switches.
+- `backend/app/api/v1/endpoints/ra_questions.py`, all under `/api/v1/ra/questions`:
+  staff `validate`, create, edit, update, delete; everyone list, view, `check` (run
+  without grading), `submit` (graded and recorded), own `attempts`.
+- Students never receive the model answer, its steps or the test databases; drafts and
+  deleted questions are invisible to them.
+- `backend/app/services/ra/tutorial_5_5.py`: the ten Tutorial 5.5 questions (schema only,
+  model answers from the solution slides) and one lecture example with data.
+- `backend/scripts/seed_ra_local.py`: whitelists you and adds those questions locally.
+
+**Noticed: the tutorial sheet and the solution slides disagree twice.** Q1(iii) says
+‘Database System’ vs ‘Database Systems’; Q2's table is RESERVATIONS vs RESERVATION. The
+seeded questions follow the question sheet.
+
+**How to check it**
+1. From `backend/`: `../.venv/bin/python scripts/seed_ra_local.py --admin-email <your Google email>`.
+   Expected: eleven lines `created #… Tutorial 5.5 …`, each with *caught N/N wrong
+   versions* (Q1(iii) shows 4/5: its one survivor is equivalent to the model answer).
+2. Run it again: every line says `exists`, nothing is duplicated.
+3. Run the tests: `cd backend && ../.venv/bin/python -m pytest tests/ra -q` (151 pass).
+4. The pages that use these endpoints come in step 4.

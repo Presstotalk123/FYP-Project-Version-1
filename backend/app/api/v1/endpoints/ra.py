@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.config import settings
 from app.core.ra import Database, EvalOptions, RAError, evaluate, parse
+from app.core.ra.grader import Checkpoint
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, PlaygroundGradeIn, PlaygroundGradeOut,
@@ -87,10 +88,16 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
         Database.from_sql(body.schema_sql, body.data_sql)
     except RAError as e:
         return PlaygroundGradeOut(ok=False, error_source="schema", error=RAErrorOut.from_engine(e))
+    checkpoints = [Checkpoint(c.statement, c.label) for c in body.checkpoints] if body.checkpoints else None
     try:
-        question = grading.prepared(body.schema_sql, body.model_answer, body.data_sql, options=eval_options())
+        question = grading.prepared(body.schema_sql, body.model_answer, body.data_sql, options=eval_options(),
+                                    checkpoints=checkpoints, bag=body.compare_bags)
+        for cp in question.checkpoints:
+            question.checkpoint_index(cp)
     except RAError as e:
         return PlaygroundGradeOut(ok=False, error_source="model", error=RAErrorOut.from_engine(e))
+    except ValueError as e:                     # a checkpoint names a step the model answer lacks
+        return PlaygroundGradeOut(ok=False, error_source="model", error=RAErrorOut(code="RA012", message=str(e)))
 
     result = question.grade(body.answer)
     out = PlaygroundGradeOut(ok=True, grade=GradeOut(**result.to_dict()),

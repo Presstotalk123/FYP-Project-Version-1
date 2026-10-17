@@ -70,7 +70,7 @@ def prepare(schema_sql: str, data_sql: str, model_answer: str, *, checkpoints=No
         raise QuestionInputError("model_answer", e)
     for cp in question.checkpoints:
         try:
-            question._checkpoint_index(cp)
+            question.checkpoint_index(cp)
         except ValueError as e:
             raise QuestionInputError("checkpoints", RAError("RA012", str(e)))
     return question

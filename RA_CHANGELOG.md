@@ -213,3 +213,49 @@ seeded questions follow the question sheet.
 2. Run it again: every line says `exists`, nothing is duplicated.
 3. Run the tests: `cd backend && ../.venv/bin/python -m pytest tests/ra -q` (151 pass).
 4. The pages that use these endpoints come in step 4.
+
+---
+
+## Step 4: RA pages for students and staff (17 Oct 2026)
+
+Commit: "Add RA question pages for students and staff" (`git log --oneline` shows its hash).
+
+**What was built** (frontend; the top-bar link now goes to `/ra`)
+
+| Page | Who | What |
+|---|---|---|
+| `/ra` | everyone | The RA questions as cards: difficulty, *Schema only* when there is no data, *✓ Solved* or the number of attempts. Staff also see drafts (marked *Draft*), **New question**, **Edit** and **Delete**. A **Playground** button. |
+| `/ra/questions/[id]` | everyone | The workspace: question text, schema (keys underlined), the editor with **Check (not graded)** and **Submit**; after Submit the verdict, the counterexample, **Your steps** with **Show structure**, and **Your attempts** (with **Load** to bring one back). The unsent answer is kept per browser. |
+| `/ra/questions/new`, `/ra/questions/[id]/edit` | staff | The form: title, difficulty, question text (markdown), schema and data SQL, model answer. **Check the model answer** shows the test strength, the model's steps, and the **Checkpoints**: which model steps students' steps are compared with, and the label students see for each. Switches: show step direction, hide correctness, compare as bags, published. **Try an answer** grades any answer with these settings. |
+
+Components are in `frontend/src/components/ra/` (`RaQuestionWorkspace`, `RaQuestionForm`,
+`RaStepStructure`, `RaVerdict`, `RaCaseView`, …).
+
+Backend change: the playground's grading endpoint also takes checkpoints and the
+set/bag choice, so the staff test bench grades exactly like the saved question will.
+
+**How to check it on localhost** (after the one-time setup and the seed script)
+1. Sign in with your (admin) account and click **Relational Algebra** in the top bar. You
+   see the 11 seeded questions, each with **Edit** and **Delete**, plus **New question**
+   and **Playground**.
+2. Open **Tutorial 5.5 Q1(ii) — lowest GPA**. Type
+   ```
+   R1 := γ MAX(GPA) → MinGPA (STUDENT)
+   R2 := STUDENT ⋈ STUDENT.GPA = R1.MinGPA R1
+   Answer := π Sname (R2)
+   ```
+   and press **Check (not graded)**: the result and every step on an example generated
+   database. Then press **Submit**: *✗ Not correct in general*, a two-student
+   counterexample, and under **Your steps** three ◐ steps. **Show structure** opens each.
+3. Replace `MAX` with `MIN` and **Submit**: *✓ Correct … proved* or *… on all 66 test
+   databases*, every step ✓. **Your attempts (2)** lists both; **Load** puts one back.
+4. Go back to **Relational Algebra**: the card now says *✓ Solved*.
+5. Click **Edit** on **Q1(iv)**, then **Check the model answer**: *catches 4 of 4
+   deliberately wrong versions*, and the four checkpoints. Change R1's label to
+   *the Civil Engineering courses*, untick R2, **Save changes**. Submit an answer whose R1
+   uses `'Computer Science'`: R1 is ◐ with your label, R2 is no longer compared (○).
+6. In the edit form, use **Try an answer** to grade any answer without saving anything.
+7. **New question**: write a schema, a model answer, press **Check the model answer**,
+   tick **Published**, **Create question**. It appears on `/ra`.
+8. To see the student view, sign in with the `--student-email` account from the seed
+   script: no Edit/Delete/New buttons, no drafts, and never the model answer.

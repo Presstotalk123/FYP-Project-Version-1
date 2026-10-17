@@ -32,11 +32,13 @@ def cached(key: tuple, build: Callable[[], PreparedQuestion]) -> PreparedQuestio
 
 
 def prepared(schema_sql: str, model_answer: str, data_sql: str = "", *,
-             options: EvalOptions = EvalOptions()) -> PreparedQuestion:
-    """The prepared question for this text (the playground). Raises RAError for a bad
-    schema or model answer."""
-    return cached(("text", schema_sql, data_sql or "", model_answer, options),
-                  lambda: PreparedQuestion(schema_sql, model_answer, data_sql, options=options))
+             options: EvalOptions = EvalOptions(), checkpoints=None, bag: bool = False) -> PreparedQuestion:
+    """The prepared question for this text (the playground and the staff test bench).
+    Raises RAError for a bad schema or model answer."""
+    key = ("text", schema_sql, data_sql or "", model_answer, options, bag,
+           tuple((c.statement, c.label) for c in checkpoints) if checkpoints else None)
+    return cached(key, lambda: PreparedQuestion(schema_sql, model_answer, data_sql, options=options,
+                                                checkpoints=checkpoints, bag=bag))
 
 
 def structure_database(question: PreparedQuestion) -> Tuple[Database, str]:

@@ -133,3 +133,96 @@ export interface RaPlaygroundGradeResponse {
   structure_source: 'sample' | 'generated' | null;
   structure_relations: RaRelation[];
 }
+
+// ── RA questions ──────────────────────────────────────────────────────────────
+export type RaDifficulty = 'easy' | 'medium' | 'hard';
+
+/** A model-answer step students' steps are compared with; `statement` null = the final answer. */
+export interface RaCheckpoint {
+  statement: string | null;
+  label: string;
+}
+
+export interface RaQuestionListItem {
+  id: number;
+  title: string;
+  difficulty: RaDifficulty;
+  is_published: boolean;
+  has_data: boolean;
+  attempts: number;
+  solved: boolean;
+}
+
+/** A question as students see it (never the model answer). */
+export interface RaQuestion {
+  id: number;
+  title: string;
+  description: string;
+  difficulty: RaDifficulty;
+  relations: RaRelation[];
+  has_data: boolean;
+  show_step_direction: boolean;
+  hide_correctness: boolean;
+  attempts: number;
+  solved: boolean;
+}
+
+export interface RaQuestionStaff extends RaQuestion {
+  schema_sql: string;
+  data_sql: string;
+  model_answer: string;
+  checkpoints: RaCheckpoint[] | null;
+  compare_bags: boolean;
+  is_published: boolean;
+  suite: RaSuiteSummary | null;
+}
+
+export interface RaQuestionInput {
+  title: string;
+  description: string;
+  difficulty: RaDifficulty;
+  schema_sql: string;
+  data_sql: string;
+  model_answer: string;
+  checkpoints: RaCheckpoint[] | null;
+  show_step_direction: boolean;
+  compare_bags: boolean;
+  hide_correctness: boolean;
+  is_published: boolean;
+}
+
+export type RaInputField = 'schema' | 'data' | 'model_answer' | 'checkpoints';
+
+export interface RaValidateResponse {
+  ok: boolean;
+  error_source: RaInputField | null;
+  error: RaError | null;
+  relations: RaRelation[];
+  suite: RaSuiteSummary | null;
+  model_result: RaEvalResult | null;
+  model_result_source: 'sample' | 'generated' | null;
+  checkpoints: RaCheckpoint[];
+}
+
+export interface RaCheckResponse {
+  ok: boolean;
+  error: RaError | null;
+  result: RaEvalResult | null;
+  source: 'sample' | 'generated' | null;
+  relations: RaRelation[];
+}
+
+export interface RaSubmitResponse {
+  attempt_id: number;
+  grade: RaGradeResult | null; // null when the question hides correctness
+  structure: RaEvalResult | null;
+  structure_source: 'sample' | 'generated' | null;
+}
+
+export interface RaAttempt {
+  id: number;
+  answer: string;
+  verdict: RaVerdict | null;
+  is_correct: boolean | null;
+  created_at: string;
+}

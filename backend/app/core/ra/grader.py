@@ -156,7 +156,7 @@ class PreparedQuestion:
         out.append(Checkpoint(None, "the final answer"))
         return out
 
-    def _checkpoint_index(self, cp: Checkpoint) -> int:
+    def checkpoint_index(self, cp: Checkpoint) -> int:
         """Which statement of the model answer a checkpoint refers to."""
         if cp.statement is None:
             return len(self.model.statements) - 1
@@ -166,7 +166,7 @@ class PreparedQuestion:
         raise ValueError(f"The model answer has no step called {cp.statement}.")
 
     def _checkpoint_rel(self, run: _Run, cp: Checkpoint) -> Rel:
-        return run.steps[self._checkpoint_index(cp)][2]
+        return run.steps[self.checkpoint_index(cp)][2]
 
     # ── grading ───────────────────────────────────────────────────────────────
     def grade(self, answer: str, *, with_steps: bool = True) -> GradeResult:
@@ -308,7 +308,7 @@ class PreparedQuestion:
                 if _same_everywhere_renamed(m_rels, s_rels, self.bag):
                     fb.status, fb.checkpoint, fb.renamed = "match", cp.label, True
                     break
-                cp_shape = model_shapes[self._checkpoint_index(cp)]
+                cp_shape = model_shapes[self.checkpoint_index(cp)]
                 if fb.status == "none" and same_columns(m_rels[0].labels, columns) \
                         and student_shapes[k] == cp_shape:
                     fb.status, fb.checkpoint = "close", cp.label

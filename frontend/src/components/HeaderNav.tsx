@@ -45,7 +45,7 @@ export function HeaderNav() {
   // Relational Algebra (FYP): one link for staff and students while RA_ENABLED is on.
   const { enabled: raEnabled } = useRaStatus();
   if (raEnabled) {
-    const raLink = { label: "Relational Algebra", href: "/ra/playground" };
+    const raLink = { label: "Relational Algebra", href: "/ra" };
     studentLinks.splice(studentLinks.findIndex((l) => l.href === "/student/labs") + 1, 0, raLink);
     staffLinks.splice(staffLinks.findIndex((l) => l.href === "/admin/labs") + 1, 0, raLink);
   }

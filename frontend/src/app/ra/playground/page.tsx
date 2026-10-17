@@ -6,6 +6,7 @@ import { SimpleGrid } from '@mantine/core';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { RaEditor } from '@/components/ra/RaEditor';
+import { RaOff } from '@/components/ra/RaOff';
 import { RaRelations } from '@/components/ra/RaRelations';
 import { RaStepStructure } from '@/components/ra/RaStepStructure';
 import { RaSteps } from '@/components/ra/RaSteps';
@@ -131,16 +132,7 @@ function Playground() {
   };
 
   if (statusLoading) return null;
-  if (!enabled) {
-    return (
-      <div className="card" style={{ padding: 24, maxWidth: 640 }}>
-        <h2 style={{ marginTop: 0 }}>Relational Algebra is switched off</h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
-          Set <code>RA_ENABLED=true</code> in <code>backend/.env</code> and restart the backend.
-        </p>
-      </div>
-    );
-  }
+  if (!enabled) return <RaOff />;
 
   const gradingExamples = currentExample?.grading_examples ?? [];
 

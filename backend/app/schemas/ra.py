@@ -124,6 +124,9 @@ class PlaygroundGradeIn(BaseModel):
     data_sql: str = Field("", max_length=MAX_SQL_CHARS)
     model_answer: str = Field(..., max_length=MAX_PROGRAM_CHARS)
     answer: str = Field(..., max_length=MAX_PROGRAM_CHARS)
+    # As on a question (the staff form's test bench uses this endpoint).
+    checkpoints: Optional[List["CheckpointIn"]] = None
+    compare_bags: bool = False
 
 
 class PlaygroundGradeOut(BaseModel):
@@ -242,3 +245,6 @@ class RAAttemptOut(BaseModel):
     verdict: Optional[str] = None        # None when the question hides correctness
     is_correct: Optional[bool] = None
     created_at: Any
+
+
+PlaygroundGradeIn.model_rebuild()

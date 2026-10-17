@@ -278,9 +278,11 @@ assessments"* (off by default); `services/ra/local_schema.py` adds that column t
 SQLite database at startup.
 
 **Verified in the browser (throwaway copy):** Assessments → Create → **RA Q (11)** tab → added two RA
-questions (one capped at 3 submissions) → Create → Publish → Start. **Not yet clicked through:** the
-student side of the exam in the browser (covered by API tests: join, open, submit, cap, score 100,
-reset).
+questions (one capped at 3 submissions) → Create → Publish → Start. Then as a student: the quiz shows
+as LIVE → Join → the overview lists both items as *Relational Algebra* (50% each) → opening Q1 shows
+*0 of 3 submissions used · Check is free*; a MAX answer gives *Not correct in general* with a
+counterexample, the counter moves to *1 of 3*, and the steps show no ✓/◐/○ (off in assessments by
+default) but still have *Show structure*. API tests also cover the cap, the score and reset.
 
 **How to check it on localhost**
 1. As admin: **Assessments → Create Assessment**, title, then in **Content Pool** open **RA Q**, add

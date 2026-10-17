@@ -35,7 +35,8 @@ Thumbs.db
 
 .lavish/
 .understand-anything/
-backend/tests/
+backend/tests/*
+!backend/tests/ra/
 frontend/.npm-cache/
 docs/ 
 

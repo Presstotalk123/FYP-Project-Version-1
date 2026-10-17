@@ -232,6 +232,11 @@ app.include_router(login_activity.router, prefix="/api/v1")
 app.include_router(lad.router, prefix="/api/v1")
 app.include_router(research_export.router, prefix="/api/v1")
 
+# Relational Algebra (FYP): switched off (404) unless RA_ENABLED=true. Imported on its
+# own line, not added to the long import above, to keep merges with main conflict-free.
+from app.api.v1.endpoints import ra  # noqa: E402
+app.include_router(ra.router, prefix="/api/v1")
+
 
 @app.get("/")
 def read_root():

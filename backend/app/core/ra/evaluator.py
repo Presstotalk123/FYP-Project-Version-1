@@ -96,6 +96,9 @@ class EvalResult:
     statements: List[dict]                 # [{"name": "R1" | None, "tree": {...}}]
     warnings: List[RAError] = field(default_factory=list)
     relation: Optional[Rel] = None
+    # Every statement's full result, in order: (name or None for a bare final expression,
+    # line, relation). The grader compares these with the model answer's steps.
+    step_relations: List[Tuple[Optional[str], Optional[int], Rel]] = field(default_factory=list)
 
 
 # ── values and conditions ─────────────────────────────────────────────────────
@@ -278,23 +281,30 @@ class Evaluator:
         rel = Rel(child.attrs, [r for r in child.rows if f(r) is True])
         return rel, self._node("select", f"σ {e.condition}", rel, [t], e.pos)
 
-    def project(self, e: ast.Project) -> Tuple[Rel, dict]:
-        child, t = self.eval(e.child)
-        fns, attrs = [], []
+    def _project_plan(self, e: ast.Project, child: Rel) -> Tuple[List[Optional[int]], List[Callable], List[Attr]]:
+        """Per output attribute: the child index it copies (None if computed), its function, its Attr."""
+        indexes, fns, attrs = [], [], []
         for item in e.items:
             if isinstance(item.value, ast.AttrRef):
                 i = self.resolve(item.value, child.attrs, "the input of Π")
+                indexes.append(i)
                 fns.append(lambda row, i=i: row[i])
                 a = child.attrs[i]
                 attrs.append(Attr(item.alias, frozenset(), a.type) if item.alias else a)
             else:
                 f, _ = self.value_fn(item.value, child.attrs, "the input of Π")
+                indexes.append(None)
                 fns.append(f)
                 attrs.append(Attr(item.alias or str(item.value), frozenset(), "NUMERIC"))
         labels = make_labels(attrs)
         dup = next((lbl for lbl in labels if [x.casefold() for x in labels].count(lbl.casefold()) > 1), None)
         if dup:
             raise RAError(E.DUPLICATE_ATTRIBUTE, f"“{dup}” appears twice in Π.", e.pos.line, e.pos.col)
+        return indexes, fns, attrs
+
+    def project(self, e: ast.Project) -> Tuple[Rel, dict]:
+        child, t = self.eval(e.child)
+        _indexes, fns, attrs = self._project_plan(e, child)
         rel = Rel(attrs, [tuple(f(r) for f in fns) for r in child.rows])     # bag: duplicates kept
         return rel, self._node("project", f"Π {', '.join(str(i) for i in e.items)}", rel, [t], e.pos)
 
@@ -415,9 +425,9 @@ class Evaluator:
         rel = Rel(attrs, rows)
         return rel, self._node(e.op, label, rel, [lt, rt], e.pos)
 
-    def natural_join(self, e: ast.Binary, outer: Optional[str]) -> Tuple[Rel, dict]:
-        left, lt = self.eval(e.left)
-        right, rt = self.eval(e.right)
+    @staticmethod
+    def _natural_join_plan(left: Rel, right: Rel, e: ast.Binary) -> Tuple[List[Tuple[int, int]], List[int], List[Attr]]:
+        """(left index, right index) pairs joined on, right indexes kept, and the output Attrs."""
         rnames = {}
         for j, a in enumerate(right.attrs):
             rnames.setdefault(a.name.casefold(), []).append(j)
@@ -433,6 +443,12 @@ class Evaluator:
         rkeep = [j for j in range(len(right.attrs)) if j not in rcommon]
         attrs = [Attr(a.name, a.quals | next((right.attrs[j].quals for i2, j in pairs if i2 == i), frozenset()), a.type)
                  for i, a in enumerate(left.attrs)] + [right.attrs[j] for j in rkeep]
+        return pairs, rkeep, attrs
+
+    def natural_join(self, e: ast.Binary, outer: Optional[str]) -> Tuple[Rel, dict]:
+        left, lt = self.eval(e.left)
+        right, rt = self.eval(e.right)
+        pairs, rkeep, attrs = self._natural_join_plan(left, right, e)
         index: Dict[Row, List[int]] = {}
         for j, r in enumerate(right.rows):
             index.setdefault(tuple(r[jj] for _, jj in pairs), []).append(j)
@@ -459,9 +475,9 @@ class Evaluator:
         rel = Rel(attrs, rows)
         return rel, self._node(e.op, _SYMBOL[e.op], rel, [lt, rt], e.pos)
 
-    def set_op(self, e: ast.Binary) -> Tuple[Rel, dict]:
-        left, lt = self.eval(e.left)
-        right, rt = self.eval(e.right)
+    @staticmethod
+    def _set_op_order(left: Rel, right: Rel, e: ast.Binary) -> List[int]:
+        """For each left attribute, the index of the right attribute with the same name."""
         llab, rlab = left.labels, right.labels
         lkeys, rkeys = [x.casefold() for x in llab], [x.casefold() for x in rlab]
         if sorted(lkeys) != sorted(rkeys) or len(set(lkeys)) != len(lkeys):
@@ -470,7 +486,12 @@ class Evaluator:
                           f"({', '.join(llab)}), the right has ({', '.join(rlab)}).", e.pos.line, e.pos.col,
                           "Use Π (or ρ to rename) so both sides match. Remember that σ, Π and ρ apply only "
                           "to the relation right after them — add parentheses to apply them to more.")
-        order = [rkeys.index(k) for k in lkeys]
+        return [rkeys.index(k) for k in lkeys]
+
+    def set_op(self, e: ast.Binary) -> Tuple[Rel, dict]:
+        left, lt = self.eval(e.left)
+        right, rt = self.eval(e.right)
+        order = self._set_op_order(left, right, e)
         rrows = [tuple(r[i] for i in order) for r in right.rows]
         lset, rset = _distinct(left.rows), set(rrows)
         if e.op == "union":
@@ -505,13 +526,28 @@ class Evaluator:
         seen: Dict[Row, set] = {}
         for r in left.rows:
             seen.setdefault(tuple(r[i] for i in keep), set()).add(tuple(r[i] for i in bcols))
-        rows = [a for a, bs in seen.items() if divisor <= bs]
+        if e.op == "division_any":
+            # Internal only (the grader's self-test): "at least one" instead of "all" —
+            # the mistake of writing a join where the question needs ÷. Never parsed.
+            rows = [a for a, bs in seen.items() if divisor & bs]
+        else:
+            rows = [a for a, bs in seen.items() if divisor <= bs]
         rel = Rel([left.attrs[i] for i in keep], rows)
         return rel, self._node("division", "÷", rel, [lt, rt], e.pos)
 
     # ── programs ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _assigned_copy(name: str, rel: Rel) -> Rel:
+        """An assigned relation is a renamed copy, so its attributes are qualified by the
+        new name (R1.Score). Attributes whose names repeat (after a θ-join) also keep
+        their old qualifier so they stay distinguishable."""
+        names = [a.name.casefold() for a in rel.attrs]
+        return Rel([Attr(a.name, frozenset({name}) | (a.quals if names.count(a.name.casefold()) > 1
+                                                      else frozenset()), a.type)
+                    for a in rel.attrs], rel.rows)
+
     def run(self, program: ast.Program) -> EvalResult:
-        statements = []
+        statements, steps = [], []
         rel = None
         for s in program.statements:
             rel, tree = self.eval(s.expr)
@@ -520,16 +556,11 @@ class Evaluator:
                     raise RAError(E.INVALID_ASSIGNMENT,
                                   f"“{s.name}” is already the name of a table; choose another name.",
                                   s.pos.line, s.pos.col)
-                # An assigned relation is a renamed copy, so its attributes are qualified
-                # by the new name (R1.Score). Attributes whose names repeat (after a
-                # θ-join) also keep their old qualifier so they stay distinguishable.
-                names = [a.name.casefold() for a in rel.attrs]
-                rel = Rel([Attr(a.name, frozenset({s.name}) | (a.quals if names.count(a.name.casefold()) > 1
-                                                               else frozenset()), a.type)
-                           for a in rel.attrs], rel.rows)
+                rel = self._assigned_copy(s.name, rel)
                 self.assigned[s.name.casefold()] = (s.name, rel)
             statements.append({"name": s.name, "tree": tree, "line": s.pos.line})
-        return EvalResult(rel.labels, rel.rows, statements, self.warnings, rel)
+            steps.append((s.name, s.pos.line, rel))
+        return EvalResult(rel.labels, rel.rows, statements, self.warnings, rel, steps)
 
 
 def evaluate(program: ast.Program, db: Database, *, trace: bool = True,

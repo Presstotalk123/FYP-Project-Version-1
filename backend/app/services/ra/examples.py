@@ -119,4 +119,42 @@ INSERT INTO RESERVATIONS VALUES (11, 1, '2026-10-01', 5), (12, 3, '2026-10-02', 
     ],
 }
 
-EXAMPLES = [LECTURE_1, LECTURE_2, LECTURE_3, TUTORIAL_Q1, TUTORIAL_Q2]
+_Q1_II = "R1 := γ MIN(GPA) → MinGPA (STUDENT)\nR2 := STUDENT ⋈ STUDENT.GPA = R1.MinGPA R1\nAnswer := π Sname (R2)"
+_Q1_IV = ("R1 := π Dname, Cno (σ Dname = 'Civil Engineering' COURSE)\nR2 := π Sid, Dname, Cno ENROLL\n"
+          "R3 := R2 ÷ R1\nAnswer := π Sid, Sname, GPA (R3 ⋈ STUDENT)")
+
+# Pairs of (model answer, student answer) for the playground's "Check against a model
+# answer" mode. The model answers are the tutorial's own (solution slides).
+TUTORIAL_Q1["grading_examples"] = [
+    {"title": "Q1(ii) — MAX instead of MIN (wrong)", "model_answer": _Q1_II,
+     "answer": _Q1_II.replace("MIN", "MAX")},
+    {"title": "Q1(ii) — hard-coded GPA (right on this data, wrong in general)", "model_answer": _Q1_II,
+     "answer": "π Sname σ GPA = 2.4 STUDENT"},
+    {"title": "Q1(iv) — double difference instead of ÷ (correct)", "model_answer": _Q1_IV,
+     "answer": "R1 := π Dname, Cno σ Dname = 'Civil Engineering' COURSE\nR2 := π Sid, Dname, Cno ENROLL\n"
+               "R3 := π Sid R2\nR4 := π Sid ((R3 × R1) − R2)\nR5 := R3 − R4\n"
+               "Answer := π Sid, Sname, GPA (R5 ⋈ STUDENT)"},
+]
+
+TUTORIAL_Q1_SCHEMA_ONLY = {
+    **TUTORIAL_Q1,
+    "id": "tutorial-5-5-q1-schema",
+    "title": "Tutorial 5.5 Q1 — schema only (no data)",
+    "description": "The Q1 schema with no data at all, as in the tutorial. Grading here relies "
+                   "entirely on generated test databases.",
+    "data_sql": "",
+    "grading_examples": [
+        {"title": "Q1(ii) — MAX instead of MIN (wrong)", "model_answer": _Q1_II,
+         "answer": _Q1_II.replace("MIN", "MAX")},
+        {"title": "Q1(iv) — any CE course instead of all (wrong)", "model_answer": _Q1_IV,
+         "answer": "R1 := π Dname, Cno σ Dname = 'Civil Engineering' COURSE\n"
+                   "Answer := π Sid, Sname, GPA (STUDENT ⋈ π Sid (ENROLL ⋈ R1))"},
+        {"title": "Q1(iv) — R1 picks the wrong department (wrong, R1 is ◐ close)", "model_answer": _Q1_IV,
+         "answer": _Q1_IV.replace("Civil Engineering", "Computer Science")},
+        {"title": "Q1(iv) — your own step names (correct)", "model_answer": _Q1_IV,
+         "answer": "ce := π Dname, Cno σ Dname = 'Civil Engineering' COURSE\ntook := π Sid, Dname, Cno ENROLL\n"
+                   "all := took ÷ ce\nπ Sid, Sname, GPA (all ⋈ STUDENT)"},
+    ],
+}
+
+EXAMPLES = [LECTURE_1, LECTURE_2, LECTURE_3, TUTORIAL_Q1, TUTORIAL_Q1_SCHEMA_ONLY, TUTORIAL_Q2]

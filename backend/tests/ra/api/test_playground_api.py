@@ -57,3 +57,38 @@ def test_oversized_input_is_refused(client, student_headers, ra_on):
     r = client.post("/api/v1/ra/playground/run", headers=student_headers,
                     json={**QUIZ, "expression": "x" * 6000})
     assert r.status_code == 422
+
+
+# ── POST /ra/playground/grade ────────────────────────────────────────────────
+def _grading_example(example_id: str, index: int):
+    ex = next(e for e in EXAMPLES if e["id"] == example_id)
+    g = ex["grading_examples"][index]
+    return {"schema_sql": ex["schema_sql"], "data_sql": ex["data_sql"],
+            "model_answer": g["model_answer"], "answer": g["answer"]}
+
+
+def test_grade_is_404_while_off(client, student_headers):
+    body = _grading_example("tutorial-5-5-q1-schema", 0)
+    assert client.post("/api/v1/ra/playground/grade", json=body, headers=student_headers).status_code == 404
+
+
+def test_grade_returns_verdict_counterexample_steps_and_suite(client, student_headers, ra_on):
+    r = client.post("/api/v1/ra/playground/grade", headers=student_headers,
+                    json=_grading_example("tutorial-5-5-q1-schema", 0)).json()   # MAX instead of MIN
+    assert r["ok"] and r["grade"]["verdict"] == "wrong_in_general"
+    assert r["grade"]["counterexample"]["tables"]["STUDENT"]["rows"]
+    assert [s["status"] for s in r["grade"]["steps"]] == ["close", "close", "close"]
+    assert r["suite"]["mutants_killed"] == r["suite"]["mutants"] > 0
+    # Step trees for "Show structure", on a generated database since this question has no data.
+    assert r["structure_source"] == "generated" and len(r["structure"]["steps"]) == 3
+
+
+def test_grade_reports_which_input_is_broken(client, student_headers, ra_on):
+    body = _grading_example("tutorial-5-5-q1-schema", 0)
+    bad_model = client.post("/api/v1/ra/playground/grade", headers=student_headers,
+                            json={**body, "model_answer": "π Nope STUDENT"}).json()
+    assert not bad_model["ok"] and bad_model["error_source"] == "model" and bad_model["error"]["code"] == "RA003"
+    bad_answer = client.post("/api/v1/ra/playground/grade", headers=student_headers,
+                             json={**body, "answer": "π Nope STUDENT"}).json()
+    assert bad_answer["ok"] and bad_answer["grade"]["verdict"] == "invalid_expression"
+    assert bad_answer["structure"] is None

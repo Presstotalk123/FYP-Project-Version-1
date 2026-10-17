@@ -59,6 +59,12 @@ class PlaygroundRunOut(BaseModel):
     elapsed_ms: float = 0
 
 
+class GradingExampleOut(BaseModel):
+    title: str
+    model_answer: str
+    answer: str
+
+
 class ExampleOut(BaseModel):
     id: str
     title: str
@@ -66,3 +72,69 @@ class ExampleOut(BaseModel):
     schema_sql: str
     data_sql: str
     expressions: List[str]
+    grading_examples: List[GradingExampleOut] = []
+
+
+class StepFeedbackOut(BaseModel):
+    """One statement of the student's answer compared with the model answer's steps."""
+    name: Optional[str] = None
+    line: Optional[int] = None
+    text: str
+    columns: List[str]
+    status: Literal["match", "close", "none"]
+    checkpoint: Optional[str] = None
+    renamed: bool = False
+    case: Optional[Dict[str, Any]] = None
+
+
+class GradeOut(BaseModel):
+    verdict: Literal["correct", "wrong_columns", "wrong_result", "wrong_in_general", "invalid_expression"]
+    message: str
+    method: Optional[Literal["proof", "tested", "sample"]] = None
+    expected_columns: List[str] = []
+    student_columns: List[str] = []
+    databases_checked: int = 0
+    missing_count: int = 0
+    extra_count: int = 0
+    extra_rows: List[List[Any]] = []
+    counterexample: Optional[Dict[str, Any]] = None
+    steps: List[StepFeedbackOut] = []
+    error: Optional[RAErrorOut] = None
+    elapsed_ms: float = 0
+
+
+class SurvivingMutantOut(BaseModel):
+    description: str
+    line: Optional[int] = None
+    text: str
+
+
+class SuiteSummaryOut(BaseModel):
+    """How strong the question's test databases are (see core/ra/suite.py)."""
+    databases: int
+    mutants: int
+    mutants_killed: int
+    candidates_tried: int
+    build_ms: float
+    surviving_mutants: List[SurvivingMutantOut] = []
+
+
+class PlaygroundGradeIn(BaseModel):
+    schema_sql: str = Field(..., max_length=MAX_SQL_CHARS)
+    data_sql: str = Field("", max_length=MAX_SQL_CHARS)
+    model_answer: str = Field(..., max_length=MAX_PROGRAM_CHARS)
+    answer: str = Field(..., max_length=MAX_PROGRAM_CHARS)
+
+
+class PlaygroundGradeOut(BaseModel):
+    ok: bool
+    # Which input an error is in. A student-answer error is a grade (invalid_expression), not this.
+    error_source: Optional[Literal["schema", "model"]] = None
+    error: Optional[RAErrorOut] = None
+    grade: Optional[GradeOut] = None
+    suite: Optional[SuiteSummaryOut] = None
+    # The student's answer evaluated step by step, for "Show structure": on the question's
+    # data if it has any, otherwise on one of the generated test databases.
+    structure: Optional[EvalOut] = None
+    structure_source: Optional[Literal["sample", "generated"]] = None
+    structure_relations: List[RelationOut] = []

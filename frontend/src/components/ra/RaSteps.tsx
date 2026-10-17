@@ -24,7 +24,7 @@ const OP_NAMES: Record<string, string> = {
 };
 
 /** One node of the expression tree: its operator, result size and (on demand) its tuples. */
-function StepNode({ node, depth }: { node: RaStepNode; depth: number }) {
+export function StepNode({ node, depth }: { node: RaStepNode; depth: number }) {
   // The top of each statement starts open; inputs start closed to keep the view short.
   const [open, setOpen] = useState(depth === 0);
   const isLeaf = node.children.length === 0;

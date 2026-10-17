@@ -4,8 +4,11 @@
                                   before showing any RA link)
   GET  /ra/playground/examples    ready-made schemas from the lectures and Tutorial 5.5
   POST /ra/playground/run         load a schema/data, then evaluate an RA expression
+  POST /ra/playground/grade       grade an answer against a model answer, with the
+                                  verdict, a counterexample, step-by-step feedback and
+                                  how strong the generated test databases are
 
-The playground is a free practice space (like RelaX): nothing is graded or saved. Any
+The playground is a free practice space (like RelaX): nothing is saved. Any
 signed-in user may use it. The schema SQL runs in a private in-memory SQLite with file
 access, PRAGMAs and long-running statements blocked (core/ra/schema.py), and the RA
 answer itself never reaches SQLite. Everything except /status 404s while RA_ENABLED is off.
@@ -19,8 +22,10 @@ from app.config import settings
 from app.core.ra import Database, EvalOptions, RAError, evaluate, parse
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.ra import (EvalOut, ExampleOut, PlaygroundRunIn, PlaygroundRunOut,
-                            RAErrorOut, RAStatus, RelationOut)
+from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, PlaygroundGradeIn, PlaygroundGradeOut,
+                            PlaygroundRunIn, PlaygroundRunOut, RAErrorOut, RAStatus, RelationOut,
+                            SuiteSummaryOut)
+from app.services.ra import grading
 from app.services.ra.examples import EXAMPLES
 
 router = APIRouter(prefix="/ra", tags=["relational-algebra"])
@@ -71,6 +76,34 @@ def run_playground(body: PlaygroundRunIn, _user: User = Depends(get_current_user
                        warnings=[RAErrorOut.from_engine(w) for w in result.warnings]),
         elapsed_ms=_ms(started),
     )
+
+
+@router.post("/playground/grade", response_model=PlaygroundGradeOut,
+             dependencies=[Depends(require_ra_enabled)])
+def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_user)) -> PlaygroundGradeOut:
+    try:
+        Database.from_sql(body.schema_sql, body.data_sql)
+    except RAError as e:
+        return PlaygroundGradeOut(ok=False, error_source="schema", error=RAErrorOut.from_engine(e))
+    try:
+        question = grading.prepared(body.schema_sql, body.model_answer, body.data_sql, options=eval_options())
+    except RAError as e:
+        return PlaygroundGradeOut(ok=False, error_source="model", error=RAErrorOut.from_engine(e))
+
+    result = question.grade(body.answer)
+    out = PlaygroundGradeOut(ok=True, grade=GradeOut(**result.to_dict()),
+                             suite=SuiteSummaryOut(**question.suite.summary()))
+    if result.verdict != "invalid_expression":
+        db, source = grading.structure_database(question)
+        try:
+            run = evaluate(parse(body.answer, db.names()), db, options=eval_options())
+        except RAError:
+            return out                      # the verdict still stands; only the step trees are missing
+        out.structure = EvalOut(columns=run.columns, rows=[list(r) for r in run.rows], row_count=len(run.rows),
+                                steps=run.statements, warnings=[RAErrorOut.from_engine(w) for w in run.warnings])
+        out.structure_source = source
+        out.structure_relations = [RelationOut(**r) for r in db.to_dict()]
+    return out
 
 
 def _ms(started: float) -> float:

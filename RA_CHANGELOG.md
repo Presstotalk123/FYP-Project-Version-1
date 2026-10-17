@@ -107,3 +107,61 @@ Commits: `10e5cbe` (engine + playground), `c7c5348` (top-bar link).
 7. Click **Edit SQL** to change the schema or data, then **Load schema**.
 8. Set `RA_ENABLED=false` in `backend/.env` and restart the backend: the top-bar link
    disappears and `/ra/playground` says the module is switched off.
+
+---
+
+## Step 2: The grader (17 Oct 2026)
+
+Commit: "Grade RA answers by proof or generated databases, with step feedback" (`git log --oneline` shows its hash).
+No shared files were touched in this step.
+
+**What was built** (all in `backend/app/core/ra/`)
+
+| File | What it does |
+|---|---|
+| `compare.py` | Two results are the same answer when they have the same attribute names (any order) and the same tuples; sets by default, bags as an option |
+| `generator.py` | Builds small test databases from the **schema alone**: a few values per attribute, shared between attributes with the same name, plus every constant in the answers and its neighbours (`< 50` → 49, 50, 51). Every tuple is checked against the schema in SQLite, so keys, NOT NULL, foreign keys and **CHECK constraints** hold — staff write a question's assumptions as CHECK constraints |
+| `mutate.py` | Makes deliberately wrong versions of the model answer: MIN↔MAX, <↔≤, ÷ → "at least one", ∪↔∩, swapped −, dropped conditions, inner↔outer joins … |
+| `suite.py` | Generates databases until every wrong version is caught, keeps those that catch something plus 60 random and 5 larger ones, and reports how many were caught ("test strength") |
+| `conjunctive.py` | **Exact proof** for answers that only use σ (with =), π, ⋈, ×, ρ, ∪, ∩ (Chandra–Merlin): equivalent on every possible database, no testing needed |
+| `shrink.py` | Shrinks a counterexample to the fewest tuples that still show the difference, with readable values |
+| `grader.py` | Puts it together: errors → wrong attributes → question data → proof → test databases; and compares **every step** of the student's answer with the model answer's steps (✓ match / ◐ close / ○ no match), by content, not by name |
+| `printer.py` | Writes an expression back in slide notation |
+
+**Results on Tutorial 5.5 (schema only, no data):** every model answer from the
+solution slides is accepted; correct alternatives are accepted (÷ as a double
+difference, steps vs one expression, other step names, ∩ as a join, MIN without γ);
+typical mistakes are rejected with a small counterexample, including the two the old
+prototype accepted (MAX instead of MIN, "any" instead of "all"), a hard-coded GPA, and
+a difference on names that can repeat. Test strength: every wrong version caught for
+10 of 11 model answers; the one survivor (Q1 iii, ⋈ → ⟕ in R2) is provably equivalent.
+Grading takes 2–5 ms per answer (Q5, with its triple ×, 45 ms).
+
+**Found while testing, for the supervisor**
+- `γ MAX(A) → A R` differs from Q4's model answer when R is empty (γ returns one NULL
+  tuple, as SQL does). Does the course count that as wrong?
+- Q1(iv) by counting (lecture 2 slide 28) is wrong here twice over: two sections of
+  one course count twice, and with no Civil Engineering courses ÷ returns every
+  enrolled student while counting returns nobody.
+- The tutorial question says ‘Database System’, the solution slide ‘Database Systems’.
+  The grader treats them as different constants.
+
+**How to check it on localhost**
+1. Open **Relational Algebra** in the top bar, then press **Check against a model answer**.
+2. In the top-right menu choose **Tutorial 5.5 Q1 — schema only (no data)**. Every
+   relation shows *0 tuples*: grading here uses generated databases only.
+3. Click **Q1(ii) — MAX instead of MIN (wrong)**, then **Check**. Expected:
+   *✗ Not correct in general*, a small STUDENT table (two students, different GPAs), and
+   what each answer returns on it. Under **Your steps**, R1 is ◐ (close).
+4. Click **Q1(iv) — R1 picks the wrong department**, then **Check**. Under **Your steps**,
+   R1 is ◐ and R2 ✓. Press **Show structure** on R1: its tree, its output, and the
+   **Direction** with a small database where it differs from the model's step.
+5. Click **Q1(iv) — your own step names (correct)**, then **Check**. Expected: *✓ Correct*
+   and every step ✓, although the steps are called `ce`, `took`, `all`.
+6. Click **Q1(iv) — any CE course instead of all (wrong)**: rejected with a counterexample.
+7. Open **Test strength** under the result: *caught 4 of 4 deliberately wrong versions*.
+8. Choose **Tutorial 5.5 Q1 — university (made-up data)** and run *Q1(ii) — hard-coded GPA*:
+   the message says it is right on the question's data but not in general.
+9. Try your own: paste any tutorial model answer into *Model answer*, write an answer,
+   press **Check** (or Ctrl/⌘+Enter). The first check of a new model answer takes up to
+   a few seconds while its test databases are built.

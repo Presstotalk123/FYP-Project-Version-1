@@ -1,11 +1,12 @@
 import api from '@/services/api.service';
-import { RaExample, RaPlaygroundRunResponse, RaStatus } from '@/types/ra.types';
+import { RaExample, RaPlaygroundGradeResponse, RaPlaygroundRunResponse, RaStatus } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
 export const RA_ENDPOINTS = {
   STATUS: '/ra/status',
   PLAYGROUND_EXAMPLES: '/ra/playground/examples',
   PLAYGROUND_RUN: '/ra/playground/run',
+  PLAYGROUND_GRADE: '/ra/playground/grade',
 };
 
 export const raQueryKeys = {
@@ -35,6 +36,17 @@ export const raService = {
       schema_sql: schemaSql,
       data_sql: dataSql,
       expression,
+    });
+    return response.data;
+  },
+
+  /** Grade `answer` against `modelAnswer` on this schema. Nothing is saved. */
+  async gradePlayground(schemaSql: string, dataSql: string, modelAnswer: string, answer: string): Promise<RaPlaygroundGradeResponse> {
+    const response = await api.post<RaPlaygroundGradeResponse>(RA_ENDPOINTS.PLAYGROUND_GRADE, {
+      schema_sql: schemaSql,
+      data_sql: dataSql,
+      model_answer: modelAnswer,
+      answer,
     });
     return response.data;
   },

@@ -18,9 +18,9 @@ from app.core import cache
 from app.models.concept_mastery import ConceptMastery
 from app.models.sql_concept import SqlConcept
 from app.models.sql_concept_prerequisite import SqlConceptPrerequisite
-from app.models.sql_tutor_conversation import SqlTutorConversation
 from app.models.user import User, UserRole
 from app.services import scaffolding_engine
+from app.services.sql_tutor_adaptive import resolve_active_concept
 
 
 def mastery_band(level: Optional[float]) -> str:
@@ -114,17 +114,13 @@ def peer_benchmark(db: Session, class_group: Optional[str]) -> dict:
 
 
 def scaffolding_for_question(db: Session, user_id: int, question_id: int) -> dict:
-    """Current scaffolding level for the chat indicator. Never creates a row."""
-    conv = (
-        db.query(SqlTutorConversation)
-        .filter(
-            SqlTutorConversation.user_id == user_id,
-            SqlTutorConversation.question_id == question_id,
-            SqlTutorConversation.context_type == "question",
-        )
-        .first()
-    )
-    level = conv.scaffolding_level if conv else scaffolding_engine.DEFAULT_LEVEL
+    """Current scaffolding level for the chat indicator. Never creates a row.
+
+    Read from the student's mastery of the question's active concept, so it is
+    correct before their first tutor message on this question.
+    """
+    concept_id = resolve_active_concept(db, question_id)
+    level = scaffolding_engine.level_for_concept(db, user_id, concept_id)
     return {
         "question_id": question_id,
         "scaffolding_level": level,

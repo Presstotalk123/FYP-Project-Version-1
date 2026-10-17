@@ -18,6 +18,8 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models.concept_mastery import ConceptMastery
 from app.models.question_concept import QuestionConcept
+from app.services import scaffolding_engine
+from app.services.learning_telemetry import log_event, EVENT_SCAFFOLDING_CHANGED
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,8 @@ def apply_attempt(db: Session, user_id: int, question_id: int, is_correct: bool)
                   mastery_level += SUCCESS_DELTA * weight
       incorrect-> consecutive_failures += 1, consecutive_successes = 0,
                   mastery_level -= FAILURE_DELTA * weight
+    then applies the scaffolding transition rule to the concept's level (once per
+    submission) and logs a scaffolding_changed event for each concept that moved.
 
     Returns the list of concept_ids that were updated. Commits the session.
     """
@@ -47,6 +51,7 @@ def apply_attempt(db: Session, user_id: int, question_id: int, is_correct: bool)
 
     now = datetime.now(timezone.utc)
     updated: List[int] = []
+    transitions = []
 
     for concept_id, weight in tags:
         weight = weight if weight is not None else 1.0
@@ -65,6 +70,9 @@ def apply_attempt(db: Session, user_id: int, question_id: int, is_correct: bool)
                 consecutive_failures=0, total_attempts=0,
             )
             db.add(mastery)
+        if mastery.scaffolding_level is None:
+            # Seed from mastery as it stood BEFORE this attempt (legacy rows / new rows).
+            mastery.scaffolding_level = scaffolding_engine.current_level(mastery)
 
         if is_correct:
             mastery.consecutive_successes += 1
@@ -80,9 +88,22 @@ def apply_attempt(db: Session, user_id: int, question_id: int, is_correct: bool)
             )
         mastery.total_attempts += 1
         mastery.last_attempt_at = now
+
+        prev_level, new_level, changed = scaffolding_engine.apply_attempt_transition(mastery)
+        if changed:
+            transitions.append((concept_id, prev_level, new_level))
         updated.append(concept_id)
 
     db.commit()
+
+    for concept_id, prev_level, new_level in transitions:
+        log_event(
+            user_id=user_id,
+            event_type=EVENT_SCAFFOLDING_CHANGED,
+            question_id=question_id,
+            concept_id=concept_id,
+            payload={"from_level": prev_level, "to_level": new_level},
+        )
     return updated
 
 

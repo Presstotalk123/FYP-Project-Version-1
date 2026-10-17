@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -13,8 +13,9 @@ class ConceptMastery(Base):
 
     Written only by the Learner Profiling Agent (deterministic streak arithmetic);
     read by the adaptive chatbot and the LAD. ``mastery_level`` is a smooth 0..1
-    value for scaffolding-threshold math; the display band (novice/developing/
-    proficient/mastered) is derived from it at read time.
+    value; the display band (novice/developing/proficient/mastered) is derived from
+    it at read time. ``scaffolding_level`` is the per-concept AI-support level the
+    tutor uses on every question tagged with this concept.
     """
     __tablename__ = "concept_mastery"
     __table_args__ = (
@@ -27,5 +28,9 @@ class ConceptMastery(Base):
     consecutive_successes = Column(Integer, nullable=False, default=0)
     consecutive_failures = Column(Integer, nullable=False, default=0)
     total_attempts = Column(Integer, nullable=False, default=0)
+    # Adaptive scaffolding level for this concept: full | guided | minimal | independent.
+    # NULL on rows that predate per-concept scaffolding; scaffolding_engine seeds it
+    # from mastery_level on read and persists it on the next attempt.
+    scaffolding_level = Column(String(20), nullable=True)
     last_attempt_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -198,7 +198,7 @@ export function ChatTab({ questionId, result }: ChatTabProps) {
       }}>
         <ScaffoldingIndicator
           questionId={questionId}
-          refreshKey={result?.attempts_used ?? undefined}
+          refreshKey={result}
         />
       </div>
 

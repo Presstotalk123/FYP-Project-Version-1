@@ -6,8 +6,9 @@ import { ScaffoldingLevel } from '@/types/lad.types';
 
 interface ScaffoldingIndicatorProps {
   questionId: number;
-  // Bump to force a refetch (e.g. after a query submission that may change the level).
-  refreshKey?: number | string;
+  // Change (by identity) to force a refetch, e.g. pass the latest submission result,
+  // since a submission is what can change the level.
+  refreshKey?: unknown;
 }
 
 // Visual style per level. Ordered full -> independent (most -> least AI support).
@@ -51,16 +52,22 @@ export function ScaffoldingIndicator({ questionId, refreshKey }: ScaffoldingIndi
 
   useEffect(() => {
     let cancelled = false;
-    ladService
-      .getScaffolding(questionId)
-      .then((state) => {
-        if (!cancelled) setLevel(state.scaffolding_level);
-      })
-      .catch(() => {
-        if (!cancelled) setLevel(null);
-      });
+    const load = () =>
+      ladService
+        .getScaffolding(questionId)
+        .then((state) => {
+          if (!cancelled) setLevel(state.scaffolding_level);
+        })
+        .catch(() => {
+          if (!cancelled) setLevel(null);
+        });
+    load();
+    // The level is updated by a background task after the submission response is
+    // sent, so re-check shortly after a refresh to pick up that write.
+    const retry = refreshKey != null ? setTimeout(load, 2000) : undefined;
     return () => {
       cancelled = true;
+      if (retry) clearTimeout(retry);
     };
   }, [questionId, refreshKey]);
 

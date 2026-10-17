@@ -15,9 +15,9 @@ class SqlTutorConversation(Base):
 
     Runs alongside the legacy ``tutor_chat_conversations`` during rollout, gated by
     the engine flag, mirroring how ``erd_tutor_conversations`` runs alongside the
-    Dify path. Carries the per-conversation scaffolding state the chatbot reads at
-    the start of every turn. Scaffolding is tracked against ``active_concept_id`` so
-    a student can be independent on one concept while needing full support on another.
+    Dify path. The authoritative scaffolding level lives per concept on
+    ConceptMastery; ``scaffolding_level`` here is a snapshot of the level for
+    ``active_concept_id``, refreshed at the start of every tutor turn.
     """
     __tablename__ = "sql_tutor_conversations"
     __table_args__ = (

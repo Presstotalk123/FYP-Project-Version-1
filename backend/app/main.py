@@ -114,6 +114,7 @@ for _stmt in (
     "ALTER TABLE er_submissions ADD COLUMN regraded_at TIMESTAMP",
     "ALTER TABLE er_submissions ADD COLUMN deductions_json TEXT",
     "ALTER TABLE platform_sessions ADD COLUMN left_at TIMESTAMP",
+    "ALTER TABLE concept_mastery ADD COLUMN scaffolding_level VARCHAR(20)",
 ):
     with engine.connect() as _conn:
         try:

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.attempt import Attempt
+from app.models.concept_mastery import ConceptMastery
 from app.models.lab_attempt import LabAttempt
 from app.models.lab_session import LabSession
 from app.models.lab_task_submission import LabTaskSubmission
@@ -41,7 +42,7 @@ from app.services.learning_telemetry import (
     EVENT_HINT_REQUESTED,
     EVENT_SCAFFOLDING_CHANGED,
 )
-from app.services.scaffolding_engine import DEFAULT_LEVEL, LEVELS
+from app.services.scaffolding_engine import DEFAULT_LEVEL, LEVELS, current_level
 from app.services.solo_classifier import SOLO_LEVELS
 
 # Opportunity index cap for the learning-curve buckets — keeps the response bounded when a
@@ -476,20 +477,20 @@ def _prefetch_all_student_metrics(db: Session, student_ids: list[int]) -> dict[i
             metrics[uid]["solo_sum"] += _SOLO_NUMERIC[level]
             metrics[uid]["solo_n"] += 1
 
-    # scaffolding_level_at_end: level on the student's most-recently-updated conversation.
-    conv_rows = (
-        db.query(
-            SqlTutorConversation.user_id,
-            SqlTutorConversation.scaffolding_level,
-            SqlTutorConversation.updated_at,
+    # scaffolding_level_at_end: level on the student's most-recently-attempted concept
+    # (scaffolding is tracked per concept on ConceptMastery).
+    mastery_rows = (
+        db.query(ConceptMastery)
+        .filter(
+            ConceptMastery.user_id.in_(student_ids),
+            ConceptMastery.last_attempt_at.isnot(None),
         )
-        .filter(SqlTutorConversation.user_id.in_(student_ids))
-        .order_by(SqlTutorConversation.user_id, SqlTutorConversation.updated_at)
+        .order_by(ConceptMastery.user_id, ConceptMastery.last_attempt_at, ConceptMastery.id)
         .all()
     )
-    for uid, level, _updated in conv_rows:
-        # Rows are ascending by updated_at, so the last one seen per user wins.
-        metrics[uid]["scaffolding_level_at_end"] = level
+    for mastery in mastery_rows:
+        # Rows are ascending by last_attempt_at, so the last one seen per user wins.
+        metrics[mastery.user_id]["scaffolding_level_at_end"] = current_level(mastery)
 
     # error_category_counts: per-student misconception tally over both error-bearing tables.
     for model in (Attempt, LabAttempt):

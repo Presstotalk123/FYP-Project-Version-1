@@ -22,7 +22,6 @@ from app.models.solo_classification import SoloClassification
 from app.models.sql_tutor_conversation import SqlTutorConversation
 from app.services import scaffolding_engine
 from app.services import sql_tutor_prompts
-from app.services.learning_telemetry import log_event, EVENT_SCAFFOLDING_CHANGED
 
 logger = logging.getLogger(__name__)
 
@@ -85,34 +84,18 @@ def latest_solo(db: Session, conversation_id: int):
 
 
 def prepare_turn(db: Session, user_id: int, question, student_query: str = "None yet") -> AdaptiveTurn:
-    """Compute scaffolding + SOLO state and build the adaptive system prompt.
-
-    Persists any scaffolding-level transition and logs a scaffolding_changed event.
-    """
+    """Look up scaffolding + SOLO state and build the adaptive system prompt."""
     conv = get_or_create_conversation(db, user_id, question.id)
 
     active_concept_id = resolve_active_concept(db, question.id)
     if active_concept_id != conv.active_concept_id:
         conv.active_concept_id = active_concept_id
 
-    # Recompute the scaffolding level from live mastery streaks for the active concept.
-    new_level, changed = scaffolding_engine.evaluate_for_concept(
-        db, user_id, active_concept_id, conv.scaffolding_level
-    )
-    if changed:
-        prev = conv.scaffolding_level
-        conv.scaffolding_level = new_level
-        db.commit()
-        log_event(
-            user_id=user_id,
-            event_type=EVENT_SCAFFOLDING_CHANGED,
-            question_id=question.id,
-            concept_id=active_concept_id,
-            conversation_id=conv.id,
-            payload={"from_level": prev, "to_level": new_level},
-        )
-    else:
-        db.commit()
+    # Read the student's per-concept level (transitions happen per submission in
+    # learner_profiling) and mirror it onto the conversation as a snapshot of the
+    # level this turn was tutored at, which the research export groups by.
+    conv.scaffolding_level = scaffolding_engine.level_for_concept(db, user_id, active_concept_id)
+    db.commit()
 
     # SOLO from the previous turn drives this turn's tailoring, gated by confidence.
     solo = latest_solo(db, conv.id)

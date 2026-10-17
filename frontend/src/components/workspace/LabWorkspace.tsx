@@ -887,15 +887,22 @@ export function LabWorkspace({
             <QuestionWeightBadge weight={weight} />
           </div>
         )}
-        <button
-          className="btn btn-secondary"
-          style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
-          onClick={handleReset}
-          disabled={isResetting}
-        >
-          <IconRefresh />
-          {isResetting ? 'Resetting…' : 'Reset Database'}
-        </button>
+        {lab.read_only ? (
+          // Read-only labs query the shared template directly, so there is nothing to reset.
+          <span className="badge neutral" title="Only read-only queries (SELECT, WITH, …) can be run in this lab">
+            Read-only
+          </span>
+        ) : (
+          <button
+            className="btn btn-secondary"
+            style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}
+            onClick={handleReset}
+            disabled={isResetting}
+          >
+            <IconRefresh />
+            {isResetting ? 'Resetting…' : 'Reset Database'}
+          </button>
+        )}
         <button
           className="btn btn-brand"
           style={{ minHeight: 34, padding: '0 12px', fontSize: 13 }}

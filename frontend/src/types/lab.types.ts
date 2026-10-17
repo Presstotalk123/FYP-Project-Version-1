@@ -9,6 +9,8 @@ export interface Lab {
   is_running: boolean;
   hide_correctness: boolean;
   disable_ai_assist: boolean;
+  /** SQL labs only: students query the shared template read-only (no per-student copy). */
+  read_only: boolean;
   lab_type: 'sql' | 'graph';
   created_at: string;
   updated_at: string;
@@ -36,6 +38,7 @@ export interface LabCreate {
   schema_sql: string;
   sample_data_sql: string;
   lab_type?: 'sql' | 'graph';
+  read_only?: boolean;
 }
 
 export interface LabUpdate {
@@ -44,6 +47,7 @@ export interface LabUpdate {
   schema_sql?: string;
   sample_data_sql?: string;
   lab_type?: 'sql' | 'graph';
+  read_only?: boolean;
 }
 
 export interface SessionStartResponse {

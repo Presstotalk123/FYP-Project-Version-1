@@ -23,6 +23,11 @@ class Lab(Base):
     # students - independent of hide_correctness (correctness feedback stays as-is).
     disable_ai_assist = Column(Integer, default=0)
 
+    # When set (SQL labs only), students query the shared template directly in read-only
+    # mode - no per-student copy - and only read-only statements are accepted, like
+    # SQL Questions.
+    read_only = Column(Integer, nullable=False, default=0)
+
     # Template database
     template_db_path = Column(String(500), nullable=False)  # Filename of template DB
 

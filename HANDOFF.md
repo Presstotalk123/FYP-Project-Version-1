@@ -476,6 +476,31 @@ pattern, entirely in `utils/lab_db_manager.py`:
    every student's session `.db` file — the template is untouched, so starting
    the lab again later regenerates clean sessions from it.
 
+**Read-only SQL Labs** (`Lab.read_only = 1`, set via the "Read-only lab"
+checkbox in the lab form; SQL labs only, always 0 for graph labs) skip the copy
+entirely and behave like SQL Questions (§6.1):
+- `start_session` stores the **template path** in `LabSession.db_file_path`
+  instead of copying, so there is no per-student file.
+- Every lab query path (`execute_query`, `validate_task_answer`, and the staff
+  `assign_task_answer` / `update_lab_task` hash recomputation) calls
+  `execute_lab_query(..., read_only=True)`, which delegates to the Questions
+  executor `execute_student_query`. That gives the same single-statement
+  read-only whitelist (`QueryExecutor._is_safe_query`) and opens the template
+  with `file:...?mode=ro`. `execute_query` and `validate_task_answer` resolve
+  the template via `get_lab_template_path` rather than trusting the session row.
+- `reset_session` is a no-op 200 (no reset sentinel is logged), and the
+  workspace shows a "Read-only" badge in place of the Reset button.
+- Because a read-only session's `db_file_path` *is* the template,
+  `lab_cleanup.delete_session_file_with_retry` refuses to delete anything outside
+  `<LAB_DB_PATH>/sessions/`. That guard is what keeps stop/exit/reset/assessment
+  finalisation from deleting the template. `delete_lab_template` has its own path
+  and still removes it when a lab is deleted.
+- Flipping the flag in `update_lab` terminates all active sessions (after the
+  commit), since a session's path depends on the mode. Assessment clones copy
+  the flag. Migration: `run_add_read_only_migration.py` /
+  `migrations/add_read_only_column.sql`.
+- Tests: `backend/tests/test_lab_read_only.py`.
+
 **Graph Labs** (`Lab.lab_type = "graph"`) are the same template/session pattern
 applied to a different backend: `utils/graph_db_manager.py` builds the template
 by running Cypher (not SQL) through the `graphqlite` library
@@ -1487,7 +1512,10 @@ which is a meaningfully different shape from Questions:
   against their session-scoped database copy (§6.2), dispatching to
   `LabQueryExecutor` or `GraphQueryExecutor` by `lab.lab_type`, and logs a
   `LabAttempt` row. This is exploratory — it's how a student runs a query at
-  all, correct or not, task-related or not.
+  all, correct or not, task-related or not. **Exception:** for read-only SQL
+  labs (`Lab.read_only`, §6.2) it runs against the shared template through
+  `execute_lab_query(..., read_only=True)`. That accepts read-only statements
+  only, on a `mode=ro` connection, exactly as SQL Questions do.
 - `POST /labs/tasks/submit` is the actual grading step, and it is **not** a
   second query execution**: it takes the `columns`/`results` the *client already
   received* from a prior `/execute` call, hashes them

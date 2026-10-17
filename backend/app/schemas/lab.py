@@ -11,6 +11,7 @@ class LabCreate(BaseModel):
     schema_sql: str = Field(..., min_length=1)
     sample_data_sql: str = Field(..., min_length=1)
     lab_type: str = Field(default="sql", pattern="^(sql|graph)$")
+    read_only: bool = False
 
 
 class LabUpdate(BaseModel):
@@ -19,6 +20,7 @@ class LabUpdate(BaseModel):
     description: Optional[str] = Field(None, min_length=1)
     schema_sql: Optional[str] = Field(None, min_length=1)
     sample_data_sql: Optional[str] = Field(None, min_length=1)
+    read_only: Optional[bool] = None
 
 
 class LabListItem(BaseModel):
@@ -30,6 +32,7 @@ class LabListItem(BaseModel):
     is_running: bool
     hide_correctness: bool = False
     disable_ai_assist: bool = False
+    read_only: bool = False
     lab_type: str = "sql"
     created_at: datetime
     updated_at: datetime
@@ -47,6 +50,7 @@ class LabDetail(BaseModel):
     is_running: bool
     hide_correctness: bool = False
     disable_ai_assist: bool = False
+    read_only: bool = False
     lab_type: str = "sql"
     template_db_path: str
     schema_sql: str
@@ -68,6 +72,7 @@ class LabResponse(BaseModel):
     is_running: bool
     hide_correctness: bool = False
     disable_ai_assist: bool = False
+    read_only: bool = False
     lab_type: str = "sql"
     created_at: datetime
     updated_at: datetime

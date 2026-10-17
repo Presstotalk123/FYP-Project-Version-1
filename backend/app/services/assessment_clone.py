@@ -137,6 +137,7 @@ def clone_lab_for_assessment(
         schema_sql=master.schema_sql,
         sample_data_sql=master.sample_data_sql,
         lab_type=master.lab_type,
+        read_only=master.read_only,
         created_by=master.created_by,
         is_deleted=0,
         owner_assessment_id=assessment_id,

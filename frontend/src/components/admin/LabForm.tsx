@@ -53,6 +53,7 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
   const [description, setDescription] = useState(lab?.description || '');
   const [schemaSql, setSchemaSql] = useState(lab?.schema_sql || '');
   const [sampleDataSql, setSampleDataSql] = useState(lab?.sample_data_sql || '');
+  const [readOnly, setReadOnly] = useState(lab?.read_only ?? false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +90,8 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
         // Graph labs use a single Cypher field; send a placeholder for the unused column
         sample_data_sql: labType === 'graph' ? ' ' : sampleDataSql,
         lab_type: labType,
+        // Read-only mode only applies to SQL labs
+        read_only: labType === 'sql' && readOnly,
       };
 
       if (isEdit && lab) {
@@ -246,6 +249,20 @@ export function LabForm({ lab, isEdit = false, onSuccess, submitLabel, labType: 
               />
             </div>
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={readOnly}
+              onChange={(e) => setReadOnly(e.target.checked)}
+              disabled={isDisabled ?? false}
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              <strong>Read-only lab</strong>: students can only run read-only queries (SELECT, WITH, …)
+              against the shared lab database. No per-student copy is made, and there is nothing to reset.
+            </span>
+          </label>
         </>
       )}
 

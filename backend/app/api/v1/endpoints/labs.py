@@ -93,6 +93,8 @@ def create_lab(
         schema_sql=lab_data.schema_sql,
         sample_data_sql=lab_data.sample_data_sql,
         lab_type=lab_data.lab_type,
+        # Read-only mode only applies to SQL labs
+        read_only=1 if (lab_data.read_only and lab_data.lab_type == "sql") else 0,
         template_db_path="",  # Will be set after creation
         created_by=current_user.id,
         is_published=0,
@@ -134,6 +136,7 @@ def create_lab(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -179,6 +182,7 @@ def list_labs(
                 is_running=bool(lab.is_running),
                 hide_correctness=bool(lab.hide_correctness),
                 disable_ai_assist=bool(lab.disable_ai_assist),
+                read_only=bool(lab.read_only),
                 lab_type=lab.lab_type,
                 created_at=lab.created_at,
                 updated_at=lab.updated_at
@@ -192,6 +196,12 @@ def list_labs(
         key=(f"role={role}", f"skip={skip}", f"limit={limit}"),
         producer=producer,
     )
+
+
+def _is_read_only_sql_lab(lab: Lab) -> bool:
+    """True for SQL labs in read-only mode: sessions query the shared template directly
+    (opened read-only, read-only statements only) instead of a per-student copy."""
+    return lab.lab_type == "sql" and bool(lab.read_only)
 
 
 def _lab_accessible_via_assessment(lab_id: int, user_id: int, db: Session) -> bool:
@@ -249,6 +259,7 @@ def get_lab(
             is_running=bool(lab.is_running),
             hide_correctness=bool(lab.hide_correctness),
             disable_ai_assist=bool(lab.disable_ai_assist),
+            read_only=bool(lab.read_only),
             lab_type=lab.lab_type,
             template_db_path=lab.template_db_path,
             schema_sql=lab.schema_sql,
@@ -319,6 +330,16 @@ def update_lab(
     if lab_data.sample_data_sql:
         lab.sample_data_sql = lab_data.sample_data_sql
 
+    # Read-only mode only applies to SQL labs. Switching modes ends every active session
+    # (after the commit below), since a session's database path depends on the mode
+    # (shared template vs. per-student copy).
+    read_only_changed = False
+    if lab_data.read_only is not None:
+        new_read_only = 1 if (lab_data.read_only and lab.lab_type == "sql") else 0
+        if new_read_only != (lab.read_only or 0):
+            lab.read_only = new_read_only
+            read_only_changed = True
+
     # Regenerate template if SQL/Cypher changed (dispatch on lab_type)
     if sql_changed:
         try:
@@ -335,6 +356,10 @@ def update_lab(
 
     lab.updated_at = datetime.utcnow()
     db.commit()
+
+    if read_only_changed:
+        terminate_all_lab_sessions(lab.id, db)
+
     db.refresh(lab)
 
     return LabResponse(
@@ -345,6 +370,7 @@ def update_lab(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -428,6 +454,7 @@ def publish_lab(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -474,6 +501,7 @@ def unpublish_lab(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -515,6 +543,7 @@ def hide_lab_results(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -555,6 +584,7 @@ def show_lab_results(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -596,6 +626,7 @@ def disable_lab_ai_assist(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -636,6 +667,7 @@ def enable_lab_ai_assist(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -684,6 +716,7 @@ def start_lab(
         is_running=bool(lab.is_running),
         hide_correctness=bool(lab.hide_correctness),
         disable_ai_assist=bool(lab.disable_ai_assist),
+        read_only=bool(lab.read_only),
         lab_type=lab.lab_type,
         created_at=lab.created_at,
         updated_at=lab.updated_at
@@ -777,14 +810,23 @@ def start_session(
             started_at=existing_session.started_at
         )
 
-    # Copy template database to create session database
-    try:
-        session_db_path = copy_template_to_session(lab_id, current_user.id)
-    except LabDatabaseError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create session database: {str(e)}"
-        )
+    if _is_read_only_sql_lab(lab):
+        # Read-only lab: the session queries the shared template directly - no copy.
+        session_db_path = get_lab_template_path(lab_id)
+        if not os.path.exists(session_db_path):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Lab template database not found"
+            )
+    else:
+        # Copy template database to create session database
+        try:
+            session_db_path = copy_template_to_session(lab_id, current_user.id)
+        except LabDatabaseError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create session database: {str(e)}"
+            )
 
     # Create session record - wrapped in try-except to handle race conditions
     try:
@@ -931,7 +973,9 @@ def execute_query(
     # base-tier connection budget under load. db.commit() ends the read transaction so
     # the connection returns to the pool; the write phase re-checks one out for a few ms.
     lab_type = lab.lab_type
-    session_db_path = session.db_file_path
+    read_only = _is_read_only_sql_lab(lab)
+    # Read-only labs always run against the template, never whatever path the session holds.
+    session_db_path = get_lab_template_path(lab.id) if read_only else session.db_file_path
     sess_id = session.id
     sess_lab_id = session.lab_id
     user_id = current_user.id
@@ -944,7 +988,9 @@ def execute_query(
         if lab_type == "graph":
             result = execute_graph_query(session_db_path, execute_request.query, timeout=15)
         else:
-            result = execute_lab_query(session_db_path, execute_request.query, timeout=15)
+            result = execute_lab_query(
+                session_db_path, execute_request.query, timeout=15, read_only=read_only
+            )
 
         # Save attempt to history (skip in review mode)
         if not execute_request.is_review_mode:
@@ -1262,6 +1308,11 @@ def reset_session(
             detail="No active session found"
         )
 
+    # Read-only labs query the unchanged template directly, so there is nothing to reset.
+    lab = db.query(Lab).filter(Lab.id == lab_id).first()
+    if lab and _is_read_only_sql_lab(lab):
+        return {"message": "Read-only lab; nothing to reset"}
+
     # Delete current database file with retry logic
     from app.utils.lab_cleanup import delete_session_file_with_retry
     if not delete_session_file_with_retry(session.db_file_path):
@@ -1529,7 +1580,10 @@ def assign_task_answer(
         if lab_for_task and lab_for_task.lab_type == "graph":
             result = execute_graph_query(template_path, assign_data.query, timeout=15)
         else:
-            result = execute_lab_query(template_path, assign_data.query, timeout=15)
+            result = execute_lab_query(
+                template_path, assign_data.query, timeout=15,
+                read_only=bool(lab_for_task and _is_read_only_sql_lab(lab_for_task)),
+            )
 
         if not result["success"]:
             raise HTTPException(
@@ -1671,7 +1725,10 @@ def update_lab_task(
                 if lab_for_task and lab_for_task.lab_type == "graph":
                     result = execute_graph_query(template_path, task.correct_query, timeout=15)
                 else:
-                    result = execute_lab_query(template_path, task.correct_query, timeout=15)
+                    result = execute_lab_query(
+                        template_path, task.correct_query, timeout=15,
+                        read_only=bool(lab_for_task and _is_read_only_sql_lab(lab_for_task)),
+                    )
 
                 if not result["success"]:
                     raise HTTPException(
@@ -1799,7 +1856,8 @@ def validate_task_answer(
     # (see the note in execute_query above). Nothing is written here, so the connection
     # is only re-acquired for the credit_query_time update in finally.
     lab_type = validate_lab.lab_type if validate_lab else None
-    session_db_path = session.db_file_path
+    read_only = bool(validate_lab and _is_read_only_sql_lab(validate_lab))
+    session_db_path = get_lab_template_path(validate_lab.id) if read_only else session.db_file_path
     task_correct_hash = task.correct_answer_hash
     task_order_sensitive = bool(task.order_sensitive)
     db.commit()
@@ -1808,7 +1866,9 @@ def validate_task_answer(
         if lab_type == "graph":
             result = execute_graph_query(session_db_path, validate_request.user_query, timeout=15)
         else:
-            result = execute_lab_query(session_db_path, validate_request.user_query, timeout=15)
+            result = execute_lab_query(
+                session_db_path, validate_request.user_query, timeout=15, read_only=read_only
+            )
     finally:
         if query_start is not None:
             credit_query_time(db, assessment_session, query_start)

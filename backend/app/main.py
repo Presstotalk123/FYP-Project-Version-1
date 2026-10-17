@@ -63,6 +63,14 @@ with engine.connect() as _conn:
     except Exception:
         pass  # Column already exists
 
+# Add read_only column to labs if it doesn't exist
+with engine.connect() as _conn:
+    try:
+        _conn.execute(text("ALTER TABLE labs ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0"))
+        _conn.commit()
+    except Exception:
+        pass  # Column already exists
+
 # Add password column to assessments if it doesn't exist
 with engine.connect() as _conn:
     try:

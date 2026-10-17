@@ -4,6 +4,7 @@ import threading
 from typing import Tuple, List, Dict, Any
 
 from app.core.query_deadline import attach_deadline
+from app.core.query_executor import execute_student_query
 from app.core.sql_dialect import to_sqlite
 
 
@@ -136,10 +137,14 @@ def _lab_success(columns: List[str], results: List[Tuple], execution_time: float
     }
 
 
-def execute_lab_query(db_path: str, query: str, timeout: int = 15) -> Dict[str, Any]:
+def execute_lab_query(db_path: str, query: str, timeout: int = 15, read_only: bool = False) -> Dict[str, Any]:
     """
     Execute lab query and return formatted results.
     Convenience function for lab query execution.
+
+    With read_only=True (read-only SQL labs, which query the shared template directly),
+    the query goes through the SQL Questions executor instead: only a single read-only
+    statement is accepted, and the database is opened with mode=ro.
 
     If the query fails with a SQL execution error, it may use MySQL-dialect syntax SQLite lacks
     (e.g. `no such function: DATEDIFF`). In that case we transpile it to SQLite and silently
@@ -151,10 +156,16 @@ def execute_lab_query(db_path: str, query: str, timeout: int = 15) -> Dict[str, 
         db_path: Path to the SQLite database
         query: SQL query to execute
         timeout: Timeout in seconds
+        read_only: Reject non-read-only statements and open the database read-only
 
     Returns:
         Dictionary with results and metadata
     """
+    if read_only:
+        result = execute_student_query(db_path, query, timeout=timeout)
+        result.pop("raw_results", None)  # lab callers don't expect it
+        return result
+
     executor = LabQueryExecutor(db_path, timeout)
 
     try:

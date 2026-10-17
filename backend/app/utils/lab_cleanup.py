@@ -2,12 +2,20 @@ import os
 import gc
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import List
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.models.lab_session import LabSession
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _is_session_file(db_file_path: str) -> bool:
+    """True if the path lies inside the per-student session directory."""
+    sessions_dir = (Path(settings.LAB_DB_PATH) / "sessions").resolve()
+    return sessions_dir in Path(db_file_path).resolve().parents
 
 
 def delete_session_file_with_retry(db_file_path: str, max_retries: int = 10) -> bool:
@@ -20,9 +28,16 @@ def delete_session_file_with_retry(db_file_path: str, max_retries: int = 10) -> 
         max_retries: Maximum retry attempts (default: 10)
 
     Returns:
-        True if deleted or file doesn't exist, False if still locked after all retries
+        True if deleted, doesn't exist, or isn't a session file; False if still locked
+        after all retries
     """
     if not os.path.exists(db_file_path):
+        return True
+
+    # Only per-student copies under <LAB_DB_PATH>/sessions are ever deleted here. Read-only
+    # lab sessions point at the shared template, which must survive session exit/reset.
+    if not _is_session_file(db_file_path):
+        logger.info(f"Not a session DB, leaving it in place: {db_file_path}")
         return True
 
     base_delay = 0.1  # 100ms

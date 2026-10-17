@@ -158,6 +158,7 @@ class RAQuestionIn(BaseModel):
     model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
     checkpoints: Optional[List[CheckpointIn]] = None       # None = every step of the model answer
     show_step_direction: bool = True
+    assessment_step_direction: bool = False    # the same, when the question is in an assessment
     compare_bags: bool = False
     hide_correctness: bool = False
     is_published: bool = False
@@ -206,6 +207,10 @@ class RAQuestionOut(BaseModel):
     hide_correctness: bool
     attempts: int = 0
     solved: bool = False
+    # Set when this is an assessment's copy of a question.
+    assessment_id: Optional[int] = None
+    max_submissions: Optional[int] = None    # None = unlimited
+    submissions_used: int = 0
 
 
 class RAQuestionStaffOut(RAQuestionOut):
@@ -215,6 +220,7 @@ class RAQuestionStaffOut(RAQuestionOut):
     checkpoints: Optional[List[CheckpointIn]] = None
     compare_bags: bool
     is_published: bool
+    assessment_step_direction: bool = False
     suite: Optional[SuiteSummaryOut] = None
 
 
@@ -233,6 +239,8 @@ class RACheckOut(BaseModel):
 
 class RASubmitOut(BaseModel):
     attempt_id: int
+    max_submissions: Optional[int] = None
+    submissions_used: int = 0
     # None when the question hides correctness: the student only learns it was submitted.
     grade: Optional[GradeOut] = None
     structure: Optional[EvalOut] = None

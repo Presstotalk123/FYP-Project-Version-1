@@ -23,7 +23,7 @@ from app.core.ra.grader import Checkpoint, GradeResult, PreparedQuestion
 from app.models.ra_attempt import RAAttempt
 from app.models.ra_question import RAQuestion
 from app.models.user import User, UserRole
-from app.services.ra import grading
+from app.services.ra import assessment as ra_assessment, grading
 
 
 class QuestionInputError(Exception):
@@ -103,13 +103,15 @@ def prepared_for(q: RAQuestion) -> PreparedQuestion:
 
 
 # ── access ───────────────────────────────────────────────────────────────────
-def visible_to(q: RAQuestion, user: User) -> bool:
+def visible_to(db: Session, q: RAQuestion, user: User) -> bool:
     if q.is_deleted:
         return False
     if is_staff(user):
         return True
-    # Assessment clones are reached through their assessment (step 5), never directly.
-    return bool(q.is_published) and q.owner_assessment_id is None
+    if q.owner_assessment_id is not None:
+        # An assessment's copy: only while the student is taking that assessment.
+        return ra_assessment.accessible_via_assessment(db, q, user)
+    return bool(q.is_published)
 
 
 def bank_questions(db: Session, user: User) -> List[RAQuestion]:
@@ -150,7 +152,9 @@ class Submission:
 
 
 def submit(db: Session, user: User, q: RAQuestion, answer: str) -> Submission:
-    """Grade an answer and record the attempt (always, correct or not)."""
+    """Grade an answer and record the attempt (always, correct or not). In an assessment,
+    the attempt must still be running and have Submits left (403 otherwise)."""
+    ra_assessment.guard_submit(db, q, user, is_staff(user))
     result = prepared_for(q).grade(answer)
     attempt = RAAttempt(user_id=user.id, question_id=q.id, answer=answer, verdict=result.verdict,
                         is_correct=int(result.correct), method=result.method,
@@ -171,6 +175,11 @@ def for_student(q: RAQuestion, result: GradeResult) -> Optional[dict]:
         for step in data["steps"]:
             step.update(status="none", checkpoint=None, renamed=False, case=None)
     return data
+
+
+def submission_counts(db: Session, user: User, q: RAQuestion) -> Tuple[Optional[int], int]:
+    """(maximum Submits, Submits used) — the maximum is None outside assessments or uncapped."""
+    return ra_assessment.submission_limit(db, q), ra_assessment.submissions_used(db, q, user)
 
 
 def history(db: Session, user: User, q: RAQuestion, limit: int = 50) -> List[RAAttempt]:

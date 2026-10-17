@@ -11,6 +11,7 @@ const TYPE_COLORS: Record<AssessmentItemType, string> = {
   er_question: 'violet',
   sql_lab: 'teal',
   graph_lab: 'grape',
+  ra_question: 'indigo',
 };
 
 const TYPE_LABELS: Record<AssessmentItemType, string> = {
@@ -18,6 +19,7 @@ const TYPE_LABELS: Record<AssessmentItemType, string> = {
   er_question: 'ER Question',
   sql_lab: 'SQL Lab',
   graph_lab: 'Graph Lab',
+  ra_question: 'RA Question',
 };
 
 export interface SortableItem {
@@ -93,7 +95,7 @@ export function SortableAssessmentItem({
             title="Hide correctness feedback from students — they see a neutral 'Submitted' result"
           />
         )}
-        {item.item_type === 'sql_question' && (
+        {(item.item_type === 'sql_question' || item.item_type === 'ra_question') && (
           <NumberInput
             value={item.max_queries ?? ''}
             onChange={(v) =>
@@ -106,8 +108,10 @@ export function SortableAssessmentItem({
             size="xs"
             w={90}
             styles={{ input: { textAlign: 'right' } }}
-            aria-label={`Max queries for ${item.item_title}`}
-            title="Max queries allowed (blank = unlimited)"
+            aria-label={`Max ${item.item_type === 'ra_question' ? 'submissions' : 'queries'} for ${item.item_title}`}
+            title={item.item_type === 'ra_question'
+              ? 'Max submissions allowed (blank = unlimited); Check does not count'
+              : 'Max queries allowed (blank = unlimited)'}
           />
         )}
         <NumberInput

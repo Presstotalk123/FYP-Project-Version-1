@@ -38,7 +38,7 @@ router = APIRouter(prefix="/questions")
 
 def _get(db: Session, question_id: int, user: User) -> RAQuestion:
     q = db.query(RAQuestion).filter(RAQuestion.id == question_id).first()
-    if q is None or not svc.visible_to(q, user):
+    if q is None or not svc.visible_to(db, q, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
     return q
 
@@ -48,12 +48,15 @@ def _input_error(e: svc.QuestionInputError) -> HTTPException:
                          {"source": e.source, "error": e.error.to_dict(), "message": e.error.message})
 
 
-def _student_out(q: RAQuestion, progress: dict) -> dict:
+def _student_out(q: RAQuestion, progress: dict, limits=(None, 0)) -> dict:
     attempts, solved = progress.get(q.id, (0, False))
+    if q.hide_correctness:
+        solved = False                   # don't reveal correctness through the progress badge
     return dict(id=q.id, title=q.title, description=q.description, difficulty=q.difficulty,
                 relations=svc.relations_for(q), has_data=bool((q.data_sql or "").strip()),
                 show_step_direction=bool(q.show_step_direction), hide_correctness=bool(q.hide_correctness),
-                attempts=attempts, solved=solved)
+                attempts=attempts, solved=solved, assessment_id=q.owner_assessment_id,
+                max_submissions=limits[0], submissions_used=limits[1])
 
 
 def _eval_out(result: dict) -> EvalOut:
@@ -85,6 +88,7 @@ def validate_question(body: RAQuestionValidateIn, _staff: User = Depends(require
 def create_question(body: RAQuestionIn, db: Session = Depends(get_db), staff: User = Depends(require_staff_role)):
     q = RAQuestion(title=body.title, description=body.description, difficulty=body.difficulty,
                    show_step_direction=int(body.show_step_direction), hide_correctness=int(body.hide_correctness),
+                   assessment_step_direction=int(body.assessment_step_direction),
                    is_published=int(body.is_published), created_by=staff.id)
     try:
         svc.apply_content(q, schema_sql=body.schema_sql, data_sql=body.data_sql, model_answer=body.model_answer,
@@ -116,6 +120,7 @@ def update_question(question_id: int, body: RAQuestionIn, db: Session = Depends(
         raise _input_error(e)
     q.title, q.description, q.difficulty = body.title, body.description, body.difficulty
     q.show_step_direction = int(body.show_step_direction)
+    q.assessment_step_direction = int(body.assessment_step_direction)
     q.hide_correctness = int(body.hide_correctness)
     q.is_published = int(body.is_published)
     db.commit()
@@ -135,6 +140,7 @@ def _staff_out(q: RAQuestion) -> dict:
     out.update(schema_sql=q.schema_sql, data_sql=q.data_sql or "", model_answer=q.model_answer,
                checkpoints=json.loads(q.checkpoints_json) if q.checkpoints_json else None,
                compare_bags=bool(q.compare_bags), is_published=bool(q.is_published),
+               assessment_step_direction=bool(q.assessment_step_direction),
                suite=json.loads(q.suite_summary_json) if q.suite_summary_json else None)
     return out
 
@@ -152,7 +158,7 @@ def list_questions(db: Session = Depends(get_db), user: User = Depends(get_curre
 @router.get("/{question_id}", response_model=RAQuestionOut)
 def get_question(question_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     q = _get(db, question_id, user)
-    return _student_out(q, svc.progress_by_question(db, user))
+    return _student_out(q, svc.progress_by_question(db, user), svc.submission_counts(db, user, q))
 
 
 @router.post("/{question_id}/check", response_model=RACheckOut)
@@ -172,7 +178,8 @@ def submit_answer(question_id: int, body: RAAnswerIn, db: Session = Depends(get_
                   user: User = Depends(get_current_user)):
     q = _get(db, question_id, user)
     submission = svc.submit(db, user, q, body.answer)
-    out = RASubmitOut(attempt_id=submission.attempt.id)
+    limit, used = svc.submission_counts(db, user, q)
+    out = RASubmitOut(attempt_id=submission.attempt.id, max_submissions=limit, submissions_used=used)
     shown = svc.for_student(q, submission.result) if not svc.is_staff(user) else submission.result.to_dict()
     if shown is not None:
         out.grade = GradeOut(**shown)

@@ -259,3 +259,32 @@ set/bag choice, so the staff test bench grades exactly like the saved question w
    tick **Published**, **Create question**. It appears on `/ra`.
 8. To see the student view, sign in with the `--student-email` account from the seed
    script: no Edit/Delete/New buttons, no drafts, and never the model answer.
+
+---
+
+## Step 5: RA questions in assessments (17 Oct 2026)
+
+Commit: "Let staff put RA questions in assessments" (`git log --oneline` shows its hash).
+
+**What was built.** Item type `ra_question`. RA logic lives in `backend/app/services/ra/assessment.py`;
+shared files got short marked branches: `schemas/assessment.py`, `services/assessment_clone.py`,
+`assessment_scoring.py`, `assessment_reset.py`, `endpoints/assessments.py`, and on the frontend
+`AssessmentForm.tsx` (RA Q tab), `SortableAssessmentItem.tsx`, `assessmentItemUrl.ts`, the student
+overview, roster page, report drawer and analytics labels, plus the new page
+`student/assessments/[id]/items/[itemId]/ra-question`. Publishing copies each RA question with its
+test databases; the timer applies to Submit; *max queries* = max Submits (Check is free); scoring is
+binary like SQL; reset deletes RA attempts. New question setting *"show step direction in
+assessments"* (off by default); `services/ra/local_schema.py` adds that column to an existing local
+SQLite database at startup.
+
+**Verified in the browser (throwaway copy):** Assessments → Create → **RA Q (11)** tab → added two RA
+questions (one capped at 3 submissions) → Create → Publish → Start. **Not yet clicked through:** the
+student side of the exam in the browser (covered by API tests: join, open, submit, cap, score 100,
+reset).
+
+**How to check it on localhost**
+1. As admin: **Assessments → Create Assessment**, title, then in **Content Pool** open **RA Q**, add
+   questions with **+**, optionally set max submissions, **Create Assessment**, **Publish**, **Start** (▶).
+2. As the student account: **Assessments**, join it, open an RA item: timer, weight, *N of M
+   submissions used · Check is free*, no ✓/◐/○ unless enabled for assessments.
+3. As admin: the people icon on the assessment shows each student's RA items as Solved / Not Solved.

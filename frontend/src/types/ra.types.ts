@@ -165,6 +165,10 @@ export interface RaQuestion {
   hide_correctness: boolean;
   attempts: number;
   solved: boolean;
+  /** Set when this is an assessment's copy of a question. */
+  assessment_id: number | null;
+  max_submissions: number | null; // null = unlimited
+  submissions_used: number;
 }
 
 export interface RaQuestionStaff extends RaQuestion {
@@ -174,6 +178,7 @@ export interface RaQuestionStaff extends RaQuestion {
   checkpoints: RaCheckpoint[] | null;
   compare_bags: boolean;
   is_published: boolean;
+  assessment_step_direction: boolean;
   suite: RaSuiteSummary | null;
 }
 
@@ -186,6 +191,7 @@ export interface RaQuestionInput {
   model_answer: string;
   checkpoints: RaCheckpoint[] | null;
   show_step_direction: boolean;
+  assessment_step_direction: boolean;
   compare_bags: boolean;
   hide_correctness: boolean;
   is_published: boolean;
@@ -214,6 +220,8 @@ export interface RaCheckResponse {
 
 export interface RaSubmitResponse {
   attempt_id: number;
+  max_submissions: number | null;
+  submissions_used: number;
   grade: RaGradeResult | null; // null when the question hides correctness
   structure: RaEvalResult | null;
   structure_source: 'sample' | 'generated' | null;

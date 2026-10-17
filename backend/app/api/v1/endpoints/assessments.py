@@ -71,6 +71,9 @@ def _resolve_item_title(item: AssessmentItem, db: Session) -> str:
     if item.item_type in ("sql_lab", "graph_lab"):
         row = db.query(Lab.title).filter(Lab.id == item.item_id, Lab.is_deleted == 0).first()
         return row[0] if row else f"Lab #{item.item_id}"
+    if item.item_type == "ra_question":  # Relational Algebra (FYP)
+        from app.services.ra import assessment as ra_assessment
+        return ra_assessment.title(db, item.item_id)
     return f"Item #{item.item_id}"
 
 
@@ -1290,7 +1293,7 @@ def _item_detail_string(
     tasks that were later deleted — the fraction caps at 1.0, so the row reads "4/4 tasks",
     which is what should be displayed anyway.
     """
-    if item_type == "sql_question":
+    if item_type in ("sql_question", "ra_question"):  # RA (FYP) is binary like SQL
         return "Correct" if fraction >= 1.0 else "Incorrect"
     if item_type in ("sql_lab", "graph_lab"):
         if not tasks_total:

@@ -32,6 +32,9 @@ class RAQuestion(Base):
     # 0/1 flags, following the app's Integer-flag convention.
     # Students see the ✓/◐/○ comparison of their steps with the model's ("Show structure").
     show_step_direction = Column(Integer, nullable=False, default=1)
+    # The same, inside an assessment (copied onto the clone at publish). Off by default:
+    # the comparison is a strong hint, which practice wants and an exam usually doesn't.
+    assessment_step_direction = Column(Integer, nullable=False, default=0)
     # Compare results as bags (duplicates count) instead of sets.
     compare_bags = Column(Integer, nullable=False, default=0)
     # Students only learn "submitted", not whether it was correct (mirrors questions.hide_correctness).

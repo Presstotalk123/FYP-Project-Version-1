@@ -101,6 +101,9 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
   if (!question) return <div className="alert-error">This question does not exist or is not available.</div>;
 
   const attempts = attemptsQuery.data ?? [];
+  const limit = question.max_submissions;
+  const used = submitted?.submissions_used ?? question.submissions_used;
+  const limitReached = limit != null && used >= limit;
 
   return (
     <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
@@ -142,13 +145,19 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
                 {busy === 'check' ? 'Checking…' : 'Check (not graded)'}
               </button>
               <button className="btn btn-brand" style={{ minHeight: 32, padding: '0 14px', fontSize: 13 }}
-                onClick={() => void run('submit')} disabled={!!busy || !answer.trim()}>
+                onClick={() => void run('submit')} disabled={!!busy || !answer.trim() || limitReached}
+                title={limitReached ? 'You have used all your submissions for this question.' : undefined}>
                 {busy === 'submit' ? 'Grading…' : 'Submit'}
               </button>
               <button className="btn btn-secondary" style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
                 onClick={() => { setAnswer(''); setChecked(null); setSubmitted(null); }} disabled={!!busy}>
                 Clear
               </button>
+              {limit != null && (
+                <span style={{ fontSize: 13, marginLeft: 'auto', color: limitReached ? 'var(--error)' : 'var(--text-muted)' }}>
+                  {limitReached ? 'No submissions left' : `${used} of ${limit} submissions used`} · Check is free
+                </span>
+              )}
             </>
           )}
         />

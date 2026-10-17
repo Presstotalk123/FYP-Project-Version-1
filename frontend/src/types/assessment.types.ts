@@ -1,4 +1,4 @@
-export type AssessmentItemType = 'sql_question' | 'er_question' | 'sql_lab' | 'graph_lab';
+export type AssessmentItemType = 'sql_question' | 'er_question' | 'sql_lab' | 'graph_lab' | 'ra_question';
 
 export interface AssessmentItemIn {
   item_type: AssessmentItemType;

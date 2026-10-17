@@ -289,6 +289,17 @@ export default function AssessmentStudentsPage() {
   };
 
   const renderItemScore = (item: AssessmentItemComponentScore, studentId: number) => {
+    if (item.item_type === 'ra_question') {  // Relational Algebra (FYP): binary like SQL
+      const count = item.attempt_count ?? 0;
+      return (
+        <Group gap="xs">
+          <Badge color={item.has_correct_attempt ? 'green' : count > 0 ? 'red' : 'gray'} variant="light">
+            {item.has_correct_attempt ? 'Solved' : count > 0 ? 'Not Solved' : 'Not Attempted'}
+          </Badge>
+          {count > 0 && <Text size="sm" c="dimmed">{count} attempt{count !== 1 ? 's' : ''}</Text>}
+        </Group>
+      );
+    }
     if (item.item_type === 'sql_question') {
       const correct = item.has_correct_attempt;
       const count = item.attempt_count ?? 0;

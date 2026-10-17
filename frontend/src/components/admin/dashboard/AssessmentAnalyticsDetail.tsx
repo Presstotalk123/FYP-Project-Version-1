@@ -12,6 +12,7 @@ const ITEM_TYPE_LABEL: Record<string, string> = {
   er_question: 'ER Question',
   sql_lab: 'SQL Lab',
   graph_lab: 'Graph Lab',
+  ra_question: 'RA Question',
 };
 
 // An item's average as a 0-100 percentage, or null when the roster is empty.

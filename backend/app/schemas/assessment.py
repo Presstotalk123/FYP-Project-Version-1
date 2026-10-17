@@ -9,6 +9,7 @@ class AssessmentItemType(str, Enum):
     er_question = "er_question"
     sql_lab = "sql_lab"
     graph_lab = "graph_lab"
+    ra_question = "ra_question"  # Relational Algebra (FYP): app/services/ra/assessment.py
 
 
 class AssessmentItemIn(BaseModel):

@@ -12,5 +12,6 @@ export function itemWorkspaceUrl(assessmentId: number, item: StudentAssessmentIt
     case 'sql_lab':      return `${base}/sql-lab${rid}`;
     case 'graph_lab':    return `${base}/graph-lab${rid}`;
     case 'er_question':  return `${base}/er-question${rid}`;
+    case 'ra_question':  return `${base}/ra-question${rid}`;  // Relational Algebra (FYP)
   }
 }

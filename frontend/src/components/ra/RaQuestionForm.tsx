@@ -17,7 +17,8 @@ import { RaSuiteReport, RaVerdict } from './RaVerdict';
 
 const EMPTY: RaQuestionInput = {
   title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', model_answer: '',
-  checkpoints: null, show_step_direction: true, compare_bags: false, hide_correctness: false, is_published: false,
+  checkpoints: null, show_step_direction: true, assessment_step_direction: false, compare_bags: false,
+  hide_correctness: false, is_published: false,
 };
 
 function defaultLabel(statement: string | null) {
@@ -36,6 +37,7 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
     title: initial.title, description: initial.description, difficulty: initial.difficulty,
     schema_sql: initial.schema_sql, data_sql: initial.data_sql, model_answer: initial.model_answer,
     checkpoints: initial.checkpoints, show_step_direction: initial.show_step_direction,
+    assessment_step_direction: initial.assessment_step_direction,
     compare_bags: initial.compare_bags, hide_correctness: initial.hide_correctness, is_published: initial.is_published,
   } : EMPTY);
   const set = <K extends keyof RaQuestionInput>(key: K, value: RaQuestionInput[K]) =>
@@ -225,6 +227,8 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
         <h3 style={{ margin: 0, fontSize: 16 }}>Feedback and visibility</h3>
         <Toggle checked={form.show_step_direction} onChange={(v) => set('show_step_direction', v)}
           label="Show students how each of their steps compares with the model's (✓ / ◐ / ○)" />
+        <Toggle checked={form.assessment_step_direction} onChange={(v) => set('assessment_step_direction', v)}
+          label="…also when this question is in an assessment (off by default: it is a strong hint)" />
         <Toggle checked={form.hide_correctness} onChange={(v) => set('hide_correctness', v)}
           label="Hide correctness: students only see “Submitted”" />
         <Toggle checked={form.compare_bags} onChange={(v) => set('compare_bags', v)}

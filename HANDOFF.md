@@ -969,25 +969,33 @@ meet inside the *next* chat turn's prompt:**
    calls an LLM (§5.2) — `apply_attempt()` is pure arithmetic over the DB, which
    is exactly what makes `backend/tests/test_akela_agents.py` able to assert
    exact mastery values without mocking anything.
-2. **Scaffolding level, recomputed at the *start* of every adaptive chat turn**
-   — not by the mastery update above, and not on a schedule. Every call to
-   `sql_tutor_adaptive.prepare_turn()` (i.e. every message sent while
-   `SQL_TUTOR_ADAPTIVE` is on) re-derives the level from whatever the student's
-   `ConceptMastery` streaks currently say, via
-   `scaffolding_engine.compute_next_level(current_level, consecutive_successes,
+2. **Scaffolding level, updated once per graded submission, per concept** —
+   in the same `apply_attempt()` pass, right after each concept's streaks
+   change, via `scaffolding_engine.apply_attempt_transition()`. It applies
+   `compute_next_level(current_level, consecutive_successes,
    consecutive_failures)`: failures take precedence over successes (a
    `SCAFFOLDING_DOWNGRADE_STREAK`-length failure streak drops support one level,
    checked first), and a `SCAFFOLDING_UPGRADE_STREAK`-length success streak
    fades support one level, over the four ordered levels `full → guided →
-   minimal → independent`. The **active concept** for a question is simply its
-   highest-weight tag (`resolve_active_concept` — untagged questions never
-   move off the default `full` level, since there's no mastery to key off of).
-   The level itself is persisted on `SqlTutorConversation.scaffolding_level`
-   (one row per `(user, question)`, created lazily on first adaptive turn) so
-   it survives across turns without being recomputed from scratch — but the
-   *computation itself* re-runs every turn against live streak data, it isn't
-   just read back unchanged. A transition logs an `EVENT_SCAFFOLDING_CHANGED`
-   telemetry event carrying `{from_level, to_level}`.
+   minimal → independent`. A transition **consumes** the streak that caused it
+   (resets that counter to 0), so 3 successes move exactly one level and the
+   next step needs a fresh streak. The level is persisted on
+   `ConceptMastery.scaffolding_level`, so it follows the student to every
+   question tagged with that concept rather than restarting at `full` per
+   question. Rows that predate the column have it NULL and are seeded from
+   `mastery_level` using the `mastery_band` thresholds (novice → full,
+   developing → guided, proficient → minimal, mastered → independent), then
+   persisted on the next attempt. A transition logs an
+   `EVENT_SCAFFOLDING_CHANGED` telemetry event carrying `{from_level,
+   to_level}`, keyed by `question_id` and `concept_id`.
+
+   Chat turns only **read** the level: `sql_tutor_adaptive.prepare_turn()`
+   looks it up for the question's **active concept** (its highest-weight tag,
+   `resolve_active_concept` — untagged questions always use the default
+   `full`) and copies it onto `SqlTutorConversation.scaffolding_level` as a
+   snapshot of the level that turn was tutored at (the research export's
+   per-conversation distribution and productive-friction buckets group by
+   that snapshot). Sending more chat messages never changes the level.
 
 **SOLO classification runs asynchronously per message and is deliberately
 consumed one turn late.** When a student sends a chat message,
@@ -1076,10 +1084,11 @@ path at all:
   "no_class_group"}`) below `PEER_BENCHMARK_MIN_COHORT`, rather than ever
   showing a computed average for a cohort small enough to identify a specific
   classmate.
-- **`GET /lad/scaffolding/{question_id}`** — the current scaffolding level for
-  that (student, question) pair, read straight off `SqlTutorConversation`
-  (defaulting to `"full"` if no adaptive conversation has started yet, and
-  never creating one just to answer this read) — this is what drives
+- **`GET /lad/scaffolding/{question_id}`** — the student's current scaffolding
+  level on that question's active concept, read off `ConceptMastery` (so it is
+  right before the first tutor message on a new question; `"full"` if the
+  question is untagged or the concept has never been attempted, and never
+  creating a row just to answer this read) — this is what drives
   `components/workspace/ScaffoldingIndicator.tsx` in the chat tab, the one
   place a student sees any signal from this system while actually working a
   question.

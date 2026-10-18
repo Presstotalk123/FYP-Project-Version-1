@@ -98,7 +98,7 @@ def _reset_er_question(db: Session, student_id: int, content_id: int) -> int:
 def reset_student_attempt(db: Session, assessment: Assessment, student_id: int) -> dict:
     """Erase a student's attempt data for the assessment's cloned items and remove their
     session(s) + visits (clearing the single-attempt completion lock). Returns a summary."""
-    summary = {"sql_questions": 0, "labs": 0, "er_questions": 0, "sessions": 0}
+    summary = {"sql_questions": 0, "labs": 0, "er_questions": 0, "ra_questions": 0, "sessions": 0}
 
     items = (
         db.query(AssessmentItem)
@@ -117,6 +117,10 @@ def reset_student_attempt(db: Session, assessment: Assessment, student_id: int) 
         elif item.item_type == "er_question":
             if _owns(db, ERDiagramQuestion, content_id, assessment.id):
                 summary["er_questions"] += _reset_er_question(db, student_id, content_id)
+        elif item.item_type == "ra_question":  # Relational Algebra (FYP)
+            from app.services.ra import assessment as ra_assessment
+            if ra_assessment.owns(db, content_id, assessment.id):
+                summary["ra_questions"] += ra_assessment.reset_student(db, student_id, content_id)
 
     # Remove the assessment session(s) + their visits — a true clean slate. Deleting the
     # session clears attempt_complete, so the student can re-join while the assessment runs.

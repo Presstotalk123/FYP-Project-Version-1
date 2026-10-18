@@ -30,6 +30,14 @@ class ErSubmission(Base):
     score_percent = Column(Float, nullable=True)
     score_label = Column(String(20), nullable=True)
     checks_json = Column(Text, nullable=True)
+    # Extra-element deductions taken off score_earned, as the JSON list
+    # compute_grade put in score.deductions; after a staff correction it holds
+    # the re-capped list. NULL when the grader confirmed no extras, so older
+    # rows and clean rows look the same. A list of zero-point entries is kept
+    # on purpose: the student still sees them named and a correction can
+    # re-cap them. Read back by the staff correction and by the attempt view;
+    # see services/erd_tutor/scoring.py.
+    deductions_json = Column(Text, nullable=True)
     submitted_image_storage_key = Column(String(255), nullable=True)
     submitted_xml = Column(Text, nullable=True)
     submission_description = Column(Text, nullable=True)

@@ -32,6 +32,7 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconArrowsSort,
+  IconDownload,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { AddErSubmissionModal } from '@/components/admin/AddErSubmissionModal';
@@ -99,6 +100,8 @@ export default function AssessmentStudentsPage() {
   // End-and-refresh confirmation (shown only when students are still active).
   const [recomputeOpen, setRecomputeOpen] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
 
   const fetchStudents = async () => {
     try {
@@ -189,6 +192,29 @@ export default function AssessmentStudentsPage() {
     }
   };
 
+  // Download the gradebook as .xlsx, scoped to the current class-group filter.
+  const handleExport = async () => {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const blob = await assessmentService.exportAssessmentScores(assessmentId, selectedClassGroup);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${data.assessment_title}${selectedClassGroup ? `-${selectedClassGroup}` : ''}-scores.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      notifications.show({
+        color: 'red',
+        title: 'Export failed',
+        message: 'Could not export scores.',
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Shared by the drawer's first load and by the refresh after a submission is added,
   // so both paths read the same endpoint and show the same shape of error.
   const loadScores = async (studentId: number) => {
@@ -263,6 +289,17 @@ export default function AssessmentStudentsPage() {
   };
 
   const renderItemScore = (item: AssessmentItemComponentScore, studentId: number) => {
+    if (item.item_type === 'ra_question') {  // Relational Algebra (FYP): binary like SQL
+      const count = item.attempt_count ?? 0;
+      return (
+        <Group gap="xs">
+          <Badge color={item.has_correct_attempt ? 'green' : count > 0 ? 'red' : 'gray'} variant="light">
+            {item.has_correct_attempt ? 'Solved' : count > 0 ? 'Not Solved' : 'Not Attempted'}
+          </Badge>
+          {count > 0 && <Text size="sm" c="dimmed">{count} attempt{count !== 1 ? 's' : ''}</Text>}
+        </Group>
+      );
+    }
     if (item.item_type === 'sql_question') {
       const correct = item.has_correct_attempt;
       const count = item.attempt_count ?? 0;
@@ -417,13 +454,24 @@ export default function AssessmentStudentsPage() {
             >
               Back
             </Button>
-            <Button
-              leftSection={<IconRefresh size={16} />}
-              loading={recomputing}
-              onClick={() => (activeCount > 0 ? setRecomputeOpen(true) : handleRecompute())}
-            >
-              End and refresh
-            </Button>
+            <Group gap="sm">
+              <Button
+                variant="light"
+                leftSection={<IconDownload size={16} />}
+                loading={exporting}
+                disabled={!data || data.students.length === 0}
+                onClick={handleExport}
+              >
+                Export to Excel
+              </Button>
+              <Button
+                leftSection={<IconRefresh size={16} />}
+                loading={recomputing}
+                onClick={() => (activeCount > 0 ? setRecomputeOpen(true) : handleRecompute())}
+              >
+                End and refresh
+              </Button>
+            </Group>
           </Group>
 
           {loading && (
@@ -586,10 +634,10 @@ export default function AssessmentStudentsPage() {
                     {sortedStudents.map((student) => (
                       <Table.Tr key={student.user_id}>
                         <Table.Td>
-                          <Text size="sm" fw={500}>{student.email}</Text>
+                          <Text size="sm" fw={500}><span className="pii">{student.email}</span></Text>
                         </Table.Td>
                         <Table.Td>
-                          <Text size="sm">{student.name || '—'}</Text>
+                          <Text size="sm">{student.name ? <span className="pii">{student.name}</span> : '—'}</Text>
                         </Table.Td>
                         <Table.Td>
                           <Text size="sm">{student.class_group ?? '—'}</Text>
@@ -654,7 +702,7 @@ export default function AssessmentStudentsPage() {
         >
           <Stack gap="md">
             <Text size="sm">
-              This permanently erases <b>{resetStudent?.email}</b>&rsquo;s work on this assessment
+              This permanently erases <b><span className="pii">{resetStudent?.email}</span></b>&rsquo;s work on this assessment
               (all submissions, query history, and progress) and removes their session, giving them a
               clean slate to retake it. Their standalone practice is not affected. This cannot be undone.
             </Text>
@@ -701,7 +749,7 @@ export default function AssessmentStudentsPage() {
           onClose={closeActivityDrawer}
           title={
             <Text fw={600}>
-              Activity — {activityStudent?.email}
+              Activity — <span className="pii">{activityStudent?.email}</span>
             </Text>
           }
           position="right"

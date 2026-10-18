@@ -64,6 +64,14 @@ export const assessmentService = {
     return response.data;
   },
 
+  async exportAssessmentScores(id: number, classGroup?: string | null): Promise<Blob> {
+    const response = await api.get(API_ENDPOINTS.ASSESSMENTS.STUDENTS_EXPORT(id), {
+      params: classGroup ? { class_group: classGroup } : undefined,
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
   async getStudentComponentScores(assessmentId: number, studentId: number): Promise<StudentComponentScoresResponse> {
     const response = await api.get(API_ENDPOINTS.ASSESSMENTS.STUDENT_SCORES(assessmentId, studentId));
     return response.data;

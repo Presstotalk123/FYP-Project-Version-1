@@ -49,6 +49,24 @@ export const erAnalyticsService = {
     });
     return r.data;
   },
+  /** The raw ERD log, nested by student or by problem. Hidden fields are dropped
+   *  server-side, so they never reach the browser. */
+  async exportLogs(params: {
+    groupBy: 'student' | 'problem';
+    classGroup?: string;
+    hideName: boolean;
+    hideEmail: boolean;
+  }): Promise<unknown> {
+    const r = await api.get(API_ENDPOINTS.ER_ANALYTICS.EXPORT_LOGS, {
+      params: {
+        group_by: params.groupBy,
+        hide_name: params.hideName,
+        hide_email: params.hideEmail,
+        ...(params.classGroup ? { class_group: params.classGroup } : {}),
+      },
+    });
+    return r.data;
+  },
 };
 
 /** Correct a graded attempt. `checks` maps check id -> points awarded, and carries
@@ -59,10 +77,11 @@ export async function overrideSubmissionScore(
   submissionId: number,
   checks: Record<string, number>,
   reason: string,
+  waived: { canonical_id: string; mark: string | null }[] = [],
 ): Promise<ScoreOverrideResult> {
   const r = await api.put<ScoreOverrideResult>(
     API_ENDPOINTS.ER_ANALYTICS.SUBMISSION_SCORE(submissionId),
-    { checks, reason },
+    { checks, reason, waived },
   );
   return r.data;
 }

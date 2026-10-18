@@ -2,11 +2,13 @@
 class sizes are tens of students, staff want fresh numbers."""
 import json
 from collections import defaultdict
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 
+from app.config import settings
 from app.models.assessment_item import AssessmentItem
 from app.models.er_diagram_question import ERDiagramQuestion
 from app.models.er_submission import ErSubmission
@@ -554,6 +556,136 @@ def student_engagement(db: Session, class_group: Optional[str] = None) -> dict:
         },
         "students": students,
     }
+
+
+def export_logs(
+    db: Session,
+    class_group: Optional[str] = None,
+    group_by: str = "student",
+    hide_name: bool = False,
+    hide_email: bool = False,
+) -> dict:
+    """Raw per-student, per-problem ERD log for the admin ERD tab's JSON export.
+
+    Every (student, problem) pair with a submission or a Baloo query-mode message,
+    nested student -> problems or problem -> students. Practice and assessment
+    alike; `assessment_id` tells an assessment clone apart from the bank question
+    whose title it copies. Read-only, and deliberately uncached: a one-off pull.
+    """
+    student_q = db.query(User.id).filter(User.role == "student")
+    if class_group is not None:
+        student_q = student_q.filter(User.class_group == class_group)
+    student_ids = {row[0] for row in student_q.all()}
+
+    cells: dict[tuple[int, int], dict] = defaultdict(
+        lambda: {"submissions": [], "chatlog": []}
+    )
+
+    submissions = (
+        db.query(ErSubmission)
+        # Never the heavy submitted_xml — only what the export prints.
+        .options(load_only(
+            ErSubmission.id,
+            ErSubmission.user_id,
+            ErSubmission.er_diagram_question_id,
+            ErSubmission.score_percent,
+            ErSubmission.submitted_image_storage_key,
+            ErSubmission.created_at,
+        ))
+        .join(ERDiagramQuestion,
+              ERDiagramQuestion.id == ErSubmission.er_diagram_question_id)
+        .filter(ERDiagramQuestion.is_deleted == 0,
+                ErSubmission.user_id.in_(student_ids))
+        .order_by(ErSubmission.created_at.asc(), ErSubmission.id.asc())
+        .all()
+    )
+    for r in submissions:
+        key = r.submitted_image_storage_key
+        cells[(r.user_id, r.er_diagram_question_id)]["submissions"].append({
+            "id": r.id,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "image_path": (Path(settings.ER_DIAGRAM_UPLOAD_PATH) / key).as_posix()
+            if key else None,
+            "score_percent": r.score_percent,
+        })
+
+    # Query-mode only, both sides — the transcript the journey page shows.
+    # Submit-mode rows are grading traffic, not conversation.
+    messages = (
+        db.query(
+            ErdTutorConversation.user_id,
+            ErdTutorConversation.er_diagram_question_id,
+            ErdTutorMessage.role,
+            ErdTutorMessage.content,
+            ErdTutorMessage.created_at,
+        )
+        .join(ErdTutorConversation,
+              ErdTutorConversation.id == ErdTutorMessage.conversation_id)
+        .join(ERDiagramQuestion,
+              ERDiagramQuestion.id == ErdTutorConversation.er_diagram_question_id)
+        .filter(ErdTutorMessage.mode == "query",
+                ERDiagramQuestion.is_deleted == 0,
+                ErdTutorConversation.user_id.in_(student_ids))
+        .order_by(ErdTutorMessage.created_at.asc(), ErdTutorMessage.id.asc())
+        .all()
+    )
+    for uid, qid, role, content, created_at in messages:
+        cells[(uid, qid)]["chatlog"].append({
+            "role": role,
+            "content": content or "",
+            "created_at": created_at.isoformat() if created_at else None,
+        })
+
+    question_ids = {qid for _, qid in cells}
+    questions = {
+        qid: {
+            "question_id": qid,
+            "title": title,
+            "context": "assessment" if owner else "practice",
+            "assessment_id": owner,
+        }
+        for qid, title, owner in (
+            db.query(ERDiagramQuestion.id, ERDiagramQuestion.title,
+                     ERDiagramQuestion.owner_assessment_id)
+            .filter(ERDiagramQuestion.id.in_(question_ids))
+            .all()
+        )
+    } if question_ids else {}
+
+    user_ids = {uid for uid, _ in cells}
+    users = {}
+    for uid, name, email, group in (
+        db.query(User.id, User.name, User.email, User.class_group)
+        .filter(User.id.in_(user_ids))
+        .all()
+    ) if user_ids else []:
+        entry = {"id": uid}
+        if not hide_name:
+            entry["name"] = name
+        if not hide_email:
+            entry["email"] = email
+        entry["class_group"] = group
+        users[uid] = entry
+
+    def activity(cell: dict) -> dict:
+        return {"submission_count": len(cell["submissions"]), **cell}
+
+    if group_by == "problem":
+        by_question: dict[int, list] = defaultdict(list)
+        for (uid, qid), cell in sorted(cells.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+            by_question[qid].append({**users[uid], **activity(cell)})
+        return {"problems": [
+            {**questions[qid], "students": rows}
+            for qid, rows in by_question.items()
+        ]}
+
+    by_student: dict[int, list] = defaultdict(list)
+    for (uid, qid), cell in sorted(cells.items()):
+        by_student[uid].append({**questions[qid], **activity(cell)})
+    return {"students": [
+        {**users[uid], "problems": rows}
+        for uid, rows in by_student.items()
+    ]}
 
 
 def class_overview(

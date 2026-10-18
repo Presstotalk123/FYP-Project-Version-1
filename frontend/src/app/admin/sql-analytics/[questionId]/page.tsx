@@ -135,8 +135,8 @@ export default function SqlQuestionAnalyticsPage() {
                 <tbody>
                   {data.students.map((s) => (
                     <tr key={s.user_id} onClick={() => openDetail(s.user_id)} style={{ cursor: 'pointer' }}>
-                      <td>{s.email}</td>
-                      <td>{s.name || '—'}</td>
+                      <td><span className="pii">{s.email}</span></td>
+                      <td>{s.name ? <span className="pii">{s.name}</span> : '—'}</td>
                       <td>{s.class_group ?? '—'}</td>
                       <td>{s.attempts_count}</td>
                       <td>{num(s.queries_to_correct)}</td>
@@ -163,7 +163,7 @@ export default function SqlQuestionAnalyticsPage() {
           >
             <div className="card" style={{ maxWidth: 1000, width: '92%', maxHeight: '88vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
               <div className="page-head">
-                <h3>{openEmail ?? 'Student'}</h3>
+                <h3>{openEmail ? <span className="pii">{openEmail}</span> : 'Student'}</h3>
                 <button className="btn btn-secondary" onClick={closeDetail}>Close</button>
               </div>
 

@@ -331,7 +331,7 @@ function GroupStudentBreakdown({
           <tbody>
             {rows.map((row) => (
               <tr key={row.email}>
-                <td title={row.email}>{row.name}</td>
+                <td title={row.email}><span className="pii">{row.name}</span></td>
                 {row.cells.map((cell, idx) => (
                   <td key={columns[idx].assessment_item_id}>{renderScore(cell)}</td>
                 ))}

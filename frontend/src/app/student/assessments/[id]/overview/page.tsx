@@ -21,7 +21,7 @@ import {
   IconCheck,
   IconCode,
   IconDatabase,
-  IconTopologyComplex,
+  IconTopologyComplex, IconMathFunction,
   IconLogout,
 } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -43,6 +43,7 @@ function itemTypeLabel(type: AssessmentItemType): string {
     case 'er_question':  return 'ER Diagram';
     case 'sql_lab':      return 'SQL Lab';
     case 'graph_lab':    return 'Graph Lab';
+    case 'ra_question':  return 'Relational Algebra';
   }
 }
 
@@ -52,6 +53,7 @@ function itemTypeColor(type: AssessmentItemType): string {
     case 'er_question':  return 'violet';
     case 'sql_lab':      return 'teal';
     case 'graph_lab':    return 'grape';
+    case 'ra_question':  return 'indigo';
   }
 }
 
@@ -61,6 +63,7 @@ function itemTypeIcon(type: AssessmentItemType) {
     case 'er_question':  return <IconTopologyComplex size={20} />;
     case 'sql_lab':      return <IconDatabase size={20} />;
     case 'graph_lab':    return <IconDatabase size={20} />;
+    case 'ra_question':  return <IconMathFunction size={20} />;
   }
 }
 

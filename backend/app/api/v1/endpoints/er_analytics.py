@@ -22,6 +22,7 @@ from app.services import er_regrade, er_staff_submission
 from app.utils.er_storage import get_er_storage_provider
 from app.services.er_analytics import (
     class_overview,
+    export_logs,
     list_class_groups,
     question_analytics,
     student_engagement,
@@ -32,6 +33,8 @@ from app.services.er_score_override import (
     is_latest_attempt,
     apply_override,
     revert_override,
+    deducted_total,
+    stored_deductions,
     with_earned_points,
 )
 
@@ -161,6 +164,7 @@ def get_submission_detail(
     _staff: User = Depends(require_staff_role),
 ):
     row = _submission_or_404(db, submission_id)
+    deductions = stored_deductions(row)
     return {
         "id": row.id,
         "user_id": row.user_id,
@@ -171,6 +175,10 @@ def get_submission_detail(
         "score_percent": row.score_percent,
         "score_label": row.score_label,
         "checks": _enriched_checks(db, row, json.loads(row.checks_json) if row.checks_json else []),
+        # Extra-element deductions already taken off score_earned; the attempt
+        # header names the total and the override preview subtracts it.
+        "deducted_points": deducted_total(deductions),
+        "deductions": deductions,
         "submission_description": row.submission_description,
         "submitted_xml": row.submitted_xml,
         "has_image": bool(row.submitted_image_storage_key),
@@ -188,11 +196,20 @@ def get_submission_detail(
     }
 
 
+class DeductionKey(BaseModel):
+    """One stored extra-element deduction: the element's id and, for a mark on
+    it, which mark."""
+    canonical_id: str
+    mark: Optional[str] = None
+
+
 class ScoreOverrideRequest(BaseModel):
     """Points awarded per check id. Only the checks being changed need sending;
-    the rest keep what the grader awarded."""
+    the rest keep what the grader awarded. `waived` names the extra-element
+    deductions to drop, the whole set each time."""
     checks: dict[str, float] = Field(default_factory=dict)
     reason: str = ""
+    waived: list[DeductionKey] = Field(default_factory=list)
 
 
 @router.put("/submissions/{submission_id}/score")
@@ -212,7 +229,8 @@ def override_submission_score(
     """
     row = _submission_or_404(db, submission_id)
     try:
-        result = apply_override(db, row, body.checks, body.reason, staff.id)
+        result = apply_override(db, row, body.checks, body.reason, staff.id,
+                                waived=[w.model_dump() for w in body.waived])
     except ScoreOverrideError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return {
@@ -295,6 +313,20 @@ def get_student_engagement(
         key=("students", class_group or ""),
         producer=lambda: student_engagement(db, class_group),
     )
+
+
+@router.get("/analytics/export-logs")
+def get_export_logs(
+    class_group: Optional[str] = None,
+    group_by: Literal["student", "problem"] = "student",
+    hide_name: bool = False,
+    hide_email: bool = False,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    """Raw ERD log (submissions with image path and score, Baloo chat) per
+    student and problem, for the ERD tab's JSON export. Read-only; not cached."""
+    return export_logs(db, class_group, group_by, hide_name, hide_email)
 
 
 class RegradeRequest(BaseModel):

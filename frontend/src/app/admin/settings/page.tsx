@@ -46,6 +46,12 @@ export default function AdminSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Demo mode: masks every .pii element (see globals.css). layout.tsx re-applies
+  // the class on load; this just mirrors it so the switch shows the right state.
+  const [hideIdentities, setHideIdentities] = useState(false);
+  useEffect(() => {
+    setHideIdentities(document.documentElement.classList.contains('hide-pii'));
+  }, []);
 
   // Cache the prompt list and per-key version history for the session (see
   // providers.tsx). fetchQuery returns cached data without a network call on
@@ -216,6 +222,24 @@ export default function AdminSettingsPage() {
       <DashboardLayout>
         <Stack gap="md">
           <Title order={2}>Settings</Title>
+          <Card withBorder p="md">
+            <Switch
+              checked={hideIdentities}
+              label="Hide names and emails"
+              description="For demos. Shows ***** in place of every student name and email on the admin pages. Saved in this browser only."
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const next = e.currentTarget.checked;
+                setHideIdentities(next);
+                document.documentElement.classList.toggle('hide-pii', next);
+                try {
+                  if (next) localStorage.setItem('dbassist-hide-identities', '1');
+                  else localStorage.removeItem('dbassist-hide-identities');
+                } catch {
+                  // Storage blocked (e.g. private mode): the toggle still works until reload.
+                }
+              }}
+            />
+          </Card>
           <Tabs defaultValue="prompts">
             <Tabs.List>
               <Tabs.Tab value="prompts">AI Prompts</Tabs.Tab>
@@ -406,7 +430,7 @@ export default function AdminSettingsPage() {
                       {versions.map((v) => (
                         <Table.Tr key={v.version_no}>
                           <Table.Td>v{v.version_no}</Table.Td>
-                          <Table.Td>{v.created_by_email ?? '—'}</Table.Td>
+                          <Table.Td>{v.created_by_email ? <span className="pii">{v.created_by_email}</span> : '—'}</Table.Td>
                           <Table.Td>{v.created_at ? new Date(v.created_at).toLocaleString() : '—'}</Table.Td>
                           <Table.Td>{v.is_active && <Badge size="xs" color="green">active</Badge>}</Table.Td>
                           <Table.Td>

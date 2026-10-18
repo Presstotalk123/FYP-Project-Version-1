@@ -1,3 +1,5 @@
+import type { ERSubmissionDeduction } from "@/types/er-diagram.types";
+
 export type AnalyticsContext = "practice" | "assessment" | "all";
 
 export interface CheckRate {
@@ -104,6 +106,8 @@ export interface ScoreOverrideResult {
     total_points?: number;
     percent?: number;
     label?: string;
+    deducted_points?: number;
+    deductions?: ERSubmissionDeduction[];
   };
   checks: SubmissionCheck[];
   override: ScoreOverride | null;
@@ -120,6 +124,11 @@ export interface SubmissionDetail {
   score_label: string | null;
   checks: SubmissionCheck[];
   override: ScoreOverride | null;
+  /** Extra-element deductions already taken off score_earned. */
+  deducted_points?: number;
+  /** In the order the server caps them. Each carries its `price` and
+   *  `cap_dimensions`, which is what a correction's preview re-caps from. */
+  deductions?: ERSubmissionDeduction[];
   /** The most recent attempt — the grade the student currently sees. The
    *  assessment mark itself follows their best attempt. */
   is_latest_attempt: boolean;

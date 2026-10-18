@@ -18,6 +18,7 @@ import {
   revertSubmissionScore,
 } from '@/services/er-analytics.service';
 import { getApiErrorMessage } from '@/utils/api-error';
+import { formatScoreValue } from '@/utils/er-rubric-results';
 import type {
   AnalyticsContext,
   AttemptSummary,
@@ -26,11 +27,74 @@ import type {
   SubmissionCheck,
   SubmissionDetail,
 } from '@/types/er-analytics.types';
+import type { ERSubmissionDeduction } from '@/types/er-diagram.types';
+
+/** What identifies a deduction to the server: the element's id and, for a mark
+ *  on it, which mark. */
+const deductionKey = (d: ERSubmissionDeduction): string => `${d.canonical_id}:${d.mark ?? ''}`;
+
+/** What kind of extra a deduction is, the way the student's own sentence puts
+ *  it ("key underline on name"): a mark by its mark, a bare line as "line". */
+const deductionKind = (d: ERSubmissionDeduction): string => {
+  const marks: Record<string, string> = {
+    key: 'key underline', weak: 'weak border', identifying: 'double diamond',
+    hierarchy: 'hierarchy', cardinality: 'cardinality label',
+  };
+  return d.kind === 'mark' ? (marks[d.mark ?? ''] ?? 'mark') : d.kind;
+};
 
 const pct = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : `${Math.round(v)}%`;
 
 const rate = (v: number): string => `${Math.round(v * 100)}%`;
+
+/** Python's round(): an exact half goes to the even neighbour (12.5 -> 12), where
+ *  Math.round sends it up (13). The server rounds the stored percent with round(),
+ *  so the preview has to as well for the two to agree on a half. */
+const roundHalfEven = (x: number): number => {
+  const rounded = Math.round(x);
+  return Math.abs(x - rounded) === 0.5 ? 2 * Math.round(x / 2) : rounded;
+};
+
+/** What the stored extra-element deductions come to against the earnings a
+ *  correction would leave: the server's re-cap (scoring.py `reapply_deductions` ->
+ *  `_apply_cap`, run by a save) ported across, so the preview shows the figure the
+ *  save will store.
+ *
+ *  One spending ledger per dimension. Each deduction, in stored order, is capped at
+ *  its price (not at its stored points, which are only what the last cap allowed),
+ *  and at the room left in the dimensions that pay for it: the sum of what each has
+ *  earned and not yet spent on an earlier deduction. What it costs is then spent
+ *  from those dimensions in the order they are listed. With no dimensions recorded
+ *  it draws on every dimension that earned. */
+function recapDeductions(
+  deductions: ERSubmissionDeduction[],
+  earnedByDimension: Map<string, number>,
+  waived: Set<string> = new Set(),
+): number {
+  const spent = new Map<string, number>();
+  const unspent = (dimension: string) =>
+    Math.max(0, (earnedByDimension.get(dimension) ?? 0) - (spent.get(dimension) ?? 0));
+
+  let total = 0;
+  for (const d of deductions) {
+    // Waived by staff: costs nothing and leaves its room to the next entry.
+    if (waived.has(deductionKey(d))) continue;
+    const own = d.cap_dimensions ?? [];
+    const dimensions = own.length > 0 ? own : Array.from(earnedByDimension.keys());
+    const room = dimensions.reduce((sum, dimension) => sum + unspent(dimension), 0);
+    // An entry stored before prices were recorded has none; its points stand in.
+    const cost = Math.min(Math.max(0, d.price ?? d.points), room);
+    total += cost;
+    let left = cost;
+    for (const dimension of dimensions) {
+      const take = Math.min(left, unspent(dimension));
+      spent.set(dimension, (spent.get(dimension) ?? 0) + take);
+      left -= take;
+    }
+  }
+  return total;
+}
 
 function RateBar({ fail, partial }: { fail: number; partial: number }) {
   // Plain CSS bar: red = fail share, yellow = partial share, rest = pass.
@@ -67,6 +131,8 @@ export default function ErQuestionAnalyticsPage() {
   /** check id -> points, as typed. Strings, so clearing a box does not snap to 0
    *  under the cursor mid-edit. */
   const [awards, setAwards] = useState<Record<string, string>>({});
+  /** The extra-element deductions ticked as wrongly charged (deductionKey). */
+  const [waived, setWaived] = useState<Set<string>>(new Set());
   /** The submitted diagram, opened over the modal to check detail while marking. */
   const [imageZoomed, setImageZoomed] = useState(false);
   const [reason, setReason] = useState('');
@@ -168,6 +234,38 @@ export default function ErQuestionAnalyticsPage() {
     stopEditing();
   };
 
+  /** `erd-q3-jdoe-attempt-17`, safe as a filename on every platform. */
+  const attemptFilename = (d: SubmissionDetail): string => {
+    const email = data?.students.find((s) => s.user_id === d.user_id)?.email;
+    const who = (email ? email.split('@')[0] : `student-${d.user_id}`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    return `erd-q${questionId}-${who}-attempt-${d.id}`;
+  };
+
+  const triggerDownload = (url: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+  };
+
+  const downloadImage = async () => {
+    if (!attempt || !attemptImage) return;
+    // Students may upload a JPG rather than a PNG; the blob URL already holds the
+    // bytes, so read it back just for the content type and name the file to match.
+    const blob = await fetch(attemptImage).then((r) => r.blob());
+    const ext = blob.type === 'image/jpeg' ? 'jpg' : 'png';
+    triggerDownload(attemptImage, `${attemptFilename(attempt)}.${ext}`);
+  };
+
+  const downloadXml = () => {
+    if (!attempt?.submitted_xml) return;
+    const blob = new Blob([attempt.submitted_xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, `${attemptFilename(attempt)}.drawio`);
+    URL.revokeObjectURL(url);
+  };
+
   /** The attempt behind the number staff see: assessment scoring counts the best
    *  grade (er_best_scores_bulk scans with strictly-greater, so the earliest of a
    *  tie wins — mirrored here). An ungraded journey falls back to the latest. */
@@ -198,6 +296,7 @@ export default function ErQuestionAnalyticsPage() {
   const stopEditing = () => {
     setEditing(false);
     setAwards({});
+    setWaived(new Set());
     setReason('');
     setOverrideError(null);
   };
@@ -215,7 +314,17 @@ export default function ErQuestionAnalyticsPage() {
       if (isScoring(c)) seed[c.id] = String(c.earned_points ?? 0);
     }
     setAwards(seed);
+    setWaived(new Set((attempt?.deductions ?? []).filter((d) => d.waived).map(deductionKey)));
     setEditing(true);
+  };
+
+  const toggleWaived = (d: ERSubmissionDeduction) => {
+    setWaived((prev) => {
+      const next = new Set(prev);
+      const key = deductionKey(d);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
   /** Running total, so the consequence of an edit is visible before saving. The
@@ -224,15 +333,30 @@ export default function ErQuestionAnalyticsPage() {
     let earned = 0;
     let total = 0;
     let valid = true;
+    // What each dimension would earn: the deduction cap reads these, not the total.
+    const earnedByDimension = new Map<string, number>();
     for (const c of checks) {
       if (!isScoring(c)) continue;
       const points = c.points ?? 0;
       const n = Number(awards[c.id]);
       total += points;
-      if (!Number.isFinite(n) || n < 0 || n > points) valid = false;
-      else earned += n;
+      if (!Number.isFinite(n) || n < 0 || n > points) {
+        valid = false;
+      } else {
+        earned += n;
+        const dimension = c.dimension ?? '';
+        earnedByDimension.set(dimension, (earnedByDimension.get(dimension) ?? 0) + n);
+      }
     }
-    return { earned, total, percent: total > 0 ? Math.round((100 * earned) / total) : 0, valid };
+    // The stored extra-element deductions come off the re-totalled checks, re-capped
+    // against those earnings the way the server does on save. Their stored points
+    // are what the last cap allowed, so they are not subtracted as they stand.
+    const deducted = recapDeductions(attempt?.deductions ?? [], earnedByDimension, waived);
+    const net = Math.max(0, earned - deducted);
+    return {
+      earned: net, deducted, total,
+      percent: total > 0 ? roundHalfEven((100 * net) / total) : 0, valid,
+    };
   };
 
   /** Refresh the aggregates behind this page — an override changes them. */
@@ -249,7 +373,10 @@ export default function ErQuestionAnalyticsPage() {
       const payload = Object.fromEntries(
         Object.entries(awards).map(([id, v]) => [id, Number(v)]),
       );
-      await overrideSubmissionScore(attempt.id, payload, reason);
+      const waivedKeys = (attempt.deductions ?? [])
+        .filter((d) => waived.has(deductionKey(d)))
+        .map((d) => ({ canonical_id: d.canonical_id, mark: d.mark ?? null }));
+      await overrideSubmissionScore(attempt.id, payload, reason, waivedKeys);
       const fresh = await erAnalyticsService.submissionDetail(attempt.id);
       setAttempt(fresh);
       stopEditing();
@@ -408,8 +535,8 @@ export default function ErQuestionAnalyticsPage() {
                 <tbody>
                   {data.students.map((s) => (
                     <tr key={s.user_id} onClick={() => openJourney(s.user_id)} style={{ cursor: 'pointer' }}>
-                      <td>{s.email}</td>
-                      <td>{s.name || '—'}</td>
+                      <td><span className="pii">{s.email}</span></td>
+                      <td>{s.name ? <span className="pii">{s.name}</span> : '—'}</td>
                       <td>{s.class_group ?? '—'}</td>
                       <td>{s.attempts}</td>
                       <td>{pct(s.best_percent)}</td>
@@ -437,7 +564,7 @@ export default function ErQuestionAnalyticsPage() {
             {openStudent !== null && journey && (
               <>
                 <h3 ref={journeyHeadingRef} style={{ marginTop: 24 }}>
-                  Journey — {data.students.find((s) => s.user_id === openStudent)?.email}
+                  Journey — <span className="pii">{data.students.find((s) => s.user_id === openStudent)?.email}</span>
                   {'  '}({journey.chat.queries_asked} questions asked to Baloo
                   {journey.chat.topics.length > 0 &&
                     `; asked about: ${journey.chat.topics.join(', ')}`})
@@ -521,8 +648,28 @@ export default function ErQuestionAnalyticsPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="page-head" style={{ flexShrink: 0 }}>
-                <h3>Attempt — {pct(attempt.score_percent)} ({attempt.score_label ?? 'ungraded'})</h3>
+                <h3>
+                  Attempt — {pct(attempt.score_percent)} ({attempt.score_label ?? 'ungraded'})
+                  {(attempt.deducted_points ?? 0) > 0 && (
+                    <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+                      {' '}· {formatScoreValue(attempt.deducted_points)} deducted for extra elements
+                    </span>
+                  )}
+                </h3>
                 <div className="button-row">
+                  {/* PNG needs a picture on screen: present for a stored upload, and for
+                      an XML attempt once the client render lands. Image-only submissions
+                      have no XML, so only the image button shows for them. */}
+                  {attemptImage && (
+                    <button className="btn btn-secondary" onClick={downloadImage}>
+                      Download PNG
+                    </button>
+                  )}
+                  {attempt.submitted_xml && (
+                    <button className="btn btn-secondary" onClick={downloadXml}>
+                      Download .drawio
+                    </button>
+                  )}
                   {!editing && (
                     <button className="btn btn-secondary" onClick={() => startEditing(attempt.checks)}>
                       Adjust score
@@ -536,7 +683,7 @@ export default function ErQuestionAnalyticsPage() {
                 <div className="da-alert alert-info" style={{ fontSize: 12 }}>
                   <span>
                     Overridden from {pct(attempt.override.original_score.percent)} by{' '}
-                    {attempt.override.by_email ?? 'staff'} on{' '}
+                    {attempt.override.by_email ? <span className="pii">{attempt.override.by_email}</span> : 'staff'} on{' '}
                     {new Date(attempt.override.at).toLocaleString()} — “{attempt.override.reason}”
                   </span>
                 </div>
@@ -680,6 +827,66 @@ export default function ErQuestionAnalyticsPage() {
                         );
                       })}
                     </tbody>
+                    {/* What the deducted total is made of, below the checks it comes
+                        off: one row per extra, the grader's reason under it. While
+                        adjusting, a tick waives the entry; the save sends the whole
+                        set and the server re-caps the rest. */}
+                    {(attempt.deductions?.length ?? 0) > 0 && (
+                      <tbody>
+                        <tr>
+                          <td
+                            colSpan={4}
+                            style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', paddingTop: 12 }}
+                          >
+                            Extra elements the rubric does not ask for
+                            {editing ? ' — tick an entry to waive it' : ''}
+                          </td>
+                        </tr>
+                        {(attempt.deductions ?? []).map((d) => {
+                          const key = deductionKey(d);
+                          const off = editing ? waived.has(key) : Boolean(d.waived);
+                          return (
+                            <tr key={key}>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                extra
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                  {deductionKind(d)}
+                                </div>
+                              </td>
+                              <td style={{ fontSize: 13 }}>
+                                <span style={off ? { textDecoration: 'line-through' } : undefined}>
+                                  {d.label}
+                                </span>
+                                {d.brief_reason && (
+                                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                    Grader: {d.brief_reason}
+                                  </div>
+                                )}
+                              </td>
+                              <td>
+                                {editing ? (
+                                  <label style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    <input type="checkbox" checked={off} onChange={() => toggleWaived(d)} />
+                                    {' '}waive
+                                  </label>
+                                ) : (
+                                  <span className={`badge ${off ? 'neutral' : 'badge-error'}`}>
+                                    {off ? 'waived' : 'deducted'}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {off ? (
+                                  <span style={{ color: 'var(--text-muted)' }}>0</span>
+                                ) : (
+                                  <>−{formatScoreValue(editing ? (d.price ?? d.points) : d.points)}</>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    )}
                   </table>
                 </div>
               </div>
@@ -696,8 +903,13 @@ export default function ErQuestionAnalyticsPage() {
                     }}
                   >
                     <div style={{ fontWeight: 700 }}>
-                      New score: {p.earned} / {p.total} = {p.percent}%{' '}
+                      New score: {formatScoreValue(p.earned)} / {p.total} = {p.percent}%{' '}
                       <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+                        {/* The deduction is re-capped, so it can differ from the one in
+                            the header: it belongs to the new score, not to "was". */}
+                        {p.deducted > 0
+                          ? `after ${formatScoreValue(p.deducted)} deducted for extra elements `
+                          : ''}
                         (was {pct(attempt.score_percent)})
                       </span>
                     </div>

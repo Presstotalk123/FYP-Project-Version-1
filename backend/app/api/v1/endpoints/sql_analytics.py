@@ -9,9 +9,58 @@ from app.core.cache import Ns, cache_read
 from app.database import get_db
 from app.dependencies import require_staff_role
 from app.models.user import User
-from app.services.sql_analytics import question_analytics, student_detail
+from app.services.sql_analytics import (
+    class_groups,
+    class_overview,
+    question_analytics,
+    student_detail,
+    student_engagement,
+)
 
 router = APIRouter(prefix="/questions", tags=["sql-analytics"])
+
+
+# Static analytics/* routes are declared before /{question_id}/* so the literal
+# "analytics" segment is never captured as a question_id.
+@router.get("/analytics/overview")
+def get_class_overview(
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    return cache_read(
+        db,
+        Ns.SQL_ANALYTICS,
+        key=("overview", class_group or ""),
+        producer=lambda: class_overview(db, class_group),
+    )
+
+
+@router.get("/analytics/students")
+def get_student_engagement(
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    return cache_read(
+        db,
+        Ns.SQL_ANALYTICS,
+        key=("students", class_group or ""),
+        producer=lambda: student_engagement(db, class_group),
+    )
+
+
+@router.get("/analytics/class-groups")
+def get_class_groups(
+    db: Session = Depends(get_db),
+    _staff: User = Depends(require_staff_role),
+):
+    return cache_read(
+        db,
+        Ns.SQL_ANALYTICS,
+        key=("class-groups",),
+        producer=lambda: class_groups(db),
+    )
 
 
 @router.get("/{question_id}/analytics")

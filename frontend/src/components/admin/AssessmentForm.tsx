@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useRaStatus } from '@/hooks/use-ra-status';
+import { raService } from '@/services/ra.service';
+import { RaQuestionListItem } from '@/types/ra.types';
 import {
   Stack,
   Group,
@@ -201,6 +204,14 @@ export function AssessmentForm({ mode, initial }: Props) {
   const [erQuestions, setErQuestions] = useState<ERDiagramQuestionListItem[]>([]);
   const [sqlLabs, setSqlLabs] = useState<Lab[]>([]);
   const [graphLabs, setGraphLabs] = useState<Lab[]>([]);
+  // Relational Algebra (FYP): loaded separately and only while RA is switched on, so
+  // the rest of the pool never depends on it.
+  const { enabled: raEnabled } = useRaStatus();
+  const [raQuestions, setRaQuestions] = useState<RaQuestionListItem[]>([]);
+  useEffect(() => {
+    if (!raEnabled) return;
+    raService.listQuestions().then(setRaQuestions).catch(() => setRaQuestions([]));
+  }, [raEnabled]);
   const [poolLoading, setPoolLoading] = useState(true);
   const [poolError, setPoolError] = useState<string | null>(null);
 
@@ -389,7 +400,7 @@ export function AssessmentForm({ mode, initial }: Props) {
       order_index: idx,
       weight: item.weight,
       hide_correctness: item.hide_correctness,
-      max_queries: item.item_type === 'sql_question' ? item.max_queries : null,
+      max_queries: item.item_type === 'sql_question' || item.item_type === 'ra_question' ? item.max_queries : null,
     }));
 
     setSaving(true);
@@ -608,6 +619,7 @@ export function AssessmentForm({ mode, initial }: Props) {
                 <Tabs.Tab value="er_question">ER Q ({filtered(erQuestions).length})</Tabs.Tab>
                 <Tabs.Tab value="sql_lab">SQL Lab ({filtered(sqlLabs).length})</Tabs.Tab>
                 <Tabs.Tab value="graph_lab">Graph Lab ({filtered(graphLabs).length})</Tabs.Tab>
+                {raEnabled && <Tabs.Tab value="ra_question">RA Q ({filtered(raQuestions).length})</Tabs.Tab>}
               </Tabs.List>
 
               <Tabs.Panel value="sql_question" pt="xs">
@@ -659,6 +671,22 @@ export function AssessmentForm({ mode, initial }: Props) {
                   )}
                 </ScrollArea>
               </Tabs.Panel>
+
+              {raEnabled && (
+                <Tabs.Panel value="ra_question" pt="xs">
+                  <ScrollArea h={320}>
+                    {filtered(raQuestions).length === 0 && (
+                      <Text size="sm" c="dimmed" ta="center" py="sm">No relational algebra questions found</Text>
+                    )}
+                    {filtered(raQuestions).map((q) =>
+                      renderPoolRow('ra_question', q.id, q.title, {
+                        label: q.difficulty,
+                        color: DIFFICULTY_COLOR[q.difficulty] ?? 'gray',
+                      })
+                    )}
+                  </ScrollArea>
+                </Tabs.Panel>
+              )}
             </Tabs>
           )}
         </Paper>

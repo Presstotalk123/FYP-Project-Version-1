@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from io import BytesIO
+
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 from app.database import get_db
 from app.models.user import User
@@ -43,6 +48,7 @@ from app.services import (
 from app.models.attempt import Attempt
 from app.models.er_submission import ErSubmission
 from app.models.er_diagram_draft import ErDiagramDraft
+from app.models.lab_task_submission import LabTaskSubmission
 from app.services.erd_tutor import persistence as erd_persistence
 from app.core.cache import cache_read, bump_version, assessment_body_ns, Ns
 from sqlalchemy import func
@@ -65,6 +71,9 @@ def _resolve_item_title(item: AssessmentItem, db: Session) -> str:
     if item.item_type in ("sql_lab", "graph_lab"):
         row = db.query(Lab.title).filter(Lab.id == item.item_id, Lab.is_deleted == 0).first()
         return row[0] if row else f"Lab #{item.item_id}"
+    if item.item_type == "ra_question":  # Relational Algebra (FYP)
+        from app.services.ra import assessment as ra_assessment
+        return ra_assessment.title(db, item.item_id)
     return f"Item #{item.item_id}"
 
 
@@ -1002,6 +1011,98 @@ def list_assessment_students(
     )
 
 
+def _safe_text(value: Optional[str]) -> Optional[str]:
+    """Keep a user-supplied string from being read as a spreadsheet formula
+    (openpyxl stores any string starting with "=" as one)."""
+    if value and value[0] in ("=", "+", "-", "@"):
+        return "'" + value
+    return value
+
+
+@router.get("/{assessment_id}/students/export")
+def export_assessment_scores(
+    assessment_id: int,
+    class_group: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """The Student Activity table as an .xlsx: email, name, class, each component's
+    points, every lab task solved (1/0), and the weighted total.
+
+    Read-only. Scores come from the same cohort analytics `list_assessment_students`
+    reads, so the Total column always matches the table's Score column."""
+    assessment = _get_staff_assessment(assessment_id, db)
+
+    roster = _student_roster(db, assessment_id, class_group)
+    analytics = assessment_scoring.get_or_compute_analytics(
+        db, assessment, class_group=None
+    )
+
+    # Which lab tasks each student solved, keyed (user_id, lab_id, task_id).
+    lab_ids = [i.item_id for i in analytics.items if i.item_type in ("sql_lab", "graph_lab")]
+    user_ids = [session.user_id for session, *_ in roster]
+    solved: set = set()
+    if lab_ids and user_ids:
+        solved = set(
+            db.query(
+                LabTaskSubmission.user_id,
+                LabTaskSubmission.lab_id,
+                LabTaskSubmission.task_id,
+            )
+            .filter(
+                LabTaskSubmission.user_id.in_(user_ids),
+                LabTaskSubmission.lab_id.in_(lab_ids),
+                LabTaskSubmission.is_correct == 1,
+            )
+            .distinct()
+            .all()
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Scores"
+
+    header = ["Email", "Name", "Class"]
+    for n, item in enumerate(analytics.items, start=1):
+        is_lab = item.item_type in ("sql_lab", "graph_lab")
+        if is_lab:
+            for k, task in enumerate(item.tasks or [], start=1):
+                header.append(_safe_text(f"Q{n} T{k}: {task.task_title}"))
+        header.append(_safe_text(f"Q{n}: {item.item_title} (/{item.weight})"))
+    header.append("Total (/100)")
+    ws.append(header)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+
+    for session, email, name, cg in roster:
+        uid = session.user_id
+        # Staff/test-group accounts are not in the scored roster: leave their scores
+        # blank, as the table shows "—" for them.
+        scored = uid in analytics.per_student_scores
+        row = [_safe_text(email), _safe_text(name), _safe_text(cg)]
+        for item in analytics.items:
+            if item.item_type in ("sql_lab", "graph_lab"):
+                for task in item.tasks or []:
+                    row.append(
+                        (1 if (uid, item.item_id, task.task_id) in solved else 0)
+                        if scored else None
+                    )
+            entry = analytics.per_student_item.get((uid, item.assessment_item_id))
+            row.append(round(item.weight * entry[0], 2) if entry else None)
+        row.append(analytics.per_student_scores.get(uid))
+        ws.append(row)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="assessment-{assessment.id}-scores.xlsx"'},
+    )
+
+
 @router.get("/{assessment_id}/item-analytics", response_model=AssessmentItemAnalyticsResponse)
 def get_assessment_item_analytics(
     assessment_id: int,
@@ -1192,7 +1293,7 @@ def _item_detail_string(
     tasks that were later deleted — the fraction caps at 1.0, so the row reads "4/4 tasks",
     which is what should be displayed anyway.
     """
-    if item_type == "sql_question":
+    if item_type in ("sql_question", "ra_question"):  # RA (FYP) is binary like SQL
         return "Correct" if fraction >= 1.0 else "Incorrect"
     if item_type in ("sql_lab", "graph_lab"):
         if not tasks_total:

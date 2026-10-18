@@ -54,6 +54,8 @@ from app.services.er_analytics import question_family
 # by-attribute pattern the erd_tutor tests use on the runner.
 from app.services.er_staff_submission import _collect_done as collect_done
 from app.services.erd_tutor import persistence as erd_persistence
+from app.services.er_score_override import deducted_total, stored_deductions
+from app.services.erd_tutor.scoring import deductions_json
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +144,7 @@ def _write_grade(row: ErSubmission, structured: dict) -> None:
     row.checks_json = (
         json.dumps(checks, ensure_ascii=False) if isinstance(checks, list) else None
     )
+    row.deductions_json = deductions_json(score)
     # A regrade supersedes a staff correction: the caller asked for a clean AI
     # grade under the new rubric, and the frozen "original" belongs to the old
     # one. Cleared together so `original_grade_json IS NOT NULL` keeps meaning
@@ -177,11 +180,14 @@ def _sync_conversation(
         conv.last_submit_report = json.dumps(structured, ensure_ascii=False)
         return
 
+    deductions = stored_deductions(row)
     score = {
         "label": row.score_label,
         "earned_points": row.score_earned,
         "total_points": row.score_total,
         "percent": row.score_percent,
+        "deducted_points": deducted_total(deductions),
+        "deductions": deductions,
     }
     try:
         checks = json.loads(row.checks_json) if row.checks_json else []

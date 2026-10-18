@@ -10,6 +10,10 @@ points from the status and so cannot express 13 of 18. Everything else is shared
 the same weights, the same must/should rule, the same rounding, and `_label` from
 the scorer itself, so a corrected attempt is labelled exactly as a graded one.
 
+Extra-element deductions are the second divergence from `compute_grade`: they are
+re-capped from the stored entries against the corrected checks, never re-priced,
+and each entry's stored `price` is the ceiling.
+
 Weights come from the submission's OWN stored checks, not the question's current
 rubric_json: a rubric can be edited after an attempt is graded, and scoring
 against today's version would mark the student on criteria they never saw.
@@ -18,6 +22,7 @@ against today's version would mark the student on criteria they never saw.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -27,7 +32,9 @@ from app.models.er_submission import ErSubmission
 from app.core.cache import Ns, bump_version
 from app.models.erd_tutor_conversation import ErdTutorConversation
 from app.services import assessment_scoring
-from app.services.erd_tutor.scoring import _label
+from app.services.erd_tutor.scoring import (
+    _label, deductions_json, reapply_deductions, with_deduction_sentence,
+)
 
 SCORING_LEVELS = {"must", "should"}
 
@@ -46,8 +53,26 @@ def _stored_checks(submission: ErSubmission) -> list[dict]:
     return [c for c in checks if isinstance(c, dict) and str(c.get("id", "")).strip()]
 
 
+def stored_deductions(submission: ErSubmission) -> list[dict]:
+    """The extra-element deductions stored on this row (re-capped after a
+    correction); [] when none."""
+    try:
+        items = json.loads(submission.deductions_json) if submission.deductions_json else []
+    except (TypeError, ValueError):
+        items = []
+    if not isinstance(items, list):
+        return []
+    return [d for d in items if isinstance(d, dict)]
+
+
+def deducted_total(deductions) -> float:
+    """Points taken off for extra elements, as a float even when there are none."""
+    return sum((_num(d.get("points")) for d in deductions or []), 0.0)
+
+
 def _snapshot(submission: ErSubmission) -> str:
     """The grade as it stands now, as JSON — frozen before the first override."""
+    deductions = stored_deductions(submission)
     return json.dumps(
         {
             "score": {
@@ -55,6 +80,8 @@ def _snapshot(submission: ErSubmission) -> str:
                 "total_points": submission.score_total,
                 "percent": submission.score_percent,
                 "label": submission.score_label,
+                "deducted_points": deducted_total(deductions),
+                "deductions": deductions,
             },
             "checks": _stored_checks(submission),
         },
@@ -119,6 +146,11 @@ def _sync_conversation(db: Session, submission: ErSubmission, grade: dict) -> bo
         report = {}
     report["score"] = grade["score"]
     report["checks"] = grade["checks"]
+    # The one sentence the grader appended to name the deductions is rebuilt,
+    # not kept: a waived or re-capped entry changes what it should say. The
+    # narrative around it is left alone.
+    report["student_message"] = with_deduction_sentence(
+        report.get("student_message"), grade["score"].get("deductions"))
     conversation.last_submit_report = json.dumps(report, ensure_ascii=False)
     return True
 
@@ -200,12 +232,16 @@ def _status_from_earned(earned: float, points: float) -> str:
     return "partial"
 
 
-def score_from_awards(checks: list[dict], awards: dict[str, float]) -> dict:
+def score_from_awards(
+    checks: list[dict], awards: dict[str, float], deductions: Optional[list[dict]] = None
+) -> dict:
     """Re-total a submission from points awarded per check.
 
     `awards` maps check id -> points earned and need only cover what changed;
     anything omitted keeps what the grader awarded. Mirrors compute_grade's
     output shape so callers and storage do not care which produced a grade.
+    `deductions` are the stored extra-element entries, re-capped against the
+    corrected checks and taken off the total.
     """
     final_checks: list[dict] = []
     earned_total = 0.0
@@ -234,16 +270,48 @@ def score_from_awards(checks: list[dict], awards: dict[str, float]) -> dict:
             out["earned_points"] = earned
         final_checks.append(out)
 
-    percent = round(100 * earned_total / points_total) if points_total > 0 else 0
+    # The stored deductions come off the re-totalled checks, re-capped against
+    # the corrected per-dimension earnings. Prices are not recomputed: each
+    # entry's stored price is the ceiling and the cap decides how much applies.
+    deductions, deducted = reapply_deductions(deductions or [], final_checks)
+    net = max(0.0, earned_total - deducted)
+    percent = round(100 * net / points_total) if points_total > 0 else 0
     return {
         "score": {
             "label": _label(percent),
-            "earned_points": earned_total,
+            "earned_points": net,
             "total_points": points_total,
             "percent": percent,
+            "deducted_points": deducted,
+            "deductions": deductions,
         },
         "checks": final_checks,
     }
+
+
+def _deduction_key(entry) -> tuple[str, Optional[str]]:
+    """What identifies a stored deduction: the element's id and, for a mark,
+    which mark (an element and a mark on it are two entries)."""
+    mark = entry.get("mark")
+    return (str(entry.get("canonical_id") or "").strip(),
+            str(mark).strip() if isinstance(mark, str) and mark.strip() else None)
+
+
+def waived_deductions(stored: list[dict], waived) -> list[dict]:
+    """The stored deductions with the waiver staff asked for: the entries whose
+    key is in `waived` carry waived=True and cost nothing (scoring._apply_cap),
+    every other entry is charged again. So each correction states the whole
+    waiver, as it states the awards."""
+    keys = {_deduction_key(d) for d in stored}
+    wanted = set()
+    for w in waived or []:
+        key = _deduction_key(w if isinstance(w, dict) else {})
+        if key not in keys:
+            raise ScoreOverrideError(
+                f"Unknown deduction: {key[0] or '?'}" + (f" ({key[1]})" if key[1] else ""))
+        wanted.add(key)
+    return [{**{k: v for k, v in d.items() if k != "waived"},
+             **({"waived": True} if _deduction_key(d) in wanted else {})} for d in stored]
 
 
 def apply_override(
@@ -252,11 +320,14 @@ def apply_override(
     awards: dict[str, float],
     reason: str,
     staff_id: int,
+    waived=None,
 ) -> dict[str, Any]:
     """Re-score a submission from points staff awarded per check.
 
     `awards` maps check id -> points earned and may cover only the checks being
-    changed; anything omitted keeps what the grader awarded.
+    changed; anything omitted keeps what the grader awarded. `waived` lists the
+    extra-element deductions to drop, each as {canonical_id, mark}: a wrongly
+    charged extra costs nothing, and the student's sentence no longer names it.
     """
     # Optional: who and when are recorded regardless, and demanding a sentence on
     # every edit is friction on the common case where the change is self-evident.
@@ -281,18 +352,25 @@ def apply_override(
             awarded = float(value)
         except (TypeError, ValueError):
             raise ScoreOverrideError(f"{cid}: points must be a number.")
+        # NaN passes the bounds check below (both of its comparisons are False),
+        # and would be stored in checks_json as a figure the detail view cannot read.
+        if not math.isfinite(awarded):
+            raise ScoreOverrideError(f"{cid}: points must be a finite number.")
         points = _num(check.get("points"))
         # Bounded by the check's own weight: awarding more than a check is worth
         # would make the total exceed itself and the percentage exceed 100.
         if awarded < 0 or awarded > points:
             raise ScoreOverrideError(f"{cid}: points must be between 0 and {points:g}.")
 
+    # Checked before anything is written, like the awards above.
+    deductions = waived_deductions(stored_deductions(submission), waived)
+
     # Freeze the grader's result before the first correction, never after: the
     # question "what did the AI say" must keep one answer across re-corrections.
     if submission.original_grade_json is None:
         submission.original_grade_json = _snapshot(submission)
 
-    grade = score_from_awards(stored, {k: float(v) for k, v in awards.items()})
+    grade = score_from_awards(stored, {k: float(v) for k, v in awards.items()}, deductions)
 
     # Attribute the checks staff actually moved, so the student is not told the
     # grader found something it never did. Without a reason the attribution still
@@ -308,6 +386,7 @@ def apply_override(
     submission.score_percent = score["percent"]
     submission.score_label = score["label"]
     submission.checks_json = json.dumps(grade["checks"], ensure_ascii=False)
+    submission.deductions_json = deductions_json(grade["score"])
     submission.override_reason = reason or None
     submission.overridden_by = staff_id
     submission.overridden_at = datetime.now(timezone.utc)
@@ -334,6 +413,7 @@ def revert_override(db: Session, submission: ErSubmission) -> dict[str, Any]:
     submission.score_percent = score.get("percent")
     submission.score_label = score.get("label")
     submission.checks_json = json.dumps(original.get("checks") or [], ensure_ascii=False)
+    submission.deductions_json = deductions_json(score)
     submission.override_reason = None
     submission.overridden_by = None
     submission.overridden_at = None

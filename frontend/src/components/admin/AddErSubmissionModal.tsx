@@ -139,18 +139,18 @@ export function AddErSubmissionModal({
       // Closing mid-request would only hide the spinner; the grade still lands.
       // Blocking the close keeps the result visible instead.
       onClose={busy ? () => undefined : onClose}
-      title={`Add a submission for ${studentName}`}
+      title={<>Add a submission for <span className="pii">{studentName}</span></>}
       size="lg"
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
           This creates a real submission for <strong>{questionTitle}</strong> and changes{' '}
-          {studentName}&apos;s assessment mark.
+          <span className="pii">{studentName}</span>&apos;s assessment mark.
         </Text>
 
         {hasExistingGrade && (
           <Alert color="orange" icon={<IconAlertTriangle size={16} />}>
-            {studentName} already has a grade for this question. Continuing replaces it.
+            <span className="pii">{studentName}</span> already has a grade for this question. Continuing replaces it.
           </Alert>
         )}
 

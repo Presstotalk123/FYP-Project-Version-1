@@ -777,6 +777,9 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
                     <Text size="sm" c="dimmed">
                       {formatScoreValue(latestStructuredOutput.score.earned_points)} /{" "}
                       {formatScoreValue(latestStructuredOutput.score.total_points)} points
+                      {Number(latestStructuredOutput.score.deducted_points) > 0
+                        ? `, ${formatScoreValue(latestStructuredOutput.score.deducted_points)} deducted for extra elements`
+                        : null}
                     </Text>
                   </div>
                   <Group gap="xs" wrap="wrap">

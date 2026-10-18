@@ -12,6 +12,7 @@ const ITEM_TYPE_LABEL: Record<string, string> = {
   er_question: 'ER Question',
   sql_lab: 'SQL Lab',
   graph_lab: 'Graph Lab',
+  ra_question: 'RA Question',
 };
 
 // An item's average as a 0-100 percentage, or null when the roster is empty.
@@ -134,8 +135,8 @@ function QuestionStudentList({
               <tbody>
                 {sortedStudents.map((row) => (
                   <tr key={row.email}>
-                    <td>{row.name || '—'}</td>
-                    <td>{row.email}</td>
+                    <td>{row.name ? <span className="pii">{row.name}</span> : '—'}</td>
+                    <td><span className="pii">{row.email}</span></td>
                     <td>{row.class_group ?? '—'}</td>
                     <td>{renderCell(row)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>

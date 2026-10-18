@@ -202,6 +202,8 @@ def _apply(judge_result, rubric, canonical):
     for rc in checks:
         if str(rc.get("dimension")) != "cardinality":
             continue
+        if str(rc.get("type")) == "integrity_constraint_match":
+            continue  # compares line-end marks, not (min,max): integrity_checks decides it
         eps = ((rc.get("target") or {}).get("endpoints") or [])
         if len(eps) != 2:
             continue

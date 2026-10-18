@@ -47,7 +47,7 @@ function renderScore(score: number | null | undefined, size: 'sm' | 'lg' = 'sm')
 
 // Per-item activity summary, including lab task counts.
 function renderItemScore(item: AssessmentItemComponentScore) {
-  if (item.item_type === 'sql_question') {
+  if (item.item_type === 'sql_question' || item.item_type === 'ra_question') {  // RA (FYP) scores like SQL
     const correct = item.has_correct_attempt;
     const count = item.attempt_count ?? 0;
     return (
@@ -106,7 +106,7 @@ export function StudentReportDrawer({ student, onClose }: StudentReportDrawerPro
     <Drawer
       opened={student !== null}
       onClose={onClose}
-      title={<Text fw={600}>Report — {student?.name}</Text>}
+      title={<Text fw={600}>Report — <span className="pii">{student?.name}</span></Text>}
       position="right"
       size="lg"
       scrollAreaComponent={ScrollArea.Autosize}

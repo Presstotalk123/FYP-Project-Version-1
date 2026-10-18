@@ -168,8 +168,8 @@ export default function StudentUsagePage() {
                   {sortedRows.map((r) => (
                     <Table.Tr key={r.student_id}>
                       <Table.Td>
-                        <Text fw={600} size="sm">{r.name || r.email}</Text>
-                        {r.name && <Text size="xs" c="dimmed">{r.email}</Text>}
+                        <Text fw={600} size="sm"><span className="pii">{r.name || r.email}</span></Text>
+                        {r.name && <Text size="xs" c="dimmed"><span className="pii">{r.email}</span></Text>}
                       </Table.Td>
                       <Table.Td>{r.class_group || <Text c="dimmed" size="sm">—</Text>}</Table.Td>
                       <Table.Td ta="center">
@@ -234,7 +234,7 @@ export default function StudentUsagePage() {
         <Drawer
           opened={selected !== null}
           onClose={() => setSelected(null)}
-          title={<Text fw={600}>{selected?.name} — daily breakdown</Text>}
+          title={<Text fw={600}><span className="pii">{selected?.name}</span> — daily breakdown</Text>}
           position="right"
           size="lg"
           scrollAreaComponent={ScrollArea.Autosize}

@@ -112,6 +112,7 @@ for _stmt in (
     "ALTER TABLE er_submissions ADD COLUMN added_by_staff_id INTEGER",
     "ALTER TABLE er_submissions ADD COLUMN added_reason TEXT",
     "ALTER TABLE er_submissions ADD COLUMN regraded_at TIMESTAMP",
+    "ALTER TABLE er_submissions ADD COLUMN deductions_json TEXT",
     "ALTER TABLE platform_sessions ADD COLUMN left_at TIMESTAMP",
 ):
     with engine.connect() as _conn:
@@ -230,6 +231,13 @@ app.include_router(student_report.router, prefix="/api/v1")
 app.include_router(login_activity.router, prefix="/api/v1")
 app.include_router(lad.router, prefix="/api/v1")
 app.include_router(research_export.router, prefix="/api/v1")
+
+# Relational Algebra (FYP): switched off (404) unless RA_ENABLED=true. Imported on its
+# own line, not added to the long import above, to keep merges with main conflict-free.
+from app.api.v1.endpoints import ra  # noqa: E402
+from app.services.ra.local_schema import add_missing_columns as _ra_add_missing_columns  # noqa: E402
+app.include_router(ra.router, prefix="/api/v1")
+_ra_add_missing_columns(engine)
 
 
 @app.get("/")

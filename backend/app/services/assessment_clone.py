@@ -231,6 +231,9 @@ def clone_item(db: Session, item, assessment_id: int) -> int:
         return clone_lab_for_assessment(db, item.item_id, assessment_id, hide_correctness)
     if item.item_type == "er_question":
         return clone_er_question_for_assessment(db, item.item_id, assessment_id)
+    if item.item_type == "ra_question":  # Relational Algebra (FYP)
+        from app.services.ra import assessment as ra_assessment
+        return ra_assessment.clone_for_assessment(db, item.item_id, assessment_id, hide_correctness)
     raise AssessmentCloneError(f"Unknown assessment item_type: {item.item_type}")
 
 
@@ -276,5 +279,9 @@ def delete_cloned_content(db: Session, assessment_id: int) -> None:
     ).all()
     for er in er_clones:
         er.is_deleted = 1
+
+    # Relational Algebra (FYP) clones: soft-delete rows only.
+    from app.services.ra import assessment as ra_assessment
+    ra_assessment.delete_clones(db, assessment_id)
 
     db.flush()

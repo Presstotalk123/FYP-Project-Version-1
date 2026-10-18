@@ -205,6 +205,13 @@ class Settings(BaseSettings):
     # smaller than this to prevent de-anonymization.
     PEER_BENCHMARK_MIN_COHORT: int = 5
 
+    # Relational Algebra module (FYP). RA_ENABLED is its master switch: while False,
+    # every /ra endpoint except /ra/status answers 404. RA_AGGREGATE_NULLS chooses how
+    # aggregates treat NULL: "sql" (COUNT(attr) skips NULLs) or "slides" (lecture 3
+    # slides 20–21 count them); see app/core/ra/evaluator.py.
+    RA_ENABLED: bool = False
+    RA_AGGREGATE_NULLS: str = "sql"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

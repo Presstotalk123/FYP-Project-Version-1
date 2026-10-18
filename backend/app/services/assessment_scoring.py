@@ -6,6 +6,7 @@ per-question `weight` set by staff. Each item type yields a correctness fraction
 - sql_question: 1.0 if the student has any correct attempt, else 0.0 (binary).
 - sql_lab / graph_lab: distinct correct tasks / total tasks.
 - er_question: the best LLM-graded percent / 100 across the student's attempts.
+- ra_question: like sql_question (Relational Algebra, FYP; app/services/ra/assessment.py).
 
 The weighted total is Σ(weight_i * fraction_i) normalised to 100 so it stays a percentage
 even if the stored weights don't sum to exactly 100. Returns None when the assessment has
@@ -219,6 +220,15 @@ def item_score_detail(
             visited=visited,
         )
 
+    if item.item_type == "ra_question":  # Relational Algebra (FYP): binary, like sql_question
+        from app.services.ra import assessment as ra_assessment
+        has_correct, attempt_count = ra_assessment.score_detail(db, item.item_id, student_id)
+        return ItemScoreDetail(
+            fraction=1.0 if has_correct else 0.0,
+            has_correct_attempt=has_correct,
+            attempt_count=attempt_count,
+        )
+
     return ItemScoreDetail(fraction=0.0)
 
 
@@ -365,6 +375,12 @@ def compute_roster_analytics(
     sql_q_ids = [i.item_id for i in items if i.item_type == "sql_question"]
     lab_ids = [i.item_id for i in items if i.item_type in ("sql_lab", "graph_lab")]
     er_q_ids = [i.item_id for i in items if i.item_type == "er_question"]
+
+    # --- Relational Algebra (FYP) questions: solved set and attempts, like SQL questions ---
+    from app.services.ra import assessment as ra_assessment
+    solved_ra, ra_attempts = ra_assessment.solved_and_attempts(
+        db, student_ids, [i.item_id for i in items if i.item_type == "ra_question"]
+    )
 
     # --- SQL questions: set of (user, question) with any correct attempt (binary) ---
     solved_sql: set = set()
@@ -574,6 +590,17 @@ def compute_roster_analytics(
                 if tries:
                     attempted_count += 1
                 total_attempts += tries
+        elif item.item_type == "ra_question":  # Relational Algebra (FYP)
+            fractions = [
+                1.0 if (uid, item.item_id) in solved_ra else 0.0
+                for uid in student_ids
+            ]
+            correct_count = sum(1 for f in fractions if f >= 1.0)
+            for uid in student_ids:
+                tries = ra_attempts.get((uid, item.item_id), 0)
+                if tries:
+                    attempted_count += 1
+                total_attempts += tries
         else:
             fractions = [0.0 for _ in student_ids]
 
@@ -590,6 +617,7 @@ def compute_roster_analytics(
             "sql_lab": lab_attempts,
             "graph_lab": lab_attempts,
             "er_question": er_attempts,
+            "ra_question": ra_attempts,
         }.get(item.item_type)
 
         for idx, uid in enumerate(student_ids):
@@ -904,9 +932,14 @@ def resolve_item_titles(db: Session, items: list) -> dict:
             .filter(Lab.id.in_(lab_ids), Lab.is_deleted == 0).all()
         )
 
+    from app.services.ra import assessment as ra_assessment  # Relational Algebra (FYP)
+    ra_titles = ra_assessment.titles(db, by_type.get("ra_question", set()))
+
     resolved: dict = {}
     for item in items:
-        if item.item_type == "sql_question":
+        if item.item_type == "ra_question":
+            resolved[item.id] = ra_titles.get(item.item_id) or f"RA Question #{item.item_id}"
+        elif item.item_type == "sql_question":
             resolved[item.id] = sql_titles.get(item.item_id) or f"Question #{item.item_id}"
         elif item.item_type == "er_question":
             resolved[item.id] = er_titles.get(item.item_id) or f"ER Question #{item.item_id}"
@@ -932,4 +965,7 @@ def resolve_item_title(db: Session, item: AssessmentItem) -> str:
     if item.item_type in ("sql_lab", "graph_lab"):
         row = db.query(Lab.title).filter(Lab.id == item.item_id, Lab.is_deleted == 0).first()
         return row[0] if row else f"Lab #{item.item_id}"
+    if item.item_type == "ra_question":  # Relational Algebra (FYP)
+        from app.services.ra import assessment as ra_assessment
+        return ra_assessment.title(db, item.item_id)
     return f"Item #{item.item_id}"

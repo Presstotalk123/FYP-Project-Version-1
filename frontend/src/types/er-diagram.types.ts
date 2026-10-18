@@ -111,11 +111,38 @@ export interface ERDiagramQuestionListItem {
   is_published: boolean;
 }
 
+/** A drawn element the rubric does not ask for, and what it cost. The one
+ *  definition: the staff analytics types import it from here. */
+export interface ERSubmissionDeduction {
+  canonical_id: string;
+  kind: "entity" | "relationship" | "attribute" | "mark" | "line";
+  mark: "key" | "weak" | "identifying" | "hierarchy" | "cardinality" | null;
+  label: string;
+  /** What the cap let this extra cost: its price, or less once the dimensions that
+   *  pay for it have no earnings left. */
+  points: number;
+  /** What the extra is worth before any cap. A staff correction re-caps from this,
+   *  never from `points`, so a raised check can let a capped deduction grow back.
+   *  Absent on entries stored before it was recorded; those fall back to `points`. */
+  price?: number;
+  /** The rubric dimensions whose earnings pay for this extra. Absent or empty means
+   *  every dimension. */
+  cap_dimensions?: string[];
+  brief_reason: string;
+  /** Dropped by a staff correction: costs nothing until the correction is
+   *  reverted or a later one leaves it out. */
+  waived?: boolean;
+}
+
 export interface ERSubmissionScore {
   label: string;
+  /** Net of deductions. */
   earned_points: number;
   total_points: number;
   percent: number | string;
+  /** Points taken off for extra elements. Absent on grades from before deductions existed. */
+  deducted_points?: number;
+  deductions?: ERSubmissionDeduction[];
   [key: string]: unknown;
 }
 

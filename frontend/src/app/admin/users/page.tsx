@@ -232,7 +232,7 @@ export default function ManageUsersPage() {
       title: 'Remove user',
       children: (
         <Text size="sm">
-          Are you sure you want to remove <strong>{entry.email}</strong> from the whitelist?
+          Are you sure you want to remove <strong><span className="pii">{entry.email}</span></strong> from the whitelist?
           This cannot be undone.
         </Text>
       ),
@@ -478,9 +478,9 @@ export default function ManageUsersPage() {
                           <Table.Tbody>
                             {roleEntries.map((entry) => (
                               <Table.Tr key={entry.id}>
-                                <Table.Td>{entry.email}</Table.Td>
+                                <Table.Td><span className="pii">{entry.email}</span></Table.Td>
                                 <Table.Td>
-                                  {entry.name ?? (
+                                  {entry.name != null ? <span className="pii">{entry.name}</span> : (
                                     <Text c="dimmed" size="sm" fs="italic">—</Text>
                                   )}
                                 </Table.Td>
@@ -586,7 +586,7 @@ export default function ManageUsersPage() {
                 <Alert icon={<IconCheck size={16} />} color="green" title={`${uploadPreview.to_add.length} to add`}>
                   <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
                     {uploadPreview.to_add.map((s, i) => (
-                      <Text key={i} size="sm">• {s.email} — {s.name || '—'} ({s.class_group || '—'})</Text>
+                      <Text key={i} size="sm">• <span className="pii">{s.email}</span> — {s.name ? <span className="pii">{s.name}</span> : '—'} ({s.class_group || '—'})</Text>
                     ))}
                   </Stack>
                 </Alert>
@@ -597,7 +597,7 @@ export default function ManageUsersPage() {
                   <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
                     {uploadPreview.to_update.map((s, i) => (
                       <Text key={i} size="sm">
-                        • {s.email}: {s.old_name || '—'} → {s.new_name || '—'}, {s.old_class_group || '—'} → {s.new_class_group || '—'}
+                        • <span className="pii">{s.email}</span>: {s.old_name ? <span className="pii">{s.old_name}</span> : '—'} → {s.new_name ? <span className="pii">{s.new_name}</span> : '—'}, {s.old_class_group || '—'} → {s.new_class_group || '—'}
                       </Text>
                     ))}
                   </Stack>
@@ -608,7 +608,7 @@ export default function ManageUsersPage() {
                 <Alert icon={<IconAlertCircle size={16} />} color="red" title={`${uploadPreview.to_remove.length} to remove (not in sheet)`}>
                   <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
                     {uploadPreview.to_remove.map((s, i) => (
-                      <Text key={i} size="sm">• {s.email} — {s.name || '—'} ({s.class_group || '—'})</Text>
+                      <Text key={i} size="sm">• <span className="pii">{s.email}</span> — {s.name ? <span className="pii">{s.name}</span> : '—'} ({s.class_group || '—'})</Text>
                     ))}
                   </Stack>
                 </Alert>
@@ -618,7 +618,7 @@ export default function ManageUsersPage() {
                 <Alert icon={<IconAlertCircle size={16} />} color="orange" title={`${uploadPreview.failed.length} rows skipped (invalid data)`}>
                   <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
                     {uploadPreview.failed.map((f, i) => (
-                      <Text key={i} size="sm">• {f.email}: {f.reason}</Text>
+                      <Text key={i} size="sm">• <span className="pii">{f.email}</span>: {f.reason}</Text>
                     ))}
                   </Stack>
                 </Alert>
@@ -674,7 +674,7 @@ export default function ManageUsersPage() {
                 <Alert icon={<IconAlertCircle size={16} />} color="red" title={`${importSummary.failed.length} Failed`}>
                   <Stack gap="xs" style={{ maxHeight: 150, overflowY: 'auto' }}>
                     {importSummary.failed.map((f, i) => (
-                      <Text key={i} size="sm">• {f.email}: {f.reason}</Text>
+                      <Text key={i} size="sm">• <span className="pii">{f.email}</span>: {f.reason}</Text>
                     ))}
                   </Stack>
                 </Alert>

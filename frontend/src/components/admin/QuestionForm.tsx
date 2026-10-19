@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
+import { useQueryClient } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 import { QuestionDetail, Difficulty } from '@/types/question.types';
 import api from '@/services/api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
+import { queryKeys } from '@/services/query-keys';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 import { ladService } from '@/services/lad.service';
 import { Concept } from '@/types/lad.types';
@@ -58,6 +60,7 @@ const labelRowStyle: React.CSSProperties = {
 
 export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   // Form state
   const [title, setTitle] = useState(question?.title || '');
@@ -233,6 +236,11 @@ export function QuestionForm({ question, isEdit = false }: QuestionFormProps) {
           color: 'green',
         });
       }
+
+      // The list carries concept tags, so refetch it after the tags are saved.
+      // refetchType 'all' because the query client sets refetchOnMount: false.
+      // Not awaited: the refetch runs in the background so navigation isn't held up.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.questions, refetchType: 'all' });
 
       router.push('/admin/questions');
     } catch (err) {

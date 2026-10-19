@@ -16,6 +16,13 @@ export interface Question {
   // LeetCode problem number for imported questions (drives DATABASE_README_EN.md
   // ordering); null/undefined for hand-authored questions.
   leetcode_id?: number | null;
+  // Concept tags, highest weight first. Only the list endpoint carries them.
+  concepts?: QuestionConceptRef[];
+}
+
+export interface QuestionConceptRef {
+  concept_id: number;
+  weight: number;
 }
 
 export interface QuestionDetail extends Question {

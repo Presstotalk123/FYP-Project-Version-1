@@ -80,6 +80,12 @@ class QuestionDetail(QuestionResponse):
         from_attributes = True
 
 
+class QuestionConceptRef(BaseModel):
+    """A question's tag on one SQL concept, as carried by the list."""
+    concept_id: int
+    weight: float
+
+
 class QuestionListItem(BaseModel):
     """Schema for question list items"""
     id: int
@@ -88,6 +94,9 @@ class QuestionListItem(BaseModel):
     created_at: datetime
     is_published: bool = False
     leetcode_id: Optional[int] = None
+    # Concept tags, highest weight first. Carried on the list so the Problems and
+    # student Questions pages can filter by concept without a request per question.
+    concepts: list[QuestionConceptRef] = []
 
     class Config:
         from_attributes = True

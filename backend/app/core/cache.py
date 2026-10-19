@@ -295,9 +295,11 @@ def _model_namespaces(obj: Any) -> set[str]:
                         TutorChatConversation, TutorChatMessage, User)):
         namespaces.add(Ns.SQL_ANALYTICS)
     # The class overview's weakness-by-concept folds in the concept taxonomy and
-    # the staff-set question→concept tags, so re-tagging must refresh it too.
+    # the staff-set question→concept tags, so re-tagging must refresh it too. The
+    # question list carries each question's tags, so it must refresh as well.
     if isinstance(obj, (QuestionConcept, SqlConcept)):
         namespaces.add(Ns.SQL_ANALYTICS)
+        namespaces.add(Ns.QUESTIONS)
     # Lab analytics aggregate lab attempts/submissions, persisted query reviews,
     # tutor-chat usage and user class groups.
     if isinstance(obj, (LabAttempt, LabTaskSubmission, QueryReview,

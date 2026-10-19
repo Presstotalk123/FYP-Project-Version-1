@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 // The other icons on this page are hand-rolled SVGs, the convention across the
 // plain-HTML admin pages. Tabler's stroke and currentColor defaults match them,
@@ -15,8 +15,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { questionService } from '@/services/question.service';
 import { labService } from '@/services/lab.service';
 import { erDiagramService } from '@/services/er-diagram.service';
+import { ladService } from '@/services/lad.service';
 import { queryKeys } from '@/services/query-keys';
 import { byReadmeOrder } from '@/utils/questionOrder';
+import { QuestionConceptRef } from '@/types/question.types';
+import { ConceptFilterList } from '@/components/common/ConceptFilterList';
 
 type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question';
 type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph';
@@ -34,6 +37,8 @@ interface Problem {
   // Only SQL questions carry a LeetCode number; labs/ERD leave it undefined and sort
   // in the non-LeetCode group. Drives the README ordering (see byReadmeOrder).
   leetcode_id?: number | null;
+  // SQL questions only: concept tags, for the concept filter under "SQL".
+  concepts?: QuestionConceptRef[];
   editUrl: string;
 }
 
@@ -120,6 +125,8 @@ export default function ProblemsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Problem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [category, setCategory] = useState<CategoryFilter>('all');
+  // SQL concept id, only meaningful while category is 'sql'.
+  const [concept, setConcept] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [authorFilter, setAuthorFilter] = useState<string | null>(null);
@@ -129,6 +136,9 @@ export default function ProblemsPage() {
   const questionsQuery = useQuery({ queryKey: queryKeys.questions, queryFn: () => questionService.getQuestions() });
   const labsQuery = useQuery({ queryKey: queryKeys.labs, queryFn: () => labService.getLabs() });
   const erdQuery = useQuery({ queryKey: queryKeys.erdQuestions, queryFn: () => erDiagramService.getQuestions() });
+  // Names and groups for the concept filter. Kept out of the loading/error gates
+  // below: if it fails, only the concept sub-list is missing.
+  const conceptsQuery = useQuery({ queryKey: queryKeys.ladConcepts, queryFn: () => ladService.listConcepts() });
 
   const loading = questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading;
   const loadFailed = !!(questionsQuery.error || labsQuery.error || erdQuery.error);
@@ -158,6 +168,7 @@ export default function ProblemsPage() {
           isPublished: q.is_published,
           created_at: q.created_at,
           leetcode_id: q.leetcode_id,
+          concepts: q.concepts ?? [],
           editUrl: `/admin/questions/${q.id}`,
         })),
         ...labs
@@ -276,12 +287,28 @@ export default function ProblemsPage() {
     return { all: problems.length, sql, erd, graph };
   }, [problems]);
 
+  // Questions per concept, over the unfiltered list like the category counts.
+  const conceptCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const p of problems) {
+      for (const t of p.concepts ?? []) counts.set(t.concept_id, (counts.get(t.concept_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [problems]);
+
+  // Gated on the category too, so a concept can never narrow the ERD or All lists.
+  const activeConcept = category === 'sql' ? concept : null;
+
   const filtered = useMemo(() => {
-    return problems.filter((p) => {
+    const weightOf = (p: Problem) =>
+      p.concepts?.find((t) => t.concept_id === activeConcept)?.weight;
+
+    const rows = problems.filter((p) => {
       if (category === 'sql' && p.problemType !== 'sql-question' && p.problemType !== 'sql-lab')
         return false;
       if (category === 'erd' && p.problemType !== 'erd-question') return false;
       if (category === 'graph' && p.problemType !== 'graph-lab') return false;
+      if (activeConcept !== null && weightOf(p) === undefined) return false;
 
       if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false;
 
@@ -296,7 +323,12 @@ export default function ProblemsPage() {
 
       return true;
     });
-  }, [problems, category, search, difficulty, authorFilter, user]);
+
+    // Most relevant first: questions where the concept is central (high weight)
+    // before ones that only touch it, README order within the same weight.
+    if (activeConcept === null) return rows;
+    return rows.sort((a, b) => (weightOf(b) ?? 0) - (weightOf(a) ?? 0) || byReadmeOrder(a, b));
+  }, [problems, category, activeConcept, search, difficulty, authorFilter, user]);
 
   const categories: { key: CategoryFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All problems', count: categoryCounts.all },
@@ -310,7 +342,8 @@ export default function ProblemsPage() {
       <DashboardLayout>
         <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start', minHeight: '100%' }}>
           {/* Left Category Sidebar */}
-          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', position: 'sticky', top: '84px', alignSelf: 'flex-start' }}>
+          {/* Scrolls on its own once the SQL concept list makes it taller than the viewport. */}
+          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', position: 'sticky', top: '84px', alignSelf: 'flex-start', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
             <span style={{ fontSize: '12px', fontWeight: 650, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '4px', padding: '0 12px', letterSpacing: '0.05em' }}>
               Categories
             </span>
@@ -318,9 +351,12 @@ export default function ProblemsPage() {
               {categories.map((cat) => {
                 const active = category === cat.key;
                 return (
+                  <Fragment key={cat.key}>
                   <button
-                    key={cat.key}
-                    onClick={() => setCategory(cat.key)}
+                    onClick={() => {
+                      setCategory(cat.key);
+                      setConcept(null);
+                    }}
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -341,6 +377,15 @@ export default function ProblemsPage() {
                     <span>{cat.label}</span>
                     <span style={{ fontSize: '12px', opacity: 0.8 }}>{cat.count}</span>
                   </button>
+                  {cat.key === 'sql' && active && (
+                    <ConceptFilterList
+                      concepts={conceptsQuery.data ?? []}
+                      counts={conceptCounts}
+                      selected={concept}
+                      onSelect={setConcept}
+                    />
+                  )}
+                  </Fragment>
                 );
               })}
             </div>

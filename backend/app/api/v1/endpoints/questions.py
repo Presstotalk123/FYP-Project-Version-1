@@ -8,12 +8,14 @@ from app.models.assessment import Assessment
 from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.models.progress import UserProgress
+from app.models.question_concept import QuestionConcept
 from app.schemas.question import (
     QuestionCreate,
     QuestionUpdate,
     QuestionResponse,
     QuestionDetail,
     QuestionListItem,
+    QuestionConceptRef,
     QuestionCountResponse
 )
 from app.dependencies import get_current_user, require_staff_role
@@ -284,7 +286,27 @@ def list_questions(
             .limit(limit)
             .all()
         )
-        return [QuestionListItem.model_validate(q) for q in questions]
+
+        # Concept tags for this page in one query, so they are cached with the list.
+        tags: dict[int, list[QuestionConceptRef]] = {}
+        if questions:
+            rows = (
+                db.query(QuestionConcept)
+                .filter(QuestionConcept.question_id.in_([q.id for q in questions]))
+                .order_by(QuestionConcept.weight.desc())
+                .all()
+            )
+            for r in rows:
+                tags.setdefault(r.question_id, []).append(
+                    QuestionConceptRef(concept_id=r.concept_id, weight=r.weight)
+                )
+
+        items = []
+        for q in questions:
+            item = QuestionListItem.model_validate(q)
+            item.concepts = tags.get(q.id, [])
+            items.append(item)
+        return items
 
     return cache_read(
         db,

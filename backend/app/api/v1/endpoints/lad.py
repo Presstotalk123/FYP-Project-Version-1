@@ -23,6 +23,7 @@ from app.models.question import Question
 from app.models.sql_concept import SqlConcept
 from app.models.question_concept import QuestionConcept
 from app.services import lad_service
+from app.core.cache import bump_version, Ns
 
 router = APIRouter(prefix="/lad", tags=["lad"])
 
@@ -144,6 +145,9 @@ def set_question_concepts(
         seen[t.concept_id] = t.weight
     for concept_id, weight in seen.items():
         db.add(QuestionConcept(question_id=question_id, concept_id=concept_id, weight=weight))
+    # The bulk delete above bypasses the after_flush hook, so clearing every tag
+    # would otherwise leave the cached question list (which carries tags) stale.
+    bump_version(db, Ns.QUESTIONS)
     db.commit()
 
     return [QuestionConceptOut(concept_id=cid, weight=w) for cid, w in seen.items()]

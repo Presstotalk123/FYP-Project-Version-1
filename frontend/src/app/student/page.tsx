@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebouncedValue } from '@mantine/hooks';
 import { Popover } from '@mantine/core';
@@ -17,8 +17,11 @@ import { attemptService } from '@/services/attempt.service';
 import { erDiagramService } from '@/services/er-diagram.service';
 import { settingsService } from '@/services/settings.service';
 import { loginActivityService } from '@/services/loginActivity.service';
+import { ladService } from '@/services/lad.service';
 import { queryKeys } from '@/services/query-keys';
 import { byReadmeOrder } from '@/utils/questionOrder';
+import { QuestionConceptRef } from '@/types/question.types';
+import { ConceptFilterList } from '@/components/common/ConceptFilterList';
 import { useERAbility } from '@/hooks/use-er-ability';
 import { toERQuestionSubject } from '@/permissions/er-ability';
 
@@ -42,6 +45,8 @@ interface PooledQuestion {
   // SQL questions imported from LeetCode carry a problem number; ERD questions leave it
   // undefined and sort in the non-LeetCode group (see byReadmeOrder).
   leetcode_id?: number | null;
+  // SQL only: concept tags, for the concept filter under "SQL".
+  concepts?: QuestionConceptRef[];
   completed?: boolean;
   attempts_count?: number;
   /** ERD only. SQL counts its attempts; ERD records no per-attempt tally, so all
@@ -106,6 +111,8 @@ export default function StudentDashboard() {
   const queryClient = useQueryClient();
   const ability = useERAbility();
   const [category, setCategory] = useState<CategoryFilter>('all');
+  // SQL concept id, only meaningful while category is 'sql'.
+  const [concept, setConcept] = useState<number | null>(null);
   const [difficulty, setDifficulty] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 500);
@@ -141,6 +148,12 @@ export default function StudentDashboard() {
     queryFn: () => settingsService.getErdSettings(),
   });
   const showAuthorBadge = erdSettingsQuery.data?.student_authoring_enabled ?? false;
+  // Names and groups for the concept filter. Like the settings query, kept out of
+  // the loading gate: if it fails, only the concept sub-list is missing.
+  const conceptsQuery = useQuery({
+    queryKey: queryKeys.ladConcepts,
+    queryFn: () => ladService.listConcepts(),
+  });
 
   // Login-activity streak + calendar. `calMonth` is the month the calendar is
   // showing (1-12); paging the calendar refetches only that month's active days,
@@ -192,6 +205,7 @@ export default function StudentDashboard() {
           difficulty: q.difficulty.toLowerCase(),
           created_at: q.created_at,
           leetcode_id: q.leetcode_id,
+          concepts: q.concepts ?? [],
           completed: prog?.completed || false,
           attempts_count: prog?.attempts_count || 0,
         };
@@ -221,16 +235,37 @@ export default function StudentDashboard() {
     return { all: pool.length, sql, erd };
   }, [pool]);
 
+  // Questions per concept, over the unfiltered pool like the category counts.
+  const conceptCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const p of pool) {
+      for (const t of p.concepts ?? []) counts.set(t.concept_id, (counts.get(t.concept_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [pool]);
+
+  // Gated on the category too, so a concept can never narrow the ERD or All lists.
+  const activeConcept = category === 'sql' ? concept : null;
+
   const filtered = useMemo(() => {
     const term = debouncedSearch.trim().toLowerCase();
-    return pool.filter((p) => {
+    const weightOf = (p: PooledQuestion) =>
+      p.concepts?.find((t) => t.concept_id === activeConcept)?.weight;
+
+    const rows = pool.filter((p) => {
       if (category === 'sql' && p.problemType !== 'sql-question') return false;
       if (category === 'erd' && p.problemType !== 'erd-question') return false;
+      if (activeConcept !== null && weightOf(p) === undefined) return false;
       if (term && !p.title.toLowerCase().includes(term)) return false;
       if (difficulty !== 'all' && p.difficulty !== difficulty) return false;
       return true;
     });
-  }, [pool, category, debouncedSearch, difficulty]);
+
+    // Most relevant first: questions where the concept is central (high weight)
+    // before ones that only touch it, README order within the same weight.
+    if (activeConcept === null) return rows;
+    return rows.sort((a, b) => (weightOf(b) ?? 0) - (weightOf(a) ?? 0) || byReadmeOrder(a, b));
+  }, [pool, category, activeConcept, debouncedSearch, difficulty]);
 
   const loading = questionsQuery.isLoading || progressQuery.isLoading || erdQuery.isLoading;
   const loadError = questionsQuery.error || progressQuery.error || erdQuery.error;
@@ -283,6 +318,10 @@ export default function StudentDashboard() {
         if (saved.category === 'all' || saved.category === 'sql' || saved.category === 'erd') {
           setCategory(saved.category);
         }
+        // A concept only applies under SQL, so one saved beside another category is dropped.
+        if (saved.category === 'sql' && typeof saved.concept === 'number') {
+          setConcept(saved.concept);
+        }
         if (['all', 'easy', 'medium', 'hard'].includes(saved.difficulty)) {
           setDifficulty(saved.difficulty);
         }
@@ -304,12 +343,12 @@ export default function StudentDashboard() {
     try {
       window.sessionStorage.setItem(
         FILTER_STORAGE_KEY,
-        JSON.stringify({ category, difficulty }),
+        JSON.stringify({ category, concept, difficulty }),
       );
     } catch {
       // best-effort only
     }
-  }, [category, difficulty]);
+  }, [category, concept, difficulty]);
 
   const handleQuestionClick = (item: PooledQuestion) => {
     try {
@@ -360,9 +399,12 @@ export default function StudentDashboard() {
               {categories.map((cat) => {
                 const active = category === cat.key;
                 return (
+                  <Fragment key={cat.key}>
                   <button
-                    key={cat.key}
-                    onClick={() => setCategory(cat.key)}
+                    onClick={() => {
+                      setCategory(cat.key);
+                      setConcept(null);
+                    }}
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -383,6 +425,15 @@ export default function StudentDashboard() {
                     <span>{cat.label}</span>
                     <span style={{ fontSize: '12px', opacity: 0.8 }}>{cat.count}</span>
                   </button>
+                  {cat.key === 'sql' && active && (
+                    <ConceptFilterList
+                      concepts={conceptsQuery.data ?? []}
+                      counts={conceptCounts}
+                      selected={concept}
+                      onSelect={setConcept}
+                    />
+                  )}
+                  </Fragment>
                 );
               })}
             </div>

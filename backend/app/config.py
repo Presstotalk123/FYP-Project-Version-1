@@ -209,7 +209,8 @@ class Settings(BaseSettings):
     # every /ra endpoint except /ra/status answers 404. RA_AGGREGATE_NULLS chooses how
     # aggregates treat NULL: "sql" (COUNT(attr) skips NULLs) or "slides" (lecture 3
     # slides 20–21 count them); see app/core/ra/evaluator.py.
-    RA_ENABLED: bool = False
+    # Developer test site only: RA is on here. Do NOT carry this into main.
+    RA_ENABLED: bool = True
     RA_AGGREGATE_NULLS: str = "sql"
 
     class Config:

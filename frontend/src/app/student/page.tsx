@@ -21,7 +21,7 @@ import { ladService } from '@/services/lad.service';
 import { queryKeys } from '@/services/query-keys';
 import { byReadmeOrder } from '@/utils/questionOrder';
 import { QuestionConceptRef } from '@/types/question.types';
-import { ConceptFilterList } from '@/components/common/ConceptFilterList';
+import { ConceptFilterList, ConceptListToggle } from '@/components/common/ConceptFilterList';
 import { useERAbility } from '@/hooks/use-er-ability';
 import { toERQuestionSubject } from '@/permissions/er-ability';
 
@@ -113,6 +113,8 @@ export default function StudentDashboard() {
   const [category, setCategory] = useState<CategoryFilter>('all');
   // SQL concept id, only meaningful while category is 'sql'.
   const [concept, setConcept] = useState<number | null>(null);
+  // Survives category switches, so collapsing once keeps it collapsed.
+  const [conceptsOpen, setConceptsOpen] = useState(true);
   const [difficulty, setDifficulty] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 500);
@@ -325,6 +327,9 @@ export default function StudentDashboard() {
         if (['all', 'easy', 'medium', 'hard'].includes(saved.difficulty)) {
           setDifficulty(saved.difficulty);
         }
+        if (typeof saved.conceptsOpen === 'boolean') {
+          setConceptsOpen(saved.conceptsOpen);
+        }
       }
     } catch {
       // best-effort only — never let bad storage break the page
@@ -343,12 +348,12 @@ export default function StudentDashboard() {
     try {
       window.sessionStorage.setItem(
         FILTER_STORAGE_KEY,
-        JSON.stringify({ category, concept, difficulty }),
+        JSON.stringify({ category, concept, conceptsOpen, difficulty }),
       );
     } catch {
       // best-effort only
     }
-  }, [category, concept, difficulty]);
+  }, [category, concept, conceptsOpen, difficulty]);
 
   const handleQuestionClick = (item: PooledQuestion) => {
     try {
@@ -391,7 +396,8 @@ export default function StudentDashboard() {
       <DashboardLayout>
         <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start', minHeight: '100%' }}>
           {/* Left category sidebar — same anatomy as /admin/problems */}
-          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Scrolls on its own once the SQL concept list makes it taller than the viewport. */}
+          <div style={{ width: '180px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', position: 'sticky', top: '84px', alignSelf: 'flex-start', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
             <span style={{ fontSize: '12px', fontWeight: 650, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '4px', padding: '0 12px', letterSpacing: '0.05em' }}>
               Categories
             </span>
@@ -400,12 +406,17 @@ export default function StudentDashboard() {
                 const active = category === cat.key;
                 return (
                   <Fragment key={cat.key}>
+                  {/* A wrapper rather than nesting: the SQL row's collapse toggle is
+                      a button too, and buttons can't contain buttons. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                   <button
                     onClick={() => {
                       setCategory(cat.key);
                       setConcept(null);
                     }}
                     style={{
+                      flex: 1,
+                      minWidth: 0,
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
@@ -425,12 +436,17 @@ export default function StudentDashboard() {
                     <span>{cat.label}</span>
                     <span style={{ fontSize: '12px', opacity: 0.8 }}>{cat.count}</span>
                   </button>
+                  {cat.key === 'sql' && active && conceptCounts.size > 0 && (conceptsQuery.data?.length ?? 0) > 0 && (
+                    <ConceptListToggle open={conceptsOpen} onToggle={() => setConceptsOpen((o) => !o)} />
+                  )}
+                  </div>
                   {cat.key === 'sql' && active && (
                     <ConceptFilterList
                       concepts={conceptsQuery.data ?? []}
                       counts={conceptCounts}
                       selected={concept}
                       onSelect={setConcept}
+                      collapsed={!conceptsOpen}
                     />
                   )}
                   </Fragment>

@@ -27,6 +27,31 @@ interface ConceptFilterListProps {
   counts: Map<number, number>;
   selected: number | null;
   onSelect: (conceptId: number | null) => void;
+  /** Collapsed shows only the selected concept, so a narrowed list still says why. */
+  collapsed?: boolean;
+}
+
+/** Chevron on the SQL row that shows / hides the concept list. */
+export function ConceptListToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="icon-btn"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={open ? 'Hide SQL concepts' : 'Show SQL concepts'}
+      title={open ? 'Hide SQL concepts' : 'Show SQL concepts'}
+      style={{ width: 28, height: 28, flexShrink: 0, color: 'var(--brand-lilac)' }}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+        style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform 140ms ease' }}
+      >
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+    </button>
+  );
 }
 
 /**
@@ -34,8 +59,10 @@ interface ConceptFilterListProps {
  * sidebars. Concepts no listed question is tagged with are hidden, so every row
  * leads somewhere. Clicking the active concept clears it.
  */
-export function ConceptFilterList({ concepts, counts, selected, onSelect }: ConceptFilterListProps) {
-  const visible = concepts.filter((c) => (counts.get(c.id) ?? 0) > 0);
+export function ConceptFilterList({ concepts, counts, selected, onSelect, collapsed = false }: ConceptFilterListProps) {
+  const visible = concepts.filter(
+    (c) => (counts.get(c.id) ?? 0) > 0 && (!collapsed || c.id === selected),
+  );
   if (visible.length === 0) return null;
 
   const groups = new Map<string, Concept[]>();
@@ -63,7 +90,7 @@ export function ConceptFilterList({ concepts, counts, selected, onSelect }: Conc
     >
       {ordered.map(([category, list]) => (
         <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <span
+          {!collapsed && <span
             style={{
               fontSize: '11px',
               fontWeight: 650,
@@ -74,7 +101,7 @@ export function ConceptFilterList({ concepts, counts, selected, onSelect }: Conc
             }}
           >
             {groupLabel(category)}
-          </span>
+          </span>}
           {list.map((c) => {
             const active = selected === c.id;
             return (

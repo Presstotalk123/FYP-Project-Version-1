@@ -19,7 +19,7 @@ import { ladService } from '@/services/lad.service';
 import { queryKeys } from '@/services/query-keys';
 import { byReadmeOrder } from '@/utils/questionOrder';
 import { QuestionConceptRef } from '@/types/question.types';
-import { ConceptFilterList } from '@/components/common/ConceptFilterList';
+import { ConceptFilterList, ConceptListToggle } from '@/components/common/ConceptFilterList';
 
 type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question';
 type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph';
@@ -127,6 +127,8 @@ export default function ProblemsPage() {
   const [category, setCategory] = useState<CategoryFilter>('all');
   // SQL concept id, only meaningful while category is 'sql'.
   const [concept, setConcept] = useState<number | null>(null);
+  // Survives category switches, so collapsing once keeps it collapsed.
+  const [conceptsOpen, setConceptsOpen] = useState(true);
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<string | null>(null);
   const [authorFilter, setAuthorFilter] = useState<string | null>(null);
@@ -352,12 +354,17 @@ export default function ProblemsPage() {
                 const active = category === cat.key;
                 return (
                   <Fragment key={cat.key}>
+                  {/* A wrapper rather than nesting: the SQL row's collapse toggle is
+                      a button too, and buttons can't contain buttons. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                   <button
                     onClick={() => {
                       setCategory(cat.key);
                       setConcept(null);
                     }}
                     style={{
+                      flex: 1,
+                      minWidth: 0,
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
@@ -377,12 +384,17 @@ export default function ProblemsPage() {
                     <span>{cat.label}</span>
                     <span style={{ fontSize: '12px', opacity: 0.8 }}>{cat.count}</span>
                   </button>
+                  {cat.key === 'sql' && active && conceptCounts.size > 0 && (conceptsQuery.data?.length ?? 0) > 0 && (
+                    <ConceptListToggle open={conceptsOpen} onToggle={() => setConceptsOpen((o) => !o)} />
+                  )}
+                  </div>
                   {cat.key === 'sql' && active && (
                     <ConceptFilterList
                       concepts={conceptsQuery.data ?? []}
                       counts={conceptCounts}
                       selected={concept}
                       onSelect={setConcept}
+                      collapsed={!conceptsOpen}
                     />
                   )}
                   </Fragment>

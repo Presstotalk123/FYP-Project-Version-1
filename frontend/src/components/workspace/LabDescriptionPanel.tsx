@@ -133,7 +133,7 @@ function SortableTaskCard({
             )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 650, color: 'var(--text)' }}>
+                <span style={{ fontSize: 13, fontWeight: 650, color: 'var(--text)', overflowWrap: 'anywhere' }}>
                   {index + 1}. {task.title}
                 </span>
                 {getTaskBadge()}
@@ -324,7 +324,7 @@ export function LabDescriptionPanel({
       <div style={{ flex: 1, overflow: 'auto' }}>
         {/* Description Tab */}
         {activeTab === 'description' && (
-          <div style={{ padding: 16, display: 'grid', gap: 14 }}>
+          <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{lab.title}</h3>
               {sessionId && <span className="badge badge-success">Active Session</span>}
@@ -366,7 +366,7 @@ export function LabDescriptionPanel({
 
         {/* Tasks Tab */}
         {activeTab === 'tasks' && (
-          <div style={{ padding: 12, display: 'grid', gap: 12 }}>
+          <div style={{ padding: 12, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }}>
             {isLoadingTasks ? (
               <div className="loading-center" style={{ minHeight: 120 }}>
                 <div className="spinner" style={{ width: 20, height: 20 }} />

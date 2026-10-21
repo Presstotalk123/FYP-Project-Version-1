@@ -185,4 +185,8 @@ export const API_ENDPOINTS = {
     VISIT_ITEM: (id: number, itemId: number) => `/student-assessments/${id}/session/visit-item/${itemId}`,
     SUBMIT: (id: number) => `/student-assessments/${id}/session/submit`,
   },
+  LEADERBOARD: {
+    LAB: (labId: number) => `/leaderboard/labs/${labId}`,
+    OVERALL: '/leaderboard/overall',
+  },
 };

@@ -94,4 +94,11 @@ export const queryKeys = {
   // Concept taxonomy (shared) + a question's tags (staff editor).
   ladConcepts: ['ladConcepts'] as const,
   ladQuestionConcepts: (questionId: number) => ['ladQuestionConcepts', questionId] as const,
+
+  // Leaderboards (staff and students share the endpoints; the backend masks names
+  // for students). Keyed by class group so each cohort/group caches separately.
+  labLeaderboard: (labId: number, classGroup: string | null) =>
+    ['labLeaderboard', labId, classGroup] as const,
+  overallLeaderboard: (classGroup: string | null) =>
+    ['overallLeaderboard', classGroup] as const,
 };

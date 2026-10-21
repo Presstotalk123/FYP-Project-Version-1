@@ -33,6 +33,9 @@ export function HeaderNav() {
     staffLinks.push({ label: "Users", href: "/admin/users" });
   }
 
+  // Pushed after the admin-only Users link so Leaderboard is always the last tab.
+  staffLinks.push({ label: "Leaderboard", href: "/admin/leaderboard" });
+
   const studentLinks = [
     { label: "Course Info", href: "/student/course" },
     { label: "Questions", href: "/student", exact: true },
@@ -40,6 +43,7 @@ export function HeaderNav() {
     { label: "Assessments", href: "/student/assessments" },
     { label: "My Learning", href: "/student/analytics" },
     { label: "Report", href: "/student/report" },
+    { label: "Leaderboard", href: "/student/leaderboard" },
   ];
   
   // Relational Algebra (FYP): one link for staff and students while RA_ENABLED is on.

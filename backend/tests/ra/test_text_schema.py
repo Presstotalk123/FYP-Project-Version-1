@@ -49,7 +49,7 @@ def test_same_key_relations_are_not_linked_to_each_other():
 
 def test_types_can_be_written_and_names_with_hyphens_are_quoted():
     sql = sql_from_text("`TEAM(*teamid-one, city: TEXT, founded DATE, budget REAL)`, PLAYER(*pid, team)")
-    assert sql.splitlines()[0] == ('CREATE TABLE TEAM ("teamid-one" TEXT PRIMARY KEY, city TEXT, founded TEXT, '
+    assert sql.splitlines()[0] == ('CREATE TABLE TEAM ("teamid-one" INTEGER PRIMARY KEY, city TEXT, founded TEXT, '
                                    'budget REAL);')
     assert list(tables(sql)) == ["TEAM", "PLAYER"]
 
@@ -70,3 +70,9 @@ def test_mistakes_point_at_their_line(text, message, line):
     with pytest.raises(RAError) as e:
         sql_from_text(text)
     assert message in e.value.message and e.value.line == line and e.value.code == "RA020"
+
+
+def test_types_are_guessed_from_each_word_of_a_name():
+    sql = sql_from_text("Results(*teamid-one, *teamid-two, scoreone, matchdate, matches)")
+    assert sql == ('CREATE TABLE Results ("teamid-one" INTEGER, "teamid-two" INTEGER, scoreone REAL, matchdate TEXT, '
+                   'matches INTEGER, PRIMARY KEY ("teamid-one", "teamid-two"));')

@@ -1,8 +1,8 @@
 import api from '@/services/api.service';
 import {
-  RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaPlaygroundGradeResponse, RaPlaygroundRunResponse, RaQuestion,
-  RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff, RaSchemaTextResponse, RaStatus, RaSubmitResponse,
-  RaValidateResponse,
+  RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaNotationResponse, RaPlaygroundGradeResponse,
+  RaPlaygroundRunResponse, RaQuestion, RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff,
+  RaSchemaTextResponse, RaStatus, RaSubmitResponse, RaValidateResponse,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -11,6 +11,7 @@ export const RA_ENDPOINTS = {
   PLAYGROUND_EXAMPLES: '/ra/playground/examples',
   PLAYGROUND_RUN: '/ra/playground/run',
   PLAYGROUND_GRADE: '/ra/playground/grade',
+  NOTATION: '/ra/notation',
   QUESTIONS: '/ra/questions',
   QUESTIONS_VALIDATE: '/ra/questions/validate',
   QUESTIONS_SCHEMA_FROM_TEXT: '/ra/questions/schema-from-text',
@@ -88,6 +89,11 @@ export const raService = {
   async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags'>
     & Pick<RaPartInput, 'model_answer' | 'checkpoints'>): Promise<RaValidateResponse> {
     return (await api.post<RaValidateResponse>(RA_ENDPOINTS.QUESTIONS_VALIDATE, input)).data;
+  },
+
+  /** The answer in textbook notation (σ with its condition as a subscript …), for the editor's preview. */
+  async notation(program: string, names: string[] = []): Promise<RaNotationResponse> {
+    return (await api.post<RaNotationResponse>(RA_ENDPOINTS.NOTATION, { program, names })).data;
   },
 
   /** Staff only: turn a schema written as text (``STUDENT(*Sid, Sname)``) into CREATE TABLE statements. */

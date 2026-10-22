@@ -235,6 +235,13 @@ export interface RaValidateResponse {
   checkpoints: RaCheckpoint[];
 }
 
+/** An answer in textbook notation: one LaTeX line per statement, as the parser read it. */
+export interface RaNotationResponse {
+  ok: boolean;
+  lines: { line: number | null; name: string | null; latex: string }[];
+  error: RaError | null;
+}
+
 export interface RaSchemaTextResponse {
   ok: boolean;
   schema_sql: string;

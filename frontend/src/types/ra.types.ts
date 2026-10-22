@@ -275,3 +275,108 @@ export interface RaAttempt {
   is_correct: boolean | null;
   created_at: string;
 }
+
+// ── staff analytics ─────────────────────────────────────────────────────────
+export type RaVerdictCounts = Record<RaVerdict, number>;
+
+/** A common error among unreadable answers: its code, one example message, how often. */
+export interface RaTopError {
+  code: string;
+  example: string;
+  count: number;
+  students: number;
+}
+
+export interface RaClassAnalytics {
+  totals: {
+    submissions: number;
+    students_engaged: number;
+    registered_students: number;
+    avg_completion_percent: number | null;
+    questions: number;
+  };
+  verdicts: RaVerdictCounts;
+  top_errors: RaTopError[];
+  questions: {
+    question_id: number;
+    title: string;
+    is_published: boolean;
+    parts: number;
+    attempts: number;
+    students: number;
+    students_solved: number;
+    completion_rate: number | null;
+    verdicts: RaVerdictCounts;
+  }[];
+  students: {
+    user_id: number;
+    email: string;
+    name: string | null;
+    class_group: string | null;
+    submissions: number;
+    questions_tried: number;
+    parts_tried: number;
+    parts_solved: number;
+    completion_percent: number | null;
+    first_activity_at: string | null;
+    last_activity_at: string | null;
+  }[];
+}
+
+export interface RaQuestionAnalytics {
+  question_id: number;
+  title: string;
+  is_assessment_copy: boolean;
+  student_count: number;
+  solved_count: number;
+  verdicts: RaVerdictCounts;
+  top_errors: RaTopError[];
+  parts: {
+    part_id: number;
+    label: string;
+    marks: number;
+    students: number;
+    students_solved: number;
+    attempts: number;
+    avg_submits_to_correct: number | null;
+    verdicts: RaVerdictCounts;
+    top_errors: RaTopError[];
+  }[];
+  students: {
+    user_id: number;
+    email: string;
+    name: string | null;
+    class_group: string | null;
+    attempts: number;
+    parts_solved: number;
+    marks_earned: number;
+    marks_total: number;
+    last_attempt_at: string | null;
+    parts: {
+      part_id: number;
+      attempts: number;
+      solved: boolean;
+      submits_to_correct: number | null;
+      last_verdict: RaVerdict | null;
+    }[];
+  }[];
+}
+
+export interface RaStudentAttempts {
+  student_id: number;
+  email: string;
+  name: string | null;
+  attempts: {
+    id: number;
+    part_id: number | null;
+    part_label: string;
+    created_at: string | null;
+    answer: string;
+    verdict: RaVerdict;
+    correct: boolean;
+    overridden: boolean;
+    method: string | null;
+    message: string;
+    error: RaError | null;
+  }[];
+}

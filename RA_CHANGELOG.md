@@ -366,3 +366,30 @@ yet, the panel says why instead.
 2. Type `R1 := σ Numphds < 50 (DEPT)` and `π Pname (PROF ⋈ R1)` on two lines: the panel shows
    R1 ← σ<sub>Numphds<50</sub>(DEPT) and Π<sub>Pname</sub>(PROF ⋈ R1), labelled line 1 and line 2.
 3. Type `σ GPA > 3 STUDENT ⋈ ENROLL`: the brackets show σ applies to STUDENT only.
+
+## Step 9: Staff analytics for RA (22 Oct 2026)
+
+Commit: "Add staff analytics for RA questions" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): RA should be in staff analytics, like SQL and ER.
+
+**What was built.** `backend/app/services/ra/analytics.py` and `endpoints/ra_analytics.py`
+(`/ra/analytics/class`, `/class-groups`, `/questions/{id}`, `/questions/{id}/students/{sid}`; staff
+only; students only in every number; computed live, no shared cache namespace). Beyond solved and
+attempts, RA analytics uses what the grader stores with every attempt: the **verdict** (correct,
+wrong on some generated database, wrong on the data, wrong attributes, has an error) and, for answers
+with an error, the **error code**, so staff see *which kind* of mistake each part draws.
+A part is solved if any attempt counts as correct (graded correct or overridden to correct).
+Frontend: `/ra/analytics` (class: totals, verdict bar, commonest errors, questions, students, CSV
+export, class filter) and `/ra/analytics/[id]` (per part: solved, submissions to correct, verdicts,
+errors; per student: each part ✓/✗ and marks; click a student for every answer they submitted and
+the grader's verdict). Links: **Class analytics** on the RA page, **Analytics** next to *Edit
+question*, a **Relational Algebra** tab on the staff Dashboard (only while RA is on; shared file
+`app/admin/page.tsx`), and **View Submissions** on RA items in an assessment's student list (shared
+file `admin/assessments/[id]/students/page.tsx`, inside its existing RA branch).
+
+**How to check it**
+1. As a student, submit a few answers to a multi-part question (one wrong, one with a typo).
+2. As admin: **Relational Algebra → Class analytics**: the verdict bar and the errors table show those
+   attempts; click the question for its parts; click the student for their answers.
+3. **Dashboard → Relational Algebra** shows the same class view.

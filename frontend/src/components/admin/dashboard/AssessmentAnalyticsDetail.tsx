@@ -1,11 +1,17 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
 import { AssessmentItemAggregateScore, ItemStudentRow } from '@/types/assessment.types';
 import { AssessmentGroupMatrix } from './AssessmentGroupMatrix';
+import { StudentFlagButton } from '@/components/admin/StudentFlagButton';
+import {
+  StudentFlagModal,
+  StudentFlagTarget,
+  invalidateAssessmentStudentQueries,
+} from '@/components/admin/StudentFlagModal';
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   sql_question: 'SQL Question',
@@ -66,6 +72,12 @@ function QuestionStudentList({
 
   // Score sort: null = server order (weakest first); 'desc' = highest→lowest; 'asc' = lowest→highest
   const [scoreSort, setScoreSort] = useState<'asc' | 'desc' | null>(null);
+
+  // Staff flag dialog. A save or a remove invalidates this list and the roster, so
+  // the flag updates here, in the group breakdown and on the students page.
+  const [flagTarget, setFlagTarget] = useState<StudentFlagTarget | null>(null);
+  const queryClient = useQueryClient();
+  const refreshFlags = () => invalidateAssessmentStudentQueries(queryClient, assessmentId);
 
   // score_percent is null only for 'not_started' rows, which always sort last.
   const students = query.data?.students ?? [];
@@ -132,19 +144,44 @@ function QuestionStudentList({
                 </tr>
               </thead>
               <tbody>
-                {sortedStudents.map((row) => (
-                  <tr key={row.email}>
-                    <td>{row.name ? <span className="pii">{row.name}</span> : '—'}</td>
-                    <td><span className="pii">{row.email}</span></td>
-                    <td>{row.class_group ?? '—'}</td>
-                    <td>{renderCell(row)}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>
-                      {STATUS_LABEL[row.status] || row.detail || ''}
-                    </td>
-                  </tr>
-                ))}
+                {sortedStudents.map((row) => {
+                  // A whitelist-only student has no account yet, so there is nothing to flag.
+                  const uid = row.user_id ?? null;
+                  return (
+                    <tr key={row.email}>
+                      <td>
+                        {uid !== null && (
+                          <StudentFlagButton
+                            flag={row.flag}
+                            onClick={() =>
+                              setFlagTarget({
+                                assessmentId,
+                                studentId: uid,
+                                studentLabel: row.name || row.email,
+                                existing: row.flag ?? null,
+                              })
+                            }
+                          />
+                        )}
+                        {row.name ? <span className="pii">{row.name}</span> : '—'}
+                      </td>
+                      <td><span className="pii">{row.email}</span></td>
+                      <td>{row.class_group ?? '—'}</td>
+                      <td>{renderCell(row)}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>
+                        {STATUS_LABEL[row.status] || row.detail || ''}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            <StudentFlagModal
+              target={flagTarget}
+              onClose={() => setFlagTarget(null)}
+              onSaved={refreshFlags}
+              onCleared={refreshFlags}
+            />
           </>
         )}
       </td>

@@ -179,6 +179,20 @@ class AssessmentResponse(BaseModel):
         from_attributes = True
 
 
+class AssessmentStudentFlagIn(BaseModel):
+    # Optional note from staff. Blank is stored as no reason.
+    reason: Optional[str] = Field(None, max_length=500)
+
+
+class AssessmentStudentFlagOut(BaseModel):
+    user_id: int
+    reason: Optional[str] = None
+    flagged_by: int
+    flagged_by_email: Optional[str] = None
+    # When staff last set the flag.
+    flagged_at: Optional[datetime] = None
+
+
 class AssessmentStudentRow(BaseModel):
     user_id: int
     email: str
@@ -190,6 +204,8 @@ class AssessmentStudentRow(BaseModel):
     submitted_at: Optional[datetime]
     # Weighted total (0-100) from the student's activity; None if the assessment is unweighted.
     weighted_score: Optional[float] = None
+    # Staff flag on this student for this assessment; None when not flagged.
+    flag: Optional[AssessmentStudentFlagOut] = None
 
 
 class AssessmentStudentsResponse(BaseModel):
@@ -366,6 +382,11 @@ class ItemStudentRow(BaseModel):
     # whose percent is already the whole story.
     detail: Optional[str] = None
     attempts: int = 0
+    # The account id, so staff can flag the student from this list. None when the
+    # student is on the whitelist but has no account yet.
+    user_id: Optional[int] = None
+    # Staff flag on this student for this assessment; None when not flagged.
+    flag: Optional[AssessmentStudentFlagOut] = None
 
 
 class ItemStudentsResponse(BaseModel):

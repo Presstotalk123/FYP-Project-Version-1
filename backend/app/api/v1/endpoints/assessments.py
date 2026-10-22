@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from dataclasses import asdict
 from datetime import datetime
 from io import BytesIO
 
@@ -37,10 +38,13 @@ from app.schemas.assessment import (
     ClassWindowOut,
     ItemStudentRow,
     ItemStudentsResponse,
+    AssessmentStudentFlagIn,
+    AssessmentStudentFlagOut,
 )
 from app.dependencies import get_current_user, require_staff_role
 from app.services import (
     assessment_clone,
+    assessment_flags,
     assessment_registration,
     assessment_reset,
     assessment_scoring,
@@ -987,6 +991,7 @@ def list_assessment_students(
     scores = assessment_scoring.get_or_compute_analytics(
         db, assessment, class_group=None
     ).per_student_scores
+    flags = assessment_flags.flags_for_assessment(db, assessment_id=assessment.id)
     students = [
         AssessmentStudentRow(
             user_id=session.user_id,
@@ -997,6 +1002,7 @@ def list_assessment_students(
             joined_at=session.joined_at,
             submitted_at=session.submitted_at,
             weighted_score=scores.get(session.user_id),
+            flag=_flag_out(flags.get(session.user_id)),
         )
         for session, email, name, class_group in roster
     ]
@@ -1280,6 +1286,62 @@ def reset_student_attempt(
     return {"detail": "Attempt reset", "student_id": student_id, "deleted": summary}
 
 
+def _flag_out(
+    info: Optional[assessment_flags.FlagInfo],
+) -> Optional[AssessmentStudentFlagOut]:
+    return None if info is None else AssessmentStudentFlagOut(**asdict(info))
+
+
+@router.put(
+    "/{assessment_id}/students/{student_id}/flag",
+    response_model=AssessmentStudentFlagOut,
+)
+def flag_student(
+    assessment_id: int,
+    student_id: int,
+    payload: Optional[AssessmentStudentFlagIn] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Flag a student on this assessment, with an optional reason.
+
+    A second call replaces the reason. The student needs no session on the
+    assessment: staff can flag a registered student who never joined."""
+    assessment = _get_staff_assessment(assessment_id, db)
+
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
+    try:
+        info = assessment_flags.set_flag(
+            db,
+            assessment_id=assessment.id,
+            user_id=student.id,
+            staff_id=current_user.id,
+            reason=payload.reason if payload else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return _flag_out(info)
+
+
+@router.delete(
+    "/{assessment_id}/students/{student_id}/flag",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def unflag_student(
+    assessment_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff_role),
+):
+    """Remove the flag. Also 204 when there was no flag to remove."""
+    assessment = _get_staff_assessment(assessment_id, db)
+    assessment_flags.clear_flag(db, assessment_id=assessment.id, user_id=student_id)
+    return None
+
+
 def _item_detail_string(
     item_type: str, fraction: float, tasks_total: Optional[int]
 ) -> Optional[str]:
@@ -1365,6 +1427,8 @@ def get_item_students(
         )
         er_graded = {uid for (uid, _qid), score in raw_scores.items() if score}
 
+    flags = assessment_flags.flags_for_assessment(db, assessment_id=assessment.id)
+
     rows: List[ItemStudentRow] = []
     seen_emails: set = set()
 
@@ -1373,6 +1437,8 @@ def get_item_students(
         seen_emails.add((email or "").lower())
         rows.append(ItemStudentRow(
             email=(email or "").lower(),
+            user_id=uid,
+            flag=_flag_out(flags.get(uid)),
             name=name,
             class_group=group,
             status="graded" if (attempts > 0 or uid in er_graded) else "not_attempted",
@@ -1383,11 +1449,26 @@ def get_item_students(
 
     # Registered students with no session at all — they never opened the assessment, which is
     # a different problem from failing the question, so they carry no score.
+    # Account ids for registered students who never joined, so staff can flag them
+    # from this list too. A whitelist-only student has no account yet and gets None.
+    missing_emails = [s["email"] for s in registered if s["email"] not in seen_emails]
+    id_by_email: dict = {}
+    if missing_emails:
+        id_by_email = {
+            (email or "").lower(): uid
+            for uid, email in db.query(User.id, User.email)
+            .filter(func.lower(User.email).in_(missing_emails))
+            .all()
+        }
+
     for student in registered:
         if student["email"] in seen_emails:
             continue
+        uid = id_by_email.get(student["email"])
         rows.append(ItemStudentRow(
             email=student["email"],
+            user_id=uid,
+            flag=_flag_out(flags.get(uid)) if uid is not None else None,
             name=student["name"],
             class_group=student["class_group"],
             status="not_started",

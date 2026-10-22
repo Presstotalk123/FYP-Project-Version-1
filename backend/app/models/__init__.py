@@ -30,5 +30,6 @@ from app.models.solo_classification import SoloClassification
 from app.models.sql_tutor_conversation import SqlTutorConversation
 from app.models.sql_tutor_message import SqlTutorMessage
 from app.models.user_preference import UserPreference
+from app.models.assessment_student_flag import AssessmentStudentFlag
 
-__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity", "SqlConcept", "SqlConceptPrerequisite", "QuestionConcept", "LearningEvent", "ConceptMastery", "SoloClassification", "SqlTutorConversation", "SqlTutorMessage", "UserPreference"]
+__all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity", "SqlConcept", "SqlConceptPrerequisite", "QuestionConcept", "LearningEvent", "ConceptMastery", "SoloClassification", "SqlTutorConversation", "SqlTutorMessage", "UserPreference", "AssessmentStudentFlag"]

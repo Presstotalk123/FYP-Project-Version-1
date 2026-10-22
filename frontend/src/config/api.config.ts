@@ -161,6 +161,7 @@ export const API_ENDPOINTS = {
     ITEM_STUDENTS: (id: number, itemId: number) =>
       `/assessments/${id}/items/${itemId}/students`,
     RESET_STUDENT: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/reset`,
+    STUDENT_FLAG: (id: number, studentId: number) => `/assessments/${id}/students/${studentId}/flag`,
     RECOMPUTE_SCORES: (id: number) => `/assessments/${id}/recompute-scores`,
     WINDOWS: (id: number) => `/assessments/${id}/windows`,
     CLASS_GROUPS: (id: number) => `/assessments/${id}/class-groups`,

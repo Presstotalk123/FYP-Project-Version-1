@@ -19,6 +19,8 @@ import {
   Select,
   Box,
   TextInput,
+  Checkbox,
+  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -33,12 +35,20 @@ import {
   IconArrowDown,
   IconArrowsSort,
   IconDownload,
+  IconFlag,
 } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { AddErSubmissionModal } from '@/components/admin/AddErSubmissionModal';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  StudentFlagModal,
+  StudentFlagTarget,
+  invalidateAssessmentStudentQueries,
+} from '@/components/admin/StudentFlagModal';
+import {
+  AssessmentStudentFlag,
   AssessmentStudentRow,
   AssessmentStudentsResponse,
   AssessmentItemComponentScore,
@@ -102,6 +112,11 @@ export default function AssessmentStudentsPage() {
   const [recomputing, setRecomputing] = useState(false);
 
   const [exporting, setExporting] = useState(false);
+
+  // Staff flag dialog target, and the "Flagged only" filter.
+  const [flagTarget, setFlagTarget] = useState<StudentFlagTarget | null>(null);
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const queryClient = useQueryClient();
 
   const fetchStudents = async () => {
     try {
@@ -213,6 +228,21 @@ export default function AssessmentStudentsPage() {
     } finally {
       setExporting(false);
     }
+  };
+
+  // Patch the row in place: the response already carries the new flag, so a refetch
+  // would only cost a request. The dashboard caches are invalidated so the Assessments
+  // tab shows the same flag.
+  const applyFlag = (studentId: number, flag: AssessmentStudentFlag | null) => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            students: prev.students.map((s) => (s.user_id === studentId ? { ...s, flag } : s)),
+          }
+        : prev,
+    );
+    invalidateAssessmentStudentQueries(queryClient, assessmentId);
   };
 
   // Shared by the drawer's first load and by the refresh after a submission is added,
@@ -406,14 +436,15 @@ export default function AssessmentStudentsPage() {
       ).sort()
     : [];
   const q = search.trim().toLowerCase();
+  // The class-group and search filters. "Flagged only" is applied on top, and its
+  // count comes from this same set, so the label always matches the table.
+  const matchesFilters = (s: AssessmentStudentRow) =>
+    (!selectedClassGroup || s.class_group === selectedClassGroup) &&
+    (!q ||
+      s.email.toLowerCase().includes(q) ||
+      (s.name ?? '').toLowerCase().includes(q));
   const filteredStudents = data
-    ? data.students.filter(
-        (s) =>
-          (!selectedClassGroup || s.class_group === selectedClassGroup) &&
-          (!q ||
-            s.email.toLowerCase().includes(q) ||
-            (s.name ?? '').toLowerCase().includes(q))
-      )
+    ? data.students.filter((s) => matchesFilters(s) && (!flaggedOnly || !!s.flag))
     : [];
   // Sorted view for rendering. Nulls (no score) always sort last, regardless of
   // direction, so an empty score never masquerades as the lowest or highest.
@@ -428,6 +459,9 @@ export default function AssessmentStudentsPage() {
           if (sb == null) return -1;
           return scoreSort === 'desc' ? sb - sa : sa - sb;
         });
+  const flaggedCount = data
+    ? data.students.filter((s) => matchesFilters(s) && !!s.flag).length
+    : 0;
   // Students still mid-attempt — ending & refreshing will force-submit them, so warn first.
   const activeCount = data ? data.students.filter((s) => s.is_active).length : 0;
 
@@ -503,6 +537,11 @@ export default function AssessmentStudentsPage() {
                       clearable
                       searchable
                       style={{ width: 250 }}
+                    />
+                    <Checkbox
+                      label={`Flagged only (${flaggedCount})`}
+                      checked={flaggedOnly}
+                      onChange={(e) => setFlaggedOnly(e.currentTarget.checked)}
                     />
                   </Group>
 
@@ -585,7 +624,7 @@ export default function AssessmentStudentsPage() {
 
                   {filteredStudents.length === 0 ? (
                     <Alert icon={<IconAlertCircle size={16} />} color="blue" title="No Students">
-                      No students in this class group.
+                      {flaggedOnly ? 'No flagged students match.' : 'No students in this class group.'}
                     </Alert>
                   ) : (
                 <Table striped highlightOnHover>
@@ -595,6 +634,7 @@ export default function AssessmentStudentsPage() {
                       <Table.Th>Name</Table.Th>
                       <Table.Th>Class</Table.Th>
                       <Table.Th>Status</Table.Th>
+                      <Table.Th>Flag</Table.Th>
                       <Table.Th
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                         onClick={() =>
@@ -637,6 +677,22 @@ export default function AssessmentStudentsPage() {
                           </Badge>
                         </Table.Td>
                         <Table.Td>
+                          {student.flag ? (
+                            <Tooltip
+                              label={student.flag.reason || 'No reason given'}
+                              withArrow
+                              multiline
+                              maw={320}
+                            >
+                              <Badge color="orange" variant="light" leftSection={<IconFlag size={12} />}>
+                                Flagged
+                              </Badge>
+                            </Tooltip>
+                          ) : (
+                            <Text size="sm" c="dimmed">—</Text>
+                          )}
+                        </Table.Td>
+                        <Table.Td>
                           {renderWeightedScore(student.weighted_score)}
                         </Table.Td>
                         <Table.Td>
@@ -659,6 +715,22 @@ export default function AssessmentStudentsPage() {
                               onClick={() => openActivityDrawer(student)}
                             >
                               View Activity
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="light"
+                              color="orange"
+                              leftSection={<IconFlag size={14} />}
+                              onClick={() =>
+                                setFlagTarget({
+                                  assessmentId,
+                                  studentId: student.user_id,
+                                  studentLabel: student.name || student.email,
+                                  existing: student.flag ?? null,
+                                })
+                              }
+                            >
+                              {student.flag ? 'Edit flag' : 'Flag'}
                             </Button>
                             <Button
                               size="xs"
@@ -813,6 +885,13 @@ export default function AssessmentStudentsPage() {
             </Stack>
           )}
         </Drawer>
+
+        <StudentFlagModal
+          target={flagTarget}
+          onClose={() => setFlagTarget(null)}
+          onSaved={(studentId, flag) => applyFlag(studentId, flag)}
+          onCleared={(studentId) => applyFlag(studentId, null)}
+        />
 
         {addTarget && (
           <AddErSubmissionModal

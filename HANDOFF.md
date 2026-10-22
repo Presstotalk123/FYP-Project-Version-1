@@ -37,7 +37,7 @@ meaning into them beyond "the platform" and "the chatbot."
 | SQL Questions | Solve against a per-question SQLite DB, get instant correctness + AI query review | Author questions, bulk-import (LeetCode-style bank), publish/unpublish |
 | SQL Labs | Multi-task sessions against a shared schema, session-scoped | Author lab tasks, view lab analytics |
 | ER Diagrams | Draw ER diagrams in an embedded draw.io canvas, get LLM-graded feedback + an interactive Socratic tutor | Author ER questions, set rubrics, override grades, add submissions on a student's behalf |
-| Assessments | Timed (optionally password-gated, optionally class-scheduled) sets of the above item types | Author assessments, clone them, view analytics, reset a student's attempt |
+| Assessments | Timed (optionally password-gated, optionally class-scheduled) sets of the above item types | Author assessments, clone them, view analytics, reset a student's attempt, flag a student with a note |
 | AI Tutor ("Bagheera") | Streaming chat while working a question/lab; optionally "adaptive" (mastery-aware) | — |
 | Learning Analytics Dashboard (LAD) | Per-concept mastery map, SOLO-taxonomy level, anonymized peer benchmarking (**dark by default**, see §5) | Tag questions with concepts |
 | Admin | — | User/whitelist management, login-activity & live-presence tracking, cohort analytics, anonymized research CSV export |
@@ -1349,6 +1349,20 @@ handling in §6.3.4. It refuses to run over an existing grade unless
 `regrade=True` is explicitly passed (`AlreadyGraded`), and every written row
 carries `added_by_staff_id`/`added_reason` so a staff-added submission is
 auditable as such even though it's otherwise identical to a student's own.
+
+**Student flags** (`services/assessment_flags.py`, table
+`assessment_student_flags`) let staff mark one student on one assessment with
+an optional note, from the Student Activity page or from the dashboard
+Assessments tab (per-question list and group breakdown). The flag is a staff
+note, not attempt data: a reset keeps it, a clone does not copy it, and
+students never see it. One row per (assessment, student); `set_flag` is an
+upsert (same pattern as `user_preferences.set_value`), so a second flag
+replaces the note. The two student-list endpoints add `flag` to each row, and
+the per-question list also adds `user_id`, so staff can flag a registered
+student who never joined. On the frontend, `invalidateAssessmentStudentQueries`
+(`components/admin/StudentFlagModal.tsx`) drops the unmounted cached lists and
+refetches the mounted ones, because `refetchOnMount` is off app-wide (§7).
+Postgres needs `run_assessment_student_flags_migration.py` once before deploy.
 
 ### 6.6.5 Assessment reset: what "clean slate" actually deletes
 

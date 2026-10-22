@@ -235,6 +235,13 @@ export interface RaValidateResponse {
   checkpoints: RaCheckpoint[];
 }
 
+export interface RaSchemaTextResponse {
+  ok: boolean;
+  schema_sql: string;
+  relations: RaRelation[];
+  error: RaError | null;
+}
+
 export interface RaCheckResponse {
   ok: boolean;
   error: RaError | null;

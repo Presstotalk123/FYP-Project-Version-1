@@ -290,3 +290,31 @@ default) but still have *Show structure*. API tests also cover the cap, the scor
 2. As the student account: **Assessments**, join it, open an RA item: timer, weight, *N of M
    submissions used · Check is free*, no ✓/◐/○ unless enabled for assessments.
 3. As admin: the people icon on the assessment shows each student's RA items as Solved / Not Solved.
+
+## Step 6: Sub-questions (parts) on one schema (22 Oct 2026)
+
+Commit: "Let an RA question have parts on one schema, each with its own marks" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): a tutorial question such as Tutorial 5.5 Q1 has one schema and
+parts (i)–(iv); staff should not have to re-enter the schema for each part.
+
+**What was built.** New table `ra_question_parts` (`models/ra_question_part.py`): label, description,
+marks, model answer, checkpoints and test databases per part. `ra_attempts.part_id` says which part an
+attempt answers. Every question has at least one part; `services/ra/local_schema.py` gives each older
+question one part from its model answer and links its attempts to it, at startup (SQLite always;
+Postgres only while `RA_ENABLED`, under an advisory lock so gunicorn workers don't race).
+`run_ra_tables_migration.py` does the same by hand. The API takes `parts` instead of a top-level model
+answer and answers name a `part_id` (optional when there is one part). In assessments each part earns
+its own marks (score = marks earned / total marks) and the submission cap applies per part.
+Frontend: the staff form has **+ Add a sub-question** (label, marks, description, model answer and
+test bench per part, reorder, remove); the student page has a part selector (← Previous part /
+dropdown / Next part →) in the same frame, with a separate editor per part that starts blank and
+brings back the student's saved answer when they return to a part. Seed: "Tutorial 5.5 Q1 —
+university (4 parts)" and "Tutorial 5.5 Q2 — railway (2 parts)".
+
+**How to check it**
+1. As admin: **Relational Algebra → New question**, fill in the schema, **+ Add a sub-question**, give
+   each part a model answer and marks, **Check the model answer** on each, **Create question**.
+2. As a student: open it, answer part (i), **Submit**, choose part (ii) in the dropdown (blank
+   editor), go back to (i): the answer is still there. The card on the list shows *x of N solved*.
+3. In an assessment, a question worth 1 + 3 marks with only part (ii) solved scores 75%.

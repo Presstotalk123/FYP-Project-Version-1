@@ -150,7 +150,26 @@ export interface RaQuestionListItem {
   is_published: boolean;
   has_data: boolean;
   attempts: number;
+  solved: boolean; // every part solved
+  parts_total: number;
+  parts_solved: number;
+}
+
+/** One part of a question, (i), (ii), …, as students see it (never its model answer). */
+export interface RaPart {
+  id: number;
+  label: string; // '' for a question with a single part
+  description: string;
+  marks: number;
+  attempts: number;
   solved: boolean;
+  submissions_used: number;
+}
+
+export interface RaPartStaff extends RaPart {
+  model_answer: string;
+  checkpoints: RaCheckpoint[] | null;
+  suite: RaSuiteSummary | null;
 }
 
 /** A question as students see it (never the model answer). */
@@ -164,22 +183,29 @@ export interface RaQuestion {
   show_step_direction: boolean;
   hide_correctness: boolean;
   attempts: number;
-  solved: boolean;
+  solved: boolean; // every part solved
+  parts: RaPart[];
   /** Set when this is an assessment's copy of a question. */
   assessment_id: number | null;
-  max_submissions: number | null; // null = unlimited
-  submissions_used: number;
+  max_submissions: number | null; // per part; null = unlimited
 }
 
-export interface RaQuestionStaff extends RaQuestion {
+export interface RaQuestionStaff extends Omit<RaQuestion, 'parts'> {
   schema_sql: string;
   data_sql: string;
-  model_answer: string;
-  checkpoints: RaCheckpoint[] | null;
+  parts: RaPartStaff[];
   compare_bags: boolean;
   is_published: boolean;
   assessment_step_direction: boolean;
-  suite: RaSuiteSummary | null;
+}
+
+export interface RaPartInput {
+  id: number | null; // an existing part keeps its id (and its students' attempts)
+  label: string;
+  description: string;
+  marks: number;
+  model_answer: string;
+  checkpoints: RaCheckpoint[] | null;
 }
 
 export interface RaQuestionInput {
@@ -188,8 +214,7 @@ export interface RaQuestionInput {
   difficulty: RaDifficulty;
   schema_sql: string;
   data_sql: string;
-  model_answer: string;
-  checkpoints: RaCheckpoint[] | null;
+  parts: RaPartInput[];
   show_step_direction: boolean;
   assessment_step_direction: boolean;
   compare_bags: boolean;
@@ -220,6 +245,7 @@ export interface RaCheckResponse {
 
 export interface RaSubmitResponse {
   attempt_id: number;
+  part_id: number;
   max_submissions: number | null;
   submissions_used: number;
   grade: RaGradeResult | null; // null when the question hides correctness
@@ -229,6 +255,7 @@ export interface RaSubmitResponse {
 
 export interface RaAttempt {
   id: number;
+  part_id: number | null;
   answer: string;
   verdict: RaVerdict | null;
   is_correct: boolean | null;

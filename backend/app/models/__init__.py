@@ -34,5 +34,6 @@ from app.models.user_preference import UserPreference
 # __all__ below so the long line there never needs editing.
 from app.models.ra_question import RAQuestion  # noqa: F401
 from app.models.ra_attempt import RAAttempt  # noqa: F401
+from app.models.ra_question_part import RAQuestionPart  # noqa: F401
 
 __all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity", "SqlConcept", "SqlConceptPrerequisite", "QuestionConcept", "LearningEvent", "ConceptMastery", "SoloClassification", "SqlTutorConversation", "SqlTutorMessage", "UserPreference"]

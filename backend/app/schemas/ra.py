@@ -149,14 +149,26 @@ class CheckpointIn(BaseModel):
     label: str = Field(..., min_length=1, max_length=200)    # shown to students, e.g. "the CE courses"
 
 
+MAX_PARTS = 20
+
+
+class RAPartIn(BaseModel):
+    """One part of a question: (i), (ii), … A question with one part needs no label or text."""
+    id: Optional[int] = None                               # an existing part (keeps its attempts)
+    label: str = Field("", max_length=50)                  # e.g. "(i)"
+    description: str = Field("", max_length=20_000)       # markdown, shown to students
+    marks: int = Field(1, ge=1, le=100)                    # what the part earns in an assessment
+    model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    checkpoints: Optional[List[CheckpointIn]] = None       # None = every step of the model answer
+
+
 class RAQuestionIn(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(..., min_length=1, max_length=20_000)
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
     data_sql: str = Field("", max_length=MAX_SQL_CHARS)
-    model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
-    checkpoints: Optional[List[CheckpointIn]] = None       # None = every step of the model answer
+    parts: List[RAPartIn] = Field(..., min_length=1, max_length=MAX_PARTS)
     show_step_direction: bool = True
     assessment_step_direction: bool = False    # the same, when the question is in an assessment
     compare_bags: bool = False
@@ -192,7 +204,26 @@ class RAQuestionListItem(BaseModel):
     is_published: bool
     has_data: bool
     attempts: int = 0
+    solved: bool = False                     # every part solved
+    parts_total: int = 1
+    parts_solved: int = 0
+
+
+class RAPartOut(BaseModel):
+    """A part as students see it (never its model answer)."""
+    id: int
+    label: str
+    description: str
+    marks: int
+    attempts: int = 0
     solved: bool = False
+    submissions_used: int = 0                # Submits to this part (capped in assessments)
+
+
+class RAPartStaffOut(RAPartOut):
+    model_answer: str
+    checkpoints: Optional[List[CheckpointIn]] = None
+    suite: Optional[SuiteSummaryOut] = None
 
 
 class RAQuestionOut(BaseModel):
@@ -206,26 +237,25 @@ class RAQuestionOut(BaseModel):
     show_step_direction: bool
     hide_correctness: bool
     attempts: int = 0
-    solved: bool = False
+    solved: bool = False                     # every part solved
+    parts: List[RAPartOut] = []
     # Set when this is an assessment's copy of a question.
     assessment_id: Optional[int] = None
-    max_submissions: Optional[int] = None    # None = unlimited
-    submissions_used: int = 0
+    max_submissions: Optional[int] = None    # per part; None = unlimited
 
 
 class RAQuestionStaffOut(RAQuestionOut):
     schema_sql: str
     data_sql: str
-    model_answer: str
-    checkpoints: Optional[List[CheckpointIn]] = None
+    parts: List[RAPartStaffOut] = []
     compare_bags: bool
     is_published: bool
     assessment_step_direction: bool = False
-    suite: Optional[SuiteSummaryOut] = None
 
 
 class RAAnswerIn(BaseModel):
     answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    part_id: Optional[int] = None            # may be left out when the question has one part
 
 
 class RACheckOut(BaseModel):
@@ -239,6 +269,7 @@ class RACheckOut(BaseModel):
 
 class RASubmitOut(BaseModel):
     attempt_id: int
+    part_id: int
     max_submissions: Optional[int] = None
     submissions_used: int = 0
     # None when the question hides correctness: the student only learns it was submitted.
@@ -249,6 +280,7 @@ class RASubmitOut(BaseModel):
 
 class RAAttemptOut(BaseModel):
     id: int
+    part_id: Optional[int] = None
     answer: str
     verdict: Optional[str] = None        # None when the question hides correctness
     is_correct: Optional[bool] = None

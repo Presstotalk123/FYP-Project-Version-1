@@ -126,8 +126,13 @@ function RaHome() {
               <span className={`badge ${q.difficulty}`}>{RA_DIFFICULTY_LABEL[q.difficulty] ?? q.difficulty}</span>
               {!q.has_data && <span className="badge neutral" title="No data: answers are checked on generated databases">Schema only</span>}
               {isStaff && !q.is_published && <span className="badge badge-warn">Draft</span>}
+              {q.parts_total > 1 && (
+                <span className="badge neutral" title="Sub-questions on the same schema">{q.parts_total} parts</span>
+              )}
               {q.solved ? (
                 <span className="badge badge-success">✓ Solved</span>
+              ) : q.parts_total > 1 && q.parts_solved > 0 ? (
+                <span className="badge neutral">{q.parts_solved} of {q.parts_total} solved</span>
               ) : q.attempts > 0 ? (
                 <span className="badge neutral">{q.attempts} {q.attempts === 1 ? 'attempt' : 'attempts'}</span>
               ) : null}

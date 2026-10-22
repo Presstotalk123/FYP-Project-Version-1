@@ -1,8 +1,9 @@
 import api from '@/services/api.service';
 import {
-  RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaPlaygroundGradeResponse, RaPlaygroundRunResponse, RaQuestion,
-  RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff, RaSchemaTextResponse, RaStatus, RaSubmitResponse,
-  RaValidateResponse,
+  RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaNotationResponse, RaPlaygroundGradeResponse,
+  RaPlaygroundRunResponse, RaQuestion, RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff,
+  RaSchemaTextResponse, RaStatus, RaSubmitResponse, RaValidateResponse, RaClassAnalytics, RaQuestionAnalytics,
+  RaStudentAttempts,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -11,6 +12,8 @@ export const RA_ENDPOINTS = {
   PLAYGROUND_EXAMPLES: '/ra/playground/examples',
   PLAYGROUND_RUN: '/ra/playground/run',
   PLAYGROUND_GRADE: '/ra/playground/grade',
+  NOTATION: '/ra/notation',
+  ANALYTICS: '/ra/analytics',
   QUESTIONS: '/ra/questions',
   QUESTIONS_VALIDATE: '/ra/questions/validate',
   QUESTIONS_SCHEMA_FROM_TEXT: '/ra/questions/schema-from-text',
@@ -28,6 +31,10 @@ export const raQueryKeys = {
   question: (id: number) => ['ra', 'questions', id] as const,
   questionEdit: (id: number) => ['ra', 'questions', id, 'edit'] as const,
   attempts: (id: number) => ['ra', 'questions', id, 'attempts'] as const,
+  classAnalytics: (group: string) => ['ra', 'analytics', 'class', group] as const,
+  classGroups: ['ra', 'analytics', 'class-groups'] as const,
+  questionAnalytics: (id: number, group: string) => ['ra', 'analytics', 'questions', id, group] as const,
+  studentAttempts: (id: number, studentId: number) => ['ra', 'analytics', 'questions', id, 'students', studentId] as const,
 };
 
 export const raService = {
@@ -88,6 +95,30 @@ export const raService = {
   async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags'>
     & Pick<RaPartInput, 'model_answer' | 'checkpoints'>): Promise<RaValidateResponse> {
     return (await api.post<RaValidateResponse>(RA_ENDPOINTS.QUESTIONS_VALIDATE, input)).data;
+  },
+
+  /** The answer in textbook notation (σ with its condition as a subscript …), for the editor's preview. */
+  async notation(program: string, names: string[] = []): Promise<RaNotationResponse> {
+    return (await api.post<RaNotationResponse>(RA_ENDPOINTS.NOTATION, { program, names })).data;
+  },
+
+  // ── staff analytics (empty class group = every class) ──
+  async classAnalytics(classGroup: string): Promise<RaClassAnalytics> {
+    return (await api.get<RaClassAnalytics>(`${RA_ENDPOINTS.ANALYTICS}/class`,
+      { params: classGroup ? { class_group: classGroup } : {} })).data;
+  },
+
+  async classGroups(): Promise<string[]> {
+    return (await api.get<string[]>(`${RA_ENDPOINTS.ANALYTICS}/class-groups`)).data;
+  },
+
+  async questionAnalytics(id: number, classGroup: string): Promise<RaQuestionAnalytics> {
+    return (await api.get<RaQuestionAnalytics>(`${RA_ENDPOINTS.ANALYTICS}/questions/${id}`,
+      { params: classGroup ? { class_group: classGroup } : {} })).data;
+  },
+
+  async studentAttempts(id: number, studentId: number): Promise<RaStudentAttempts> {
+    return (await api.get<RaStudentAttempts>(`${RA_ENDPOINTS.ANALYTICS}/questions/${id}/students/${studentId}`)).data;
   },
 
   /** Staff only: turn a schema written as text (``STUDENT(*Sid, Sname)``) into CREATE TABLE statements. */

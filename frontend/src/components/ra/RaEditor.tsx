@@ -1,9 +1,10 @@
 'use client';
 
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useEffect, useRef, useSyncExternalStore } from 'react';
 import dynamic from 'next/dynamic';
 import type { BeforeMount, OnMount } from '@monaco-editor/react';
 import { RaError } from '@/types/ra.types';
+import { RaNotation } from './RaNotation';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
@@ -35,6 +36,30 @@ const PALETTE: { symbol: string; insert?: string; title: string }[] = [
   { symbol: 'OR', insert: ' OR ', title: 'Either condition' },
   { symbol: 'NOT', insert: 'NOT ', title: 'Negation' },
 ];
+
+// Whether the notation preview is open, remembered per browser (a convenience: off if storage is blocked).
+const NOTATION_KEY = 'ra-show-notation';
+const notationListeners = new Set<() => void>();
+
+function readShowNotation(): boolean {
+  try {
+    return window.localStorage.getItem(NOTATION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeShowNotation(on: boolean) {
+  try {
+    window.localStorage.setItem(NOTATION_KEY, on ? '1' : '0');
+  } catch { /* storage unavailable: the preview just won't be remembered */ }
+  notationListeners.forEach((listener) => listener());
+}
+
+function subscribeShowNotation(listener: () => void) {
+  notationListeners.add(listener);
+  return () => { notationListeners.delete(listener); };
+}
 
 let languageRegistered = false;
 
@@ -70,9 +95,12 @@ interface RaEditorProps {
   /** Buttons shown above the palette — each page supplies its own. */
   toolbar?: ReactNode;
   height?: number | string;
+  /** The schema's relation and attribute names, so the notation preview reads names with "-" as one. */
+  names?: string[];
 }
 
-export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 }: RaEditorProps) {
+export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260, names }: RaEditorProps) {
+  const showNotation = useSyncExternalStore(subscribeShowNotation, readShowNotation, () => false);
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   // Monaco keeps the Ctrl+Enter command it was given at mount, so it calls through a
@@ -158,6 +186,20 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 
             {op.symbol}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => writeShowNotation(!showNotation)}
+          aria-pressed={showNotation}
+          title="Show each line in textbook notation, e.g. σ with its condition as a subscript"
+          style={{
+            marginLeft: 'auto', height: 30, padding: '0 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
+            fontWeight: 700, border: '1px solid var(--border-strong)',
+            background: showNotation ? 'var(--brand-charcoal)' : 'var(--surface)',
+            color: showNotation ? 'var(--surface)' : 'var(--brand-charcoal)',
+          }}
+        >
+          {showNotation ? 'Hide notation' : 'Preview notation'} σ<sub>x</sub>
+        </button>
       </div>
 
       <div style={{ height }}>
@@ -183,6 +225,8 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 
           }}
         />
       </div>
+
+      {showNotation && <RaNotation program={value} names={names} />}
 
       <div style={{
         padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 12,

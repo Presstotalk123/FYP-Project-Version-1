@@ -297,6 +297,10 @@ export default function AssessmentStudentsPage() {
             {item.has_correct_attempt ? 'Solved' : count > 0 ? 'Not Solved' : 'Not Attempted'}
           </Badge>
           {count > 0 && <Text size="sm" c="dimmed">{count} attempt{count !== 1 ? 's' : ''}</Text>}
+          <Button size="xs" variant="light" color="teal" leftSection={<IconEye size={12} />}
+            onClick={() => router.push(`/ra/analytics/${item.item_id}?student=${studentId}`)}>
+            View Submissions
+          </Button>
         </Group>
       );
     }

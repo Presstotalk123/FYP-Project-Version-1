@@ -59,6 +59,25 @@ class PlaygroundRunOut(BaseModel):
     elapsed_ms: float = 0
 
 
+class NotationIn(BaseModel):
+    program: str = Field(..., max_length=MAX_PROGRAM_CHARS)
+    # The schema's relation and attribute names, so names containing "-" read as one name.
+    names: List[str] = Field(default_factory=list, max_length=2000)
+
+
+class NotationLineOut(BaseModel):
+    line: Optional[int] = None
+    name: Optional[str] = None
+    latex: str
+
+
+class NotationOut(BaseModel):
+    """An answer in textbook notation (LaTeX), one entry per statement, or why it can't be read."""
+    ok: bool
+    lines: List[NotationLineOut] = []
+    error: Optional[RAErrorOut] = None
+
+
 class GradingExampleOut(BaseModel):
     title: str
     model_answer: str

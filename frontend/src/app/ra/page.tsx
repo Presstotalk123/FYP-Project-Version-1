@@ -67,6 +67,7 @@ function RaHome() {
         </div>
         <div className="button-row">
           <Link className="btn btn-secondary" href="/ra/playground">Playground</Link>
+          {isStaff && <Link className="btn btn-secondary" href="/ra/analytics">Class analytics</Link>}
           {isStaff && <Link className="btn btn-brand" href="/ra/questions/new">New question</Link>}
         </div>
       </div>

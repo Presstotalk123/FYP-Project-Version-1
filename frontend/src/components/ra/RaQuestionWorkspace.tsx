@@ -214,6 +214,7 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
           onRun={() => void run('check')}
           error={editorError}
           height={240}
+          names={question.relations.flatMap((r) => [r.name, ...r.columns])}
           toolbar={(
             <>
               <button className="btn btn-secondary" style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}

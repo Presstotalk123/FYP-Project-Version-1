@@ -19,6 +19,9 @@ class RAAttempt(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(Integer, ForeignKey("ra_questions.id"), nullable=False, index=True)
+    # Which part of the question (ra_question_parts). Nullable only for rows written
+    # before parts existed; local_schema.py fills those in.
+    part_id = Column(Integer, ForeignKey("ra_question_parts.id"), nullable=True, index=True)
     answer = Column(Text, nullable=False)
 
     # correct | wrong_columns | wrong_result | wrong_in_general | invalid_expression

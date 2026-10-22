@@ -1,92 +1,82 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 import { raQueryKeys, raService } from '@/services/ra.service';
-import {
-  RaCheckpoint, RaDifficulty, RaError, RaInputField, RaPlaygroundGradeResponse, RaQuestionInput, RaQuestionStaff,
-  RaValidateResponse,
-} from '@/types/ra.types';
-import { RaEditor } from './RaEditor';
-import { RaRelations } from './RaRelations';
-import { RaStepStructure } from './RaStepStructure';
-import { RaSteps } from './RaSteps';
-import { RaSuiteReport, RaVerdict } from './RaVerdict';
+import { RaDifficulty, RaError, RaInputField, RaPartInput, RaQuestionInput, RaQuestionStaff } from '@/types/ra.types';
+import { emptyPart, FieldError, partInput, RaPartEditor, RaPartField, romanLabel } from './RaPartEditor';
 
 const EMPTY: RaQuestionInput = {
-  title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', model_answer: '',
-  checkpoints: null, show_step_direction: true, assessment_step_direction: false, compare_bags: false,
+  title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', parts: [emptyPart()],
+  show_step_direction: true, assessment_step_direction: false, compare_bags: false,
   hide_correctness: false, is_published: false,
 };
 
-function defaultLabel(statement: string | null) {
-  return statement ? `step ${statement} of the model solution` : 'the final answer';
-}
+/** A field the server rejected; ``part`` is the part's index for a model answer or checkpoints. */
+type SaveError = { field: RaInputField; error: RaError; part: number | null };
 
 /**
- * Create or edit an RA question. "Check the model answer" validates everything and shows
- * how strong the generated test databases are before anything is saved; the test bench
- * grades any answer exactly as students' answers will be graded.
+ * Create or edit an RA question: one schema (and optional data) with one or more parts,
+ * (i), (ii), …, each with its own model answer. "Check the model answer" validates a part
+ * and shows how strong its generated test databases are before anything is saved; each
+ * part's test bench grades any answer exactly as students' answers will be graded.
  */
 export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<RaQuestionInput>(() => initial ? {
     title: initial.title, description: initial.description, difficulty: initial.difficulty,
-    schema_sql: initial.schema_sql, data_sql: initial.data_sql, model_answer: initial.model_answer,
-    checkpoints: initial.checkpoints, show_step_direction: initial.show_step_direction,
-    assessment_step_direction: initial.assessment_step_direction,
+    schema_sql: initial.schema_sql, data_sql: initial.data_sql,
+    parts: initial.parts.length ? initial.parts.map(partInput) : [emptyPart()],
+    show_step_direction: initial.show_step_direction, assessment_step_direction: initial.assessment_step_direction,
     compare_bags: initial.compare_bags, hide_correctness: initial.hide_correctness, is_published: initial.is_published,
   } : EMPTY);
   const set = <K extends keyof RaQuestionInput>(key: K, value: RaQuestionInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+  // Stable keys for the part editors (their check results stay with them when parts move).
+  const [keys, setKeys] = useState<number[]>(() => form.parts.map((_, i) => i));
+  const [nextKey, setNextKey] = useState(form.parts.length);
 
-  const [validation, setValidation] = useState<RaValidateResponse | null>(null);
-  const [fieldError, setFieldError] = useState<{ field: RaInputField; error: RaError } | null>(null);
-  const [busy, setBusy] = useState<'validate' | 'save' | 'try' | null>(null);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [tryAnswer, setTryAnswer] = useState('');
-  const [tried, setTried] = useState<RaPlaygroundGradeResponse | null>(null);
 
-  // The model answer's steps (from the last check) each become a possible checkpoint.
-  const modelSteps = useMemo(
-    () => (validation?.model_result?.steps ?? []).map((s, i, all) => (i === all.length - 1 ? null : s.name)),
-    [validation],
-  );
-  const chosen = new Map((form.checkpoints ?? modelSteps.map((s) => ({ statement: s, label: defaultLabel(s) })))
-    .map((c) => [c.statement ?? '', c.label]));
-  const toggleCheckpoint = (statement: string | null, on: boolean, label?: string) => {
-    const current: RaCheckpoint[] = modelSteps.filter((s) => chosen.has(s ?? ''))
-      .map((s) => ({ statement: s, label: chosen.get(s ?? '') ?? defaultLabel(s) }));
-    const others = current.filter((c) => c.statement !== statement);
-    const next = on ? [...others, { statement, label: label ?? chosen.get(statement ?? '') ?? defaultLabel(statement) }] : others;
-    next.sort((a, b) => modelSteps.indexOf(a.statement) - modelSteps.indexOf(b.statement));
-    set('checkpoints', next);
+  const setPart = (index: number, part: RaPartInput) =>
+    setForm((f) => ({ ...f, parts: f.parts.map((p, i) => (i === index ? part : p)) }));
+
+  const addPart = () => {
+    setForm((f) => {
+      // Going from one part to several: label the first part too.
+      const parts = f.parts.length === 1 && !f.parts[0].label.trim()
+        ? [{ ...f.parts[0], label: romanLabel(0) }] : f.parts;
+      return { ...f, parts: [...parts, { ...emptyPart(), label: romanLabel(parts.length) }] };
+    });
+    setKeys((k) => [...k, nextKey]);
+    setNextKey((n) => n + 1);
+    setSaveError(null);
   };
-
-  const content = () => ({
-    schema_sql: form.schema_sql, data_sql: form.data_sql, model_answer: form.model_answer,
-    checkpoints: form.checkpoints, compare_bags: form.compare_bags,
-  });
-
-  const validate = async () => {
-    setBusy('validate');
-    setMessage(null);
-    try {
-      const v = await raService.validateQuestion(content());
-      setValidation(v);
-      setFieldError(v.ok || !v.error_source || !v.error ? null : { field: v.error_source, error: v.error });
-    } catch {
-      setMessage('Could not reach the server.');
-    } finally {
-      setBusy(null);
-    }
+  const removePart = (index: number) => {
+    const part = form.parts[index];
+    if (part.id != null && !window.confirm('Remove this part? Students’ answers to it will no longer count.')) return;
+    setForm((f) => ({ ...f, parts: f.parts.filter((_, i) => i !== index) }));
+    setKeys((k) => k.filter((_, i) => i !== index));
+    setSaveError(null);
+  };
+  const movePart = (index: number, delta: -1 | 1) => {
+    const swap = <T,>(list: T[]) => {
+      const next = [...list];
+      [next[index], next[index + delta]] = [next[index + delta], next[index]];
+      return next;
+    };
+    setForm((f) => ({ ...f, parts: swap(f.parts) }));
+    setKeys(swap);
+    setSaveError(null);
   };
 
   const save = async () => {
-    setBusy('save');
+    setBusy(true);
     setMessage(null);
     try {
       const saved = initial
@@ -97,34 +87,33 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
       void queryClient.invalidateQueries({ queryKey: raQueryKeys.questionEdit(saved.id) });
       router.push(`/ra/questions/${saved.id}`);
     } catch (err) {
-      const detail = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response?.data?.detail;
+      const response = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response;
+      const detail = response?.data?.detail;
       if (detail && typeof detail === 'object' && 'source' in detail) {
-        const d = detail as { source: RaInputField; error: RaError };
-        setFieldError({ field: d.source, error: d.error });
-        setMessage('Not saved: fix the highlighted field.');
+        const d = detail as { source: RaInputField; error: RaError; part: number | null };
+        setSaveError({ field: d.source, error: d.error, part: d.part ?? null });
+        setMessage(d.part != null && form.parts.length > 1
+          ? `Not saved: fix part ${form.parts[d.part]?.label.trim() || romanLabel(d.part)}.`
+          : 'Not saved: fix the highlighted field.');
       } else if (Array.isArray(detail)) {
-        setMessage('Not saved: fill in the title, description, schema and model answer.');
+        setMessage('Not saved: fill in the title, the question, the schema and every part’s model answer.');
+      } else if (typeof detail === 'string') {
+        setMessage(detail);
+      } else if (response) {
+        setMessage(`Not saved: the server returned an error (${response.status ?? 'unknown'}). Please try again.`);
       } else {
-        setMessage(typeof detail === 'string' ? detail : 'Not saved: could not reach the server.');
+        setMessage('Not saved: could not reach the server.');
       }
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  const tryIt = async () => {
-    setBusy('try');
-    try {
-      setTried(await raService.gradePlayground(form.schema_sql, form.data_sql, form.model_answer, tryAnswer,
-        { checkpoints: form.checkpoints, compareBags: form.compare_bags }));
-    } catch {
-      setMessage('Could not reach the server.');
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const errorFor = (field: RaInputField) => (fieldError?.field === field ? fieldError.error : null);
-  const canCheck = form.schema_sql.trim() && form.model_answer.trim();
+  const errorFor = (field: RaInputField) => (saveError?.field === field ? saveError.error : null);
+  const partError = (index: number): { field: RaPartField; error: RaError } | null =>
+    saveError && saveError.part === index && (saveError.field === 'model_answer' || saveError.field === 'checkpoints')
+      ? { field: saveError.field, error: saveError.error } : null;
+  const multi = form.parts.length > 1;
+  const totalMarks = form.parts.reduce((sum, p) => sum + (p.marks || 0), 0);
 
   return (
     <div style={{ display: 'grid', gap: 18, maxWidth: 1100 }}>
@@ -148,8 +137,9 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
             <option value="hard">Hard</option>
           </select>
         </label>
-        <MarkdownDescriptionField id="ra-description" label="Question (shown to students)" value={form.description}
-          onChange={(v) => set('description', v)} required minHeight={120} />
+        <MarkdownDescriptionField id="ra-description"
+          label={multi ? 'Question (shown to students above every part)' : 'Question (shown to students)'}
+          value={form.description} onChange={(v) => set('description', v)} required minHeight={120} />
       </section>
 
       <section className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
@@ -162,65 +152,32 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
           error={errorFor('data')} />
       </section>
 
-      <section className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Model answer</h3>
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-          Never shown to students. Write it step by step (R1 := …); its steps can be checkpoints that students&apos;
-          steps are compared with.
-        </p>
-        <RaEditor value={form.model_answer} onChange={(v) => set('model_answer', v)} error={errorFor('model_answer')}
-          onRun={() => void validate()} height={180} toolbar={(
-            <button className="btn btn-brand" style={{ minHeight: 32, padding: '0 14px', fontSize: 13 }}
-              onClick={() => void validate()} disabled={!!busy || !canCheck}>
-              {busy === 'validate' ? 'Checking… (building test databases)' : 'Check the model answer'}
-            </button>
-          )} />
-        {errorFor('model_answer') && <FieldError error={errorFor('model_answer')!} />}
-
-        {validation?.ok && (
-          <div style={{ display: 'grid', gap: 14 }}>
-            <div className="alert-info" style={{ fontSize: 13 }}>
-              ✓ The model answer runs. {validation.suite && <>
-                Its test databases catch {validation.suite.mutants_killed} of {validation.suite.mutants} deliberately wrong versions.
-              </>}
-            </div>
-            {validation.suite && <RaSuiteReport suite={validation.suite} />}
-            {validation.model_result && (
-              <details>
-                <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
-                  The model answer&apos;s steps {validation.model_result_source === 'sample'
-                    ? 'on your data' : 'on an example generated database'}
-                </summary>
-                <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-                  {validation.model_result_source === 'generated' && <RaRelations relations={validation.relations} />}
-                  <RaSteps steps={validation.model_result.steps} />
-                </div>
-              </details>
-            )}
-            {modelSteps.length > 0 && (
-              <div style={{ display: 'grid', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>Checkpoints</span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  Students&apos; steps are compared with these steps (by content, whatever they are called). The label is
-                  what students see, so describe the step without giving it away, e.g. “the Civil Engineering courses”.
-                </span>
-                {modelSteps.map((s) => (
-                  <div key={s ?? '(final)'} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, minWidth: 140 }}>
-                      <input type="checkbox" checked={chosen.has(s ?? '')} onChange={(e) => toggleCheckpoint(s, e.target.checked)} />
-                      <code>{s ?? 'final answer'}</code>
-                    </label>
-                    <input className="da-input" style={{ flex: '1 1 260px' }} disabled={!chosen.has(s ?? '')}
-                      value={chosen.get(s ?? '') ?? defaultLabel(s)} maxLength={200}
-                      aria-label={`Label shown to students for ${s ?? 'the final answer'}`}
-                      onChange={(e) => toggleCheckpoint(s, true, e.target.value)} />
-                  </div>
-                ))}
-                {errorFor('checkpoints') && <FieldError error={errorFor('checkpoints')!} />}
-              </div>
-            )}
-          </div>
-        )}
+      <section className="card" style={{ padding: 16, display: 'grid', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>{multi ? `Parts (${form.parts.length})` : 'Answer'}</h3>
+          {multi && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {totalMarks} marks in total. Students answer each part separately on the same schema; in an assessment
+              each part earns its own marks.
+            </span>
+          )}
+        </div>
+        {form.parts.map((part, index) => (
+          <RaPartEditor key={keys[index]} part={part} index={index} count={form.parts.length}
+            onChange={(p) => setPart(index, p)} onRemove={() => removePart(index)} onMove={(d) => movePart(index, d)}
+            schemaSql={form.schema_sql} dataSql={form.data_sql} compareBags={form.compare_bags}
+            error={partError(index)} busy={busy} />
+        ))}
+        <div>
+          <button type="button" className="btn btn-secondary" onClick={addPart} disabled={busy || form.parts.length >= 20}>
+            + Add {multi ? 'another part' : 'a sub-question'}
+          </button>
+          {!multi && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 10 }}>
+              e.g. parts (i)–(iv) on this schema, each with its own model answer and marks.
+            </span>
+          )}
+        </div>
       </section>
 
       <section className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
@@ -237,33 +194,11 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
           label="Published (students can see it)" />
       </section>
 
-      <section className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Try an answer</h3>
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-          Graded exactly as a student&apos;s answer would be, with the settings above. Nothing is saved.
-        </p>
-        <RaEditor value={tryAnswer} onChange={setTryAnswer} error={tried?.grade?.verdict === 'invalid_expression' ? tried.grade.error : null}
-          onRun={() => void tryIt()} height={140} toolbar={(
-            <button className="btn btn-secondary" style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
-              onClick={() => void tryIt()} disabled={!!busy || !canCheck || !tryAnswer.trim()}>
-              {busy === 'try' ? 'Grading…' : 'Grade this answer'}
-            </button>
-          )} />
-        {tried && !tried.ok && tried.error && <FieldError error={tried.error} />}
-        {tried?.grade && (
-          <div style={{ display: 'grid', gap: 12 }}>
-            <RaVerdict grade={tried.grade} />
-            <RaStepStructure feedback={tried.grade.steps} steps={tried.structure?.steps ?? null}
-              source={tried.structure_source} showDirection />
-          </div>
-        )}
-      </section>
-
       <div className="button-row">
-        <button className="btn btn-brand" onClick={() => void save()} disabled={!!busy}>
-          {busy === 'save' ? 'Saving… (building test databases)' : initial ? 'Save changes' : 'Create question'}
+        <button className="btn btn-brand" onClick={() => void save()} disabled={busy}>
+          {busy ? 'Saving… (building test databases)' : initial ? 'Save changes' : 'Create question'}
         </button>
-        <button className="btn btn-secondary" onClick={() => router.back()} disabled={!!busy}>Cancel</button>
+        <button className="btn btn-secondary" onClick={() => router.back()} disabled={busy}>Cancel</button>
         {message && <span style={{ fontSize: 13, color: 'var(--error)' }}>{message}</span>}
       </div>
     </div>
@@ -284,15 +219,6 @@ function SqlArea({ label, value, onChange, rows, hint, error }: {
       <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}>{hint}</span>
       {error && <FieldError error={error} />}
     </label>
-  );
-}
-
-function FieldError({ error }: { error: RaError }) {
-  return (
-    <div className="alert-error" style={{ fontSize: 13, fontWeight: 400 }}>
-      {error.line ? `Line ${error.line}${error.col ? `, column ${error.col}` : ''}: ` : ''}{error.message}
-      {error.hint && <div>{error.hint}</div>}
-    </div>
   );
 }
 

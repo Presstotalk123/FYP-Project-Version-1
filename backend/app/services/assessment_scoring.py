@@ -6,7 +6,7 @@ per-question `weight` set by staff. Each item type yields a correctness fraction
 - sql_question: 1.0 if the student has any correct attempt, else 0.0 (binary).
 - sql_lab / graph_lab: distinct correct tasks / total tasks.
 - er_question: the best LLM-graded percent / 100 across the student's attempts.
-- ra_question: like sql_question (Relational Algebra, FYP; app/services/ra/assessment.py).
+- ra_question: marks earned over the parts' total; one part = like sql_question (Relational Algebra, FYP; app/services/ra/assessment.py).
 
 The weighted total is Σ(weight_i * fraction_i) normalised to 100 so it stays a percentage
 even if the stored weights don't sum to exactly 100. Returns None when the assessment has
@@ -220,12 +220,12 @@ def item_score_detail(
             visited=visited,
         )
 
-    if item.item_type == "ra_question":  # Relational Algebra (FYP): binary, like sql_question
+    if item.item_type == "ra_question":  # Relational Algebra (FYP): marks earned over the parts' total
         from app.services.ra import assessment as ra_assessment
-        has_correct, attempt_count = ra_assessment.score_detail(db, item.item_id, student_id)
+        fraction, attempt_count = ra_assessment.score_detail(db, item.item_id, student_id)
         return ItemScoreDetail(
-            fraction=1.0 if has_correct else 0.0,
-            has_correct_attempt=has_correct,
+            fraction=fraction,
+            has_correct_attempt=fraction >= 1.0,
             attempt_count=attempt_count,
         )
 
@@ -376,9 +376,9 @@ def compute_roster_analytics(
     lab_ids = [i.item_id for i in items if i.item_type in ("sql_lab", "graph_lab")]
     er_q_ids = [i.item_id for i in items if i.item_type == "er_question"]
 
-    # --- Relational Algebra (FYP) questions: solved set and attempts, like SQL questions ---
+    # --- Relational Algebra (FYP) questions: fraction of marks earned, and attempts ---
     from app.services.ra import assessment as ra_assessment
-    solved_ra, ra_attempts = ra_assessment.solved_and_attempts(
+    ra_fractions, ra_attempts = ra_assessment.scores(
         db, student_ids, [i.item_id for i in items if i.item_type == "ra_question"]
     )
 
@@ -592,7 +592,7 @@ def compute_roster_analytics(
                 total_attempts += tries
         elif item.item_type == "ra_question":  # Relational Algebra (FYP)
             fractions = [
-                1.0 if (uid, item.item_id) in solved_ra else 0.0
+                ra_fractions.get((uid, item.item_id), 0.0)
                 for uid in student_ids
             ]
             correct_count = sum(1 for f in fractions if f >= 1.0)

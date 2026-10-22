@@ -1,7 +1,7 @@
 import api from '@/services/api.service';
 import {
   RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaPlaygroundGradeResponse, RaPlaygroundRunResponse, RaQuestion,
-  RaQuestionInput, RaQuestionListItem, RaQuestionStaff, RaStatus, RaSubmitResponse, RaValidateResponse,
+  RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff, RaStatus, RaSubmitResponse, RaValidateResponse,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -82,8 +82,9 @@ export const raService = {
     return (await api.get<RaQuestionStaff>(RA_ENDPOINTS.QUESTION_EDIT(id))).data;
   },
 
-  /** Staff only: check a draft and preview its test databases; nothing is saved. */
-  async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'model_answer' | 'checkpoints' | 'compare_bags'>): Promise<RaValidateResponse> {
+  /** Staff only: check one part's model answer and preview its test databases; nothing is saved. */
+  async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags'>
+    & Pick<RaPartInput, 'model_answer' | 'checkpoints'>): Promise<RaValidateResponse> {
     return (await api.post<RaValidateResponse>(RA_ENDPOINTS.QUESTIONS_VALIDATE, input)).data;
   },
 
@@ -99,14 +100,14 @@ export const raService = {
     await api.delete(RA_ENDPOINTS.QUESTION(id));
   },
 
-  /** Run an answer step by step; not graded and not recorded. */
-  async checkAnswer(id: number, answer: string): Promise<RaCheckResponse> {
-    return (await api.post<RaCheckResponse>(RA_ENDPOINTS.QUESTION_CHECK(id), { answer })).data;
+  /** Run an answer to one part step by step; not graded and not recorded. */
+  async checkAnswer(id: number, partId: number, answer: string): Promise<RaCheckResponse> {
+    return (await api.post<RaCheckResponse>(RA_ENDPOINTS.QUESTION_CHECK(id), { answer, part_id: partId })).data;
   },
 
-  /** Grade an answer and record the attempt. */
-  async submitAnswer(id: number, answer: string): Promise<RaSubmitResponse> {
-    return (await api.post<RaSubmitResponse>(RA_ENDPOINTS.QUESTION_SUBMIT(id), { answer })).data;
+  /** Grade an answer to one part and record the attempt. */
+  async submitAnswer(id: number, partId: number, answer: string): Promise<RaSubmitResponse> {
+    return (await api.post<RaSubmitResponse>(RA_ENDPOINTS.QUESTION_SUBMIT(id), { answer, part_id: partId })).data;
   },
 
   async myAttempts(id: number): Promise<RaAttempt[]> {

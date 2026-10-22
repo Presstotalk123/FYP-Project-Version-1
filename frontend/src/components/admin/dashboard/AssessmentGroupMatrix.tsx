@@ -1,10 +1,16 @@
 'use client';
 
 import { Fragment, useState } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { assessmentService } from '@/services/assessment.service';
 import { queryKeys } from '@/services/query-keys';
 import { AssessmentItemAggregateScore } from '@/types/assessment.types';
+import { StudentFlagButton } from '@/components/admin/StudentFlagButton';
+import {
+  StudentFlagModal,
+  StudentFlagTarget,
+  invalidateAssessmentStudentQueries,
+} from '@/components/admin/StudentFlagModal';
 
 // A 0-100 percentage from an item's mean correctness fraction, or null when the roster
 // is empty. Mirrors itemPercent in AssessmentAnalyticsDetail.
@@ -231,6 +237,11 @@ function GroupStudentBreakdown({
   const sortArrow = (col: number | 'total') =>
     sort && sort.col === col ? (sort.dir === 'desc' ? '↓' : '↑') : '⇅';
 
+  // Staff flag dialog; a save or a remove refetches the roster this list reads from.
+  const [flagTarget, setFlagTarget] = useState<StudentFlagTarget | null>(null);
+  const queryClient = useQueryClient();
+  const refreshFlags = () => invalidateAssessmentStudentQueries(queryClient, assessmentId);
+
   const itemQueries = useQueries({
     queries: columns.map((col) => ({
       queryKey: queryKeys.assessmentItemStudents(assessmentId, col.assessment_item_id, group),
@@ -274,6 +285,8 @@ function GroupStudentBreakdown({
   }
 
   const baseRows = roster.map((s) => ({
+    userId: s.user_id,
+    flag: s.flag ?? null,
     name: s.name || s.email,
     email: s.email,
     cells: columns.map((_, idx) => cellByColumn[idx].get(s.email) ?? null),
@@ -331,7 +344,20 @@ function GroupStudentBreakdown({
           <tbody>
             {rows.map((row) => (
               <tr key={row.email}>
-                <td title={row.email}><span className="pii">{row.name}</span></td>
+                <td title={row.email}>
+                  <StudentFlagButton
+                    flag={row.flag}
+                    onClick={() =>
+                      setFlagTarget({
+                        assessmentId,
+                        studentId: row.userId,
+                        studentLabel: row.name,
+                        existing: row.flag,
+                      })
+                    }
+                  />
+                  <span className="pii">{row.name}</span>
+                </td>
                 {row.cells.map((cell, idx) => (
                   <td key={columns[idx].assessment_item_id}>{renderScore(cell)}</td>
                 ))}
@@ -341,6 +367,12 @@ function GroupStudentBreakdown({
           </tbody>
         </table>
       </div>
+      <StudentFlagModal
+        target={flagTarget}
+        onClose={() => setFlagTarget(null)}
+        onSaved={refreshFlags}
+        onCleared={refreshFlags}
+      />
     </>
   );
 }

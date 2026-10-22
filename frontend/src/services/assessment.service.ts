@@ -6,6 +6,7 @@ import {
   AssessmentCreate,
   AssessmentUpdate,
   AssessmentStudentsResponse,
+  AssessmentStudentFlag,
   StudentComponentScoresResponse,
   AssessmentItemAnalyticsResponse,
   AssessmentAnalyticsSummaryResponse,
@@ -102,6 +103,24 @@ export const assessmentService = {
 
   async resetStudentAttempt(assessmentId: number, studentId: number): Promise<void> {
     await api.post(API_ENDPOINTS.ASSESSMENTS.RESET_STUDENT(assessmentId, studentId));
+  },
+
+  // Set (or replace) the staff flag on a student for this assessment. A blank
+  // reason stores no reason.
+  async flagStudent(
+    assessmentId: number,
+    studentId: number,
+    reason: string | null,
+  ): Promise<AssessmentStudentFlag> {
+    const response = await api.put(
+      API_ENDPOINTS.ASSESSMENTS.STUDENT_FLAG(assessmentId, studentId),
+      { reason },
+    );
+    return response.data;
+  },
+
+  async unflagStudent(assessmentId: number, studentId: number): Promise<void> {
+    await api.delete(API_ENDPOINTS.ASSESSMENTS.STUDENT_FLAG(assessmentId, studentId));
   },
 
   async recomputeScores(

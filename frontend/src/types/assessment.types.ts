@@ -169,6 +169,18 @@ export interface ItemVisitResponse {
   first_visited_at: string;
 }
 
+// A staff flag on one student for one assessment. Set from the assessment
+// student lists; only staff see it.
+export interface AssessmentStudentFlag {
+  user_id: number;
+  // Optional note from staff; null when the flag was set without one.
+  reason: string | null;
+  flagged_by: number;
+  flagged_by_email: string | null;
+  // When staff last set the flag.
+  flagged_at: string | null;
+}
+
 export interface AssessmentStudentRow {
   user_id: number;
   email: string;
@@ -181,6 +193,8 @@ export interface AssessmentStudentRow {
   submitted_at: string | null;
   // Weighted total (0-100) from the student's activity; null if the assessment is unweighted.
   weighted_score?: number | null;
+  // Staff flag on this student for this assessment; null when not flagged.
+  flag?: AssessmentStudentFlag | null;
 }
 
 export interface AssessmentStudentsResponse {
@@ -325,6 +339,11 @@ export interface ItemStudentRow {
   // "3/4 tasks", "Correct", "Incorrect"; null for ER items.
   detail?: string | null;
   attempts: number;
+  // The account id, so staff can flag the student from this list. null when the
+  // student is on the whitelist but has no account yet.
+  user_id?: number | null;
+  // Staff flag on this student for this assessment; null when not flagged.
+  flag?: AssessmentStudentFlag | null;
 }
 
 export interface ItemStudentsResponse {

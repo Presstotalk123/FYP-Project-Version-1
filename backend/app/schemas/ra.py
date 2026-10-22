@@ -197,6 +197,19 @@ class RAQuestionValidateOut(BaseModel):
     checkpoints: List[CheckpointIn] = []                    # the effective checkpoints
 
 
+class RASchemaTextIn(BaseModel):
+    """A schema written as text, e.g. ``STUDENT(*Sid, Sname, GPA)``, one relation per line."""
+    text: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
+    link_keys: bool = True
+
+
+class RASchemaTextOut(BaseModel):
+    ok: bool
+    schema_sql: str = ""
+    relations: List[RelationOut] = []
+    error: Optional[RAErrorOut] = None
+
+
 class RAQuestionListItem(BaseModel):
     id: int
     title: str

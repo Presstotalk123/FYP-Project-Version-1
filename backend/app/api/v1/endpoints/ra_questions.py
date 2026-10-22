@@ -2,6 +2,7 @@
 
 Staff
   POST   /ra/questions/validate        check a draft and preview its test databases (nothing saved)
+  POST   /ra/questions/schema-from-text  turn STUDENT(*Sid, Sname) lines into CREATE TABLE statements
   POST   /ra/questions                 create
   GET    /ra/questions/{id}/edit       everything, including the model answer
   PUT    /ra/questions/{id}            update (test databases rebuilt if the content changed)
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.core.ra import Database, RAError, evaluate
 from app.core.ra.grader import Checkpoint
+from app.core.ra.text_schema import sql_from_text
 from app.database import get_db
 from app.dependencies import get_current_user, require_staff_role
 from app.models.ra_question import RAQuestion
@@ -33,7 +35,8 @@ from app.models.ra_question_part import RAQuestionPart
 from app.models.user import User
 from app.schemas.ra import (CheckpointIn, EvalOut, GradeOut, RAAnswerIn, RAAttemptOut, RACheckOut,
                             RAErrorOut, RAQuestionIn, RAQuestionListItem, RAQuestionOut, RAQuestionStaffOut,
-                            RAQuestionValidateIn, RAQuestionValidateOut, RASubmitOut, RelationOut,
+                            RAQuestionValidateIn, RAQuestionValidateOut, RASchemaTextIn, RASchemaTextOut,
+                            RASubmitOut, RelationOut,
                             SuiteSummaryOut)
 from app.services.ra import assessment as ra_assessment, grading, questions as svc
 
@@ -107,6 +110,17 @@ def validate_question(body: RAQuestionValidateIn, _staff: User = Depends(require
                              steps=model.statements, warnings=[RAErrorOut.from_engine(w) for w in model.warnings]),
         model_result_source=source,
         checkpoints=[CheckpointIn(statement=c.statement, label=c.label) for c in prepared.checkpoints])
+
+
+@router.post("/schema-from-text", response_model=RASchemaTextOut)
+def schema_from_text(body: RASchemaTextIn, _staff: User = Depends(require_staff_role)):
+    """CREATE TABLE statements for a schema written as text (staff edit them before saving)."""
+    try:
+        schema_sql = sql_from_text(body.text, link=body.link_keys)
+        relations = Database.from_sql(schema_sql).to_dict()
+    except RAError as e:
+        return RASchemaTextOut(ok=False, error=RAErrorOut.from_engine(e))
+    return RASchemaTextOut(ok=True, schema_sql=schema_sql, relations=[RelationOut(**r) for r in relations])
 
 
 def _apply(db: Session, q: RAQuestion, body: RAQuestionIn) -> None:

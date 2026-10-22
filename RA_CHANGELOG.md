@@ -318,3 +318,26 @@ university (4 parts)" and "Tutorial 5.5 Q2 — railway (2 parts)".
 2. As a student: open it, answer part (i), **Submit**, choose part (ii) in the dropdown (blank
    editor), go back to (i): the answer is still there. The card on the list shows *x of N solved*.
 3. In an assessment, a question worth 1 + 3 marks with only part (ii) solved scores 75%.
+
+## Step 7: Schema written as text (22 Oct 2026)
+
+Commit: "Turn a schema written as text into CREATE TABLE statements" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): staff should be able to write the schema as the tutorials
+print it and get SQL they can still correct.
+
+**What was built.** `backend/app/core/ra/text_schema.py` reads lines such as
+`STUDENT(*Sid, Sname, GPA)` (`*` marks a key attribute; bullets, backticks and sentences around
+them are ignored; a type may follow an attribute) and writes one CREATE TABLE per relation. Types
+are guessed from names (Sid → INTEGER, GPA → REAL, otherwise TEXT). Optionally, an attribute group
+matching another relation's whole key becomes a foreign key (the tutorials' "same attribute names"
+convention), except where the parent is unclear (two relations with the same key, or a relationship
+relation such as MAJOR(*Dname, *Sid)). Endpoint `POST /ra/questions/schema-from-text` (staff);
+on the form, **Schema as text → Convert to CREATE TABLE ↓** fills the CREATE TABLE box, which stays
+editable. Mistakes are reported with their line and column.
+
+**How to check it**
+1. As admin: **Relational Algebra → New question**; paste the Tutorial 5.5 Q1 relations, one per
+   line with `*` on the keys, into *Schema as text*, and click **Convert to CREATE TABLE ↓**.
+2. The CREATE TABLE box fills in (PRIMARY KEY, REFERENCES); edit it if a type is wrong, then carry on
+   with the parts as usual. With the link box unticked, no REFERENCES are added.

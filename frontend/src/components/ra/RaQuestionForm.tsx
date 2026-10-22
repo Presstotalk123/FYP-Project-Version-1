@@ -7,6 +7,7 @@ import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptio
 import { raQueryKeys, raService } from '@/services/ra.service';
 import { RaDifficulty, RaError, RaInputField, RaPartInput, RaQuestionInput, RaQuestionStaff } from '@/types/ra.types';
 import { emptyPart, FieldError, partInput, RaPartEditor, RaPartField, romanLabel } from './RaPartEditor';
+import { RaSchemaText } from './RaSchemaText';
 
 const EMPTY: RaQuestionInput = {
   title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', parts: [emptyPart()],
@@ -144,6 +145,7 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
 
       <section className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Schema and data</h3>
+        <RaSchemaText schemaSql={form.schema_sql} onConvert={(sql) => set('schema_sql', sql)} disabled={busy} />
         <SqlArea label="CREATE TABLE statements" value={form.schema_sql} onChange={(v) => set('schema_sql', v)} rows={8}
           hint="Mark keys with PRIMARY KEY and links with REFERENCES. Add a CHECK constraint for any assumption the question makes (e.g. CHECK (a < b)): generated test data will respect it."
           error={errorFor('schema')} />

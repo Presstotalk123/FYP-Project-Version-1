@@ -1,7 +1,8 @@
 import api from '@/services/api.service';
 import {
   RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaPlaygroundGradeResponse, RaPlaygroundRunResponse, RaQuestion,
-  RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff, RaStatus, RaSubmitResponse, RaValidateResponse,
+  RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff, RaSchemaTextResponse, RaStatus, RaSubmitResponse,
+  RaValidateResponse,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -12,6 +13,7 @@ export const RA_ENDPOINTS = {
   PLAYGROUND_GRADE: '/ra/playground/grade',
   QUESTIONS: '/ra/questions',
   QUESTIONS_VALIDATE: '/ra/questions/validate',
+  QUESTIONS_SCHEMA_FROM_TEXT: '/ra/questions/schema-from-text',
   QUESTION: (id: number) => `/ra/questions/${id}`,
   QUESTION_EDIT: (id: number) => `/ra/questions/${id}/edit`,
   QUESTION_CHECK: (id: number) => `/ra/questions/${id}/check`,
@@ -86,6 +88,12 @@ export const raService = {
   async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags'>
     & Pick<RaPartInput, 'model_answer' | 'checkpoints'>): Promise<RaValidateResponse> {
     return (await api.post<RaValidateResponse>(RA_ENDPOINTS.QUESTIONS_VALIDATE, input)).data;
+  },
+
+  /** Staff only: turn a schema written as text (``STUDENT(*Sid, Sname)``) into CREATE TABLE statements. */
+  async schemaFromText(text: string, linkKeys: boolean): Promise<RaSchemaTextResponse> {
+    return (await api.post<RaSchemaTextResponse>(RA_ENDPOINTS.QUESTIONS_SCHEMA_FROM_TEXT,
+      { text, link_keys: linkKeys })).data;
   },
 
   async createQuestion(input: RaQuestionInput): Promise<RaQuestionStaff> {

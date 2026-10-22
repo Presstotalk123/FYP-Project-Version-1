@@ -208,3 +208,16 @@ def test_removing_a_part_keeps_the_others(client, staff_headers, student_headers
     # Now a single part, so answers need not name it.
     ok = client.post(f"{BASE}/{q['id']}/submit", json={"answer": Q1_II}, headers=student_headers).json()
     assert ok["part_id"] == p2["id"] and ok["grade"]["verdict"] == "correct"
+
+
+def test_a_text_schema_becomes_create_table(client, staff_headers, student_headers, ra_on):
+    url = f"{BASE}/schema-from-text"
+    text = "DEPT(*Dname, Numphds)\nPROF(*Pname, Dname)"
+    r = client.post(url, json={"text": text}, headers=staff_headers).json()
+    assert r["ok"] and [rel["name"] for rel in r["relations"]] == ["DEPT", "PROF"]
+    assert "Dname TEXT REFERENCES DEPT(Dname)" in r["schema_sql"]
+    plain = client.post(url, json={"text": text, "link_keys": False}, headers=staff_headers).json()
+    assert "REFERENCES" not in plain["schema_sql"]
+    bad = client.post(url, json={"text": "R(A,, B)"}, headers=staff_headers).json()
+    assert not bad["ok"] and bad["error"]["code"] == "RA020" and bad["error"]["line"] == 1
+    assert client.post(url, json={"text": text}, headers=student_headers).status_code == 403

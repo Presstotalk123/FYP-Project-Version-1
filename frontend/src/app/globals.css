@@ -432,7 +432,8 @@ a {
   margin: 0 0 8px;
 }
 
-.card p {
+/* Markdown descriptions (DescriptionMarkdown) keep Mantine's typography spacing. */
+.card p:not(.description-markdown p) {
   margin: 0;
   color: var(--brand-charcoal);
   line-height: 1.55;

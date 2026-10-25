@@ -31,6 +31,7 @@ export function DescriptionMarkdown({
 }) {
   return (
     <TypographyStylesProvider
+      className="description-markdown"
       style={{ fontSize, color: 'var(--text-muted)', overflowX: 'auto', overflowWrap: 'anywhere' }}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>

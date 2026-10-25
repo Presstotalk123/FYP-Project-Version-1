@@ -2,6 +2,7 @@
 
 import { Box } from '@mantine/core';
 import dynamic from 'next/dynamic';
+import { trackClipboardEditor } from '@/hooks/use-block-external-paste';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
@@ -134,6 +135,7 @@ export function EditorPanel({
           theme="vs-dark"
           value={query}
           onChange={(value) => onQueryChange(value || '')}
+          onMount={trackClipboardEditor}
           options={{
             minimap: { enabled: false },
             fontSize: 14,

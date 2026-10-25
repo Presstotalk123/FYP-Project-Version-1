@@ -549,6 +549,12 @@ a {
   letter-spacing: 0.04em;
 }
 
+/* Tables showing SQL data: keep column names exactly as returned */
+.da-table.da-table--data th {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .da-table tr:last-child td {
   border-bottom: 0;
 }

@@ -165,7 +165,7 @@ export function ResultsPanel({
                 <div style={{ display: 'grid', gap: 6 }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Query Results</span>
                   <div className="table-wrap">
-                    <table className="da-table">
+                    <table className="da-table da-table--data">
                       <thead>
                         <tr>
                           {result.columns.map((col) => <th key={col}>{col}</th>)}

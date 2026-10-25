@@ -334,7 +334,7 @@ export function LabResultsPanel({
               {/* Result table */}
               {result.success && result.results.length > 0 && (
                 <div className="table-wrap">
-                  <table className="da-table">
+                  <table className="da-table da-table--data">
                     <thead>
                       <tr>
                         {result.columns.map(col => <th key={col}>{col}</th>)}
@@ -556,7 +556,7 @@ export function LabResultsPanel({
                             Data Preview ({table.sample_data.rows.length} of {table.row_count} rows):
                           </p>
                           <div className="table-wrap" style={{ overflowX: 'auto' }}>
-                            <table className="da-table" style={{ fontSize: 11 }}>
+                            <table className="da-table da-table--data" style={{ fontSize: 11 }}>
                               <thead>
                                 <tr>
                                   {table.sample_data.columns.map(col => <th key={col}>{col}</th>)}

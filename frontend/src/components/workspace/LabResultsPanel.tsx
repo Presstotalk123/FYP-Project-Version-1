@@ -227,9 +227,9 @@ export function LabResultsPanel({
                           onChange={(e) => setSelectedTaskId(e.target.value)}
                         >
                           <option value="">Choose a task to assign answer</option>
-                          {tasks.map(task => (
+                          {tasks.map((task, index) => (
                             <option key={task.id} value={task.id.toString()}>
-                              {task.title}{task.has_answer ? ' ✓' : ''}
+                              {index + 1}. {task.title}{task.has_answer ? ' ✓' : ''}
                             </option>
                           ))}
                         </select>
@@ -285,7 +285,7 @@ export function LabResultsPanel({
                           <option value="">Choose a task to submit for</option>
                           {tasksWithAnswers.map(task => (
                             <option key={task.id} value={task.id.toString()}>
-                              {task.title}{taskProgress[task.id]?.is_completed ? ' ✓' : ''}
+                              {tasks.indexOf(task) + 1}. {task.title}{taskProgress[task.id]?.is_completed ? ' ✓' : ''}
                             </option>
                           ))}
                         </select>

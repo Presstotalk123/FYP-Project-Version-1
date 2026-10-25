@@ -46,6 +46,7 @@ import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
 import { useBlockBrowserBack } from '@/hooks/use-block-browser-back';
 import { useWarnBeforeUnload } from '@/hooks/use-warn-before-unload';
+import { useBlockExternalPaste } from '@/hooks/use-block-external-paste';
 import { checkSqlSyntax } from '@/utils/sqlSyntaxCheck';
 
 interface LabWorkspaceProps {
@@ -93,6 +94,9 @@ export function LabWorkspace({
   const [isExiting, setIsExiting] = useState(false);
   const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
   const [isLoadingDatabase, setIsLoadingDatabase] = useState(false);
+  // SQL labs only — graph labs share this workspace but keep paste unrestricted.
+  const blockExternalPaste = inAssessment && lab?.lab_type === 'sql';
+  useBlockExternalPaste(blockExternalPaste);
 
   // Task state
   const [tasks, setTasks] = useState<LabTask[]>([]);
@@ -1034,6 +1038,7 @@ export function LabWorkspace({
             labType={lab?.lab_type ?? 'sql'}
             isCoolingDown={isCoolingDown}
             isBagheeraActive={isBagheeraActive}
+            disableContextMenu={blockExternalPaste}
           />
         </Box>
 

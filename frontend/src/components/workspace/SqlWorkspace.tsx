@@ -21,6 +21,7 @@ import { useAssessmentProgress } from '@/contexts/AssessmentProgressContext';
 import { useRunCooldown } from '@/hooks/use-run-cooldown';
 import { useBlockBrowserBack } from '@/hooks/use-block-browser-back';
 import { useWarnBeforeUnload } from '@/hooks/use-warn-before-unload';
+import { useBlockExternalPaste } from '@/hooks/use-block-external-paste';
 import { checkSqlSyntax } from '@/utils/sqlSyntaxCheck';
 
 /* ── SVG icons ── */
@@ -47,6 +48,7 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
   const progress = useAssessmentProgress();
   useBlockBrowserBack(inAssessment);
   useWarnBeforeUnload(inAssessment);
+  useBlockExternalPaste(inAssessment);
 
   // State
   const [query, setQuery] = useState('');
@@ -403,6 +405,7 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
               maxQueries={maxQueries}
               attemptsUsed={attemptsUsed}
               isBagheeraActive={isBagheeraActive}
+              disableContextMenu={inAssessment}
             />
           </Box>
 

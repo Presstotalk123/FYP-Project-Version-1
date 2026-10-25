@@ -34,6 +34,8 @@ interface LabEditorPanelProps {
   isCoolingDown?: boolean;
   /** True while the "Ask Bagheera" chat tab is open — the AI tutor can see this query. */
   isBagheeraActive?: boolean;
+  /** Hides Monaco's context menu, whose Paste bypasses [[use-block-external-paste]]. */
+  disableContextMenu?: boolean;
 }
 
 export function LabEditorPanel({
@@ -46,6 +48,7 @@ export function LabEditorPanel({
   labType = 'sql',
   isCoolingDown = false,
   isBagheeraActive = false,
+  disableContextMenu = false,
 }: LabEditorPanelProps) {
   return (
     <div
@@ -120,6 +123,7 @@ export function LabEditorPanel({
             quickSuggestions: false,
             suggestOnTriggerCharacters: false,
             wordBasedSuggestions: 'off',
+            contextmenu: !disableContextMenu,
           }}
         />
       </Box>

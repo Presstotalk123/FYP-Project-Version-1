@@ -38,6 +38,8 @@ interface EditorPanelProps {
   attemptsUsed?: number | null;
   /** True while the "Ask Bagheera" chat tab is open — the AI tutor can see this query. */
   isBagheeraActive?: boolean;
+  /** Hides Monaco's context menu, whose Paste bypasses [[use-block-external-paste]]. */
+  disableContextMenu?: boolean;
 }
 
 export function EditorPanel({
@@ -52,6 +54,7 @@ export function EditorPanel({
   maxQueries = null,
   attemptsUsed = null,
   isBagheeraActive = false,
+  disableContextMenu = false,
 }: EditorPanelProps) {
   return (
     <div
@@ -141,6 +144,7 @@ export function EditorPanel({
             quickSuggestions: false,
             suggestOnTriggerCharacters: false,
             wordBasedSuggestions: 'off',
+            contextmenu: !disableContextMenu,
           }}
         />
       </Box>

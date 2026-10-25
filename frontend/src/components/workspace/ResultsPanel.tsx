@@ -68,11 +68,14 @@ export function ResultsPanel({
   const [reviewKey, setReviewKey] = useState(0);
 
   // The question's database never changes (student runs are read-only; Advanced SQL
-  // Testing grades on a temp copy), so fetch it once per question.
+  // Testing grades on a temp copy), so fetch it once per question — and only once the
+  // Database tab is first opened, so students who never use it cost no request.
   const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
   const [isLoadingDatabase, setIsLoadingDatabase] = useState(true);
+  const databaseTabOpened = visitedTabs.has('database');
 
   useEffect(() => {
+    if (!databaseTabOpened) return;
     const controller = new AbortController();
     setDatabaseState(null);
     setIsLoadingDatabase(true);
@@ -84,7 +87,7 @@ export function ResultsPanel({
         if (!controller.signal.aborted) setIsLoadingDatabase(false);
       });
     return () => controller.abort();
-  }, [questionId]);
+  }, [questionId, databaseTabOpened]);
 
   // When on, students never see correct/incorrect — just a neutral "Submitted" state.
   const hideCorrectness = question.hide_correctness;

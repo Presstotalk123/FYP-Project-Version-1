@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import os
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.question import Question, Difficulty
@@ -18,6 +19,8 @@ from app.schemas.question import (
     QuestionConceptRef,
     QuestionCountResponse
 )
+from app.schemas.lab import DatabaseStateResponse
+from app.utils.lab_db_manager import get_database_state, LabDatabaseError
 from app.dependencies import get_current_user, require_staff_role
 from app.core.cache import cache_read, Ns
 from app.utils.db_generator import (
@@ -425,6 +428,66 @@ def get_question(
             )
 
     return question_detail
+
+
+@router.get("/{question_id}/database", response_model=DatabaseStateResponse)
+def get_question_database_state(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the tables, schema, row counts, and sample data of a question's database.
+
+    Student queries never mutate the question database (normal runs are read-only and
+    Advanced SQL Testing works on a temp copy), so this is the same for every user and
+    cached per question. Students already receive schema_sql/sample_data_sql via the
+    detail endpoint, so the rows reveal nothing new.
+    """
+    is_student = current_user.role not in {UserRole.STAFF, UserRole.ADMIN}
+
+    def producer():
+        question = db.query(Question).filter(
+            Question.id == question_id,
+            Question.is_deleted == 0
+        ).first()
+
+        if not question:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Question not found"
+            )
+
+        db_path = get_question_db_path(question.db_file_path)
+        if not os.path.exists(db_path):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Question database file not found"
+            )
+
+        try:
+            state = get_database_state(db_path)
+        except LabDatabaseError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to read question database: {str(e)}"
+            )
+        return {"is_published": bool(question.is_published), "state": state}
+
+    cached = cache_read(
+        db, Ns.QUESTIONS, key=("db_state", question_id), producer=producer
+    )
+
+    # Same gate as get_question: unpublished questions are only visible to students
+    # who are active participants in a running assessment that contains them.
+    if is_student and not cached["is_published"]:
+        if not _question_accessible_via_assessment(question_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Question not found"
+            )
+
+    return cached["state"]
 
 
 @router.put("/{question_id}", response_model=QuestionResponse)

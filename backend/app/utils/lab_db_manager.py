@@ -244,3 +244,55 @@ def get_schema_info(db_path: str) -> dict:
 
     except sqlite3.Error as e:
         raise LabDatabaseError(f"Failed to read schema: {str(e)}")
+
+
+def get_database_state(db_path: str, sample_limit: int = 20) -> dict:
+    """
+    Get schema, row counts, and sample rows for every table in a database.
+
+    Args:
+        db_path: Path to the database file
+        sample_limit: Maximum number of sample rows returned per table
+
+    Returns:
+        Dictionary matching DatabaseStateResponse
+
+    Raises:
+        LabDatabaseError: If reading schema fails
+    """
+    schema_data = get_schema_info(db_path)
+
+    tables_with_data = []
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+    try:
+        for table_info in schema_data["tables"]:
+            table_name = table_info["name"]
+            cursor = conn.cursor()
+
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+            row_count = cursor.fetchone()[0]
+
+            # Get sample data
+            cursor.execute(f"SELECT * FROM {table_name} LIMIT {int(sample_limit)}")
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+
+            tables_with_data.append({
+                "name": table_name,
+                "columns": table_info["columns"],
+                "create_sql": table_info["create_sql"],
+                "row_count": row_count,
+                "sample_data": {
+                    "columns": columns,
+                    "rows": [dict(zip(columns, row)) for row in rows]
+                }
+            })
+
+            cursor.close()
+
+    finally:
+        conn.close()
+
+    return {"tables": tables_with_data}

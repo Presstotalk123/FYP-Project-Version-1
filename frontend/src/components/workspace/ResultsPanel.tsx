@@ -7,6 +7,9 @@ import { ChatTab } from './ChatTab';
 import { QueryGraph } from './QueryGraph';
 import { QueryReviewCard } from './QueryReviewCard';
 import { chatbotService, QueryReviewResponse } from '@/services/chatbot.service';
+import { questionService } from '@/services/question.service';
+import { DatabaseState } from '@/types/lab.types';
+import { DatabaseStateView } from './DatabaseStateView';
 
 /* ── SVG icons ── */
 const IconCheck = () => (
@@ -64,6 +67,25 @@ export function ResultsPanel({
   // card's state persists.
   const [reviewKey, setReviewKey] = useState(0);
 
+  // The question's database never changes (student runs are read-only; Advanced SQL
+  // Testing grades on a temp copy), so fetch it once per question.
+  const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
+  const [isLoadingDatabase, setIsLoadingDatabase] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDatabaseState(null);
+    setIsLoadingDatabase(true);
+    questionService
+      .getDatabaseState(questionId, controller.signal)
+      .then(setDatabaseState)
+      .catch(() => {}) // leave null — the tab shows "No database state available"
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingDatabase(false);
+      });
+    return () => controller.abort();
+  }, [questionId]);
+
   // When on, students never see correct/incorrect — just a neutral "Submitted" state.
   const hideCorrectness = question.hide_correctness;
 
@@ -98,6 +120,7 @@ export function ResultsPanel({
     { id: 'results', label: 'Results' },
     { id: 'diagram', label: 'Diagram' },
     { id: 'history', label: `History${attempts.length > 0 ? ` (${attempts.length})` : ''}` },
+    { id: 'database', label: `Database${databaseState && databaseState.tables.length > 0 ? ` (${databaseState.tables.length})` : ''}` },
     { id: 'chat', label: 'Ask Bagheera' },
   ];
 
@@ -262,6 +285,11 @@ export function ResultsPanel({
               ))
             )}
           </div>
+        )}
+
+        {/* ── Database Tab ── */}
+        {activeTab === 'database' && (
+          <DatabaseStateView databaseState={databaseState} isLoading={isLoadingDatabase} />
         )}
 
         {/* ── AI Tutor Tab (mounted once, kept alive across tab switches so the

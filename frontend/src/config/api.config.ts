@@ -26,6 +26,7 @@ export const API_ENDPOINTS = {
     BASE: '/questions',
     COUNT: '/questions/count',
     DETAIL: (id: number) => `/questions/${id}`,
+    DATABASE: (id: number) => `/questions/${id}/database`,
     PUBLISH: (id: number) => `/questions/${id}/publish`,
     UNPUBLISH: (id: number) => `/questions/${id}/unpublish`,
   },

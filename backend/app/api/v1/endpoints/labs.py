@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime, timezone
-import sqlite3
 import os
 import logging
 
@@ -1245,44 +1244,8 @@ def get_session_database_state(
             )
 
     # SQL lab: original behaviour
-    from app.utils.lab_db_manager import get_schema_info
-    schema_data = get_schema_info(session.db_file_path)
-
-    # For each table, get row count and sample data
-    tables_with_data = []
-    conn = sqlite3.connect(f"file:{session.db_file_path}?mode=ro", uri=True)
-
-    try:
-        for table_info in schema_data["tables"]:
-            table_name = table_info["name"]
-            cursor = conn.cursor()
-
-            # Get row count
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-            row_count = cursor.fetchone()[0]
-
-            # Get sample data (first 20 rows)
-            cursor.execute(f"SELECT * FROM {table_name} LIMIT 20")
-            rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-
-            tables_with_data.append({
-                "name": table_name,
-                "columns": table_info["columns"],
-                "create_sql": table_info["create_sql"],
-                "row_count": row_count,
-                "sample_data": {
-                    "columns": columns,
-                    "rows": [dict(zip(columns, row)) for row in rows]
-                }
-            })
-
-            cursor.close()
-
-    finally:
-        conn.close()
-
-    return {"tables": tables_with_data}
+    from app.utils.lab_db_manager import get_database_state
+    return get_database_state(session.db_file_path)
 
 
 @router.post("/{lab_id}/session/reset")

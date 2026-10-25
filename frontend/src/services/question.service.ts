@@ -1,6 +1,7 @@
 import api from './api.service';
 import { API_ENDPOINTS } from '@/config/api.config';
 import { Question, QuestionDetail, QuestionCount, Difficulty } from '@/types/question.types';
+import { DatabaseState } from '@/types/lab.types';
 
 // The backend list endpoint caps `limit` at 500 (questions.py), so one request covers
 // the whole bank today in a single round trip. Every caller of getQuestions() wants the
@@ -39,6 +40,12 @@ export const questionService = {
 
   async getQuestionById(id: number): Promise<QuestionDetail> {
     const response = await api.get<QuestionDetail>(API_ENDPOINTS.QUESTIONS.DETAIL(id));
+    return response.data;
+  },
+
+  /** Tables, schema, row counts and sample rows of the question's (static) database. */
+  async getDatabaseState(id: number, signal?: AbortSignal): Promise<DatabaseState> {
+    const response = await api.get<DatabaseState>(API_ENDPOINTS.QUESTIONS.DATABASE(id), { signal });
     return response.data;
   },
 

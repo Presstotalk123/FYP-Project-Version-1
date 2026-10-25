@@ -49,6 +49,8 @@ class AssessmentCreate(BaseModel):
     password: Optional[str] = None
     # Optional whole-minute time limit; None = untimed.
     time_limit_minutes: Optional[int] = Field(None, ge=1)
+    # Clipboard/drag restrictions in SQL questions and SQL labs; on by default.
+    anti_cheat_enabled: bool = True
 
     @model_validator(mode="after")
     def _check_weights(self):
@@ -66,6 +68,8 @@ class AssessmentUpdate(BaseModel):
     # clear_time_limit=True to remove it.
     time_limit_minutes: Optional[int] = Field(None, ge=1)
     clear_time_limit: bool = False
+    # None = leave the anti-cheat setting unchanged.
+    anti_cheat_enabled: Optional[bool] = None
 
     @model_validator(mode="after")
     def _check_weights(self):
@@ -152,6 +156,8 @@ class AssessmentListItem(BaseModel):
     time_limit_minutes: Optional[int] = None
     # Timing Gateway master toggle — when true, access is driven by per-class-group windows.
     gateway_enabled: bool = False
+    # Clipboard/drag restrictions in SQL questions and SQL labs.
+    anti_cheat_enabled: bool = True
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -172,6 +178,8 @@ class AssessmentResponse(BaseModel):
     time_limit_minutes: Optional[int] = None
     # Timing Gateway master toggle — when true, access is driven by per-class-group windows.
     gateway_enabled: bool = False
+    # Clipboard/drag restrictions in SQL questions and SQL labs.
+    anti_cheat_enabled: bool = True
     created_at: datetime
     updated_at: Optional[datetime]
 

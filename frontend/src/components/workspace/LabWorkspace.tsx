@@ -94,8 +94,9 @@ export function LabWorkspace({
   const [isExiting, setIsExiting] = useState(false);
   const [databaseState, setDatabaseState] = useState<DatabaseState | null>(null);
   const [isLoadingDatabase, setIsLoadingDatabase] = useState(false);
-  // SQL labs only — graph labs share this workspace but keep paste unrestricted.
-  const blockExternalPaste = inAssessment && lab?.lab_type === 'sql';
+  // SQL labs only, when the assessment's Anti-cheat setting is on — graph labs share this
+  // workspace but keep paste unrestricted.
+  const blockExternalPaste = inAssessment && lab?.lab_type === 'sql' && progress.antiCheat;
   useBlockExternalPaste(blockExternalPaste);
 
   // Task state

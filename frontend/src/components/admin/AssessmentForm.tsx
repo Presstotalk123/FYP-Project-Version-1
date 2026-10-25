@@ -172,6 +172,7 @@ export function AssessmentForm({ mode, initial }: Props) {
   const [clearPassword, setClearPassword] = useState(false);
   // Empty string = no time limit (untimed). Whole minutes otherwise.
   const [timeLimit, setTimeLimit] = useState<number | ''>(initial?.time_limit_minutes ?? '');
+  const [antiCheat, setAntiCheat] = useState(initial?.anti_cheat_enabled ?? true);
   const [selectedItems, setSelectedItems] = useState<SortableItem[]>(() => {
     const items: SortableItem[] = (initial?.items ?? []).map((i) => ({
       uid: nextUid(),
@@ -404,6 +405,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           items,
           password: password.trim() || undefined,
           time_limit_minutes: timeLimit === '' ? null : timeLimit,
+          anti_cheat_enabled: antiCheat,
         };
         const created = await assessmentService.createAssessment(payload);
         assessmentId = created.id;
@@ -419,6 +421,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           clear_password: clearPassword,
           time_limit_minutes: timeLimit === '' ? undefined : timeLimit,
           clear_time_limit: timeLimit === '',
+          anti_cheat_enabled: antiCheat,
         };
         await assessmentService.updateAssessment(initial!.id, payload);
         assessmentId = initial!.id;
@@ -540,6 +543,12 @@ export function AssessmentForm({ mode, initial }: Props) {
               }}
             />
           )}
+          <Switch
+            label="Anti-cheat"
+            description="Copying out of SQL questions and SQL labs gives an academic-integrity notice instead of the text; pasting or dragging content from outside the assessment is blocked."
+            checked={antiCheat}
+            onChange={(e) => setAntiCheat(e.currentTarget.checked)}
+          />
         </Stack>
       </Paper>
 
@@ -560,7 +569,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           <Title order={5} mb="sm">Questions</Title>
           <Alert icon={<IconAlertCircle size={14} />} color="blue" mb="sm">
             Questions are frozen after publishing and can&apos;t be changed. You can still edit
-            the title, description, password, and timing above.
+            the title, description, password, timing, and anti-cheat above.
           </Alert>
           <Stack gap="xs">
             {selectedItems.map((item) => (

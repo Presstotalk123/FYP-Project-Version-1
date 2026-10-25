@@ -123,6 +123,7 @@ for _stmt in (
     "ALTER TABLE er_submissions ADD COLUMN deductions_json TEXT",
     "ALTER TABLE platform_sessions ADD COLUMN left_at TIMESTAMP",
     "ALTER TABLE concept_mastery ADD COLUMN scaffolding_level VARCHAR(20)",
+    "ALTER TABLE assessments ADD COLUMN anti_cheat_enabled INTEGER DEFAULT 1 NOT NULL",
 ):
     with engine.connect() as _conn:
         try:

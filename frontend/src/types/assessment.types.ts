@@ -35,6 +35,8 @@ export interface Assessment {
   time_limit_minutes: number | null;
   // Timing Gateway master toggle — when true, access is driven by per-class-group windows.
   gateway_enabled?: boolean;
+  // Clipboard/drag restrictions in SQL questions and SQL labs (on by default).
+  anti_cheat_enabled?: boolean;
   created_at: string;
   updated_at: string | null;
 }
@@ -79,6 +81,8 @@ export interface AssessmentDetail {
   password: string | null;
   has_password: boolean;
   time_limit_minutes: number | null;
+  // Clipboard/drag restrictions in SQL questions and SQL labs (on by default).
+  anti_cheat_enabled: boolean;
   created_at: string;
   updated_at: string | null;
 }
@@ -89,6 +93,7 @@ export interface AssessmentCreate {
   items: AssessmentItemIn[];
   password?: string;
   time_limit_minutes?: number | null;
+  anti_cheat_enabled?: boolean;
 }
 
 export interface AssessmentUpdate {
@@ -99,6 +104,7 @@ export interface AssessmentUpdate {
   clear_password?: boolean;
   time_limit_minutes?: number | null;
   clear_time_limit?: boolean;
+  anti_cheat_enabled?: boolean;
 }
 
 // Student-side assessment types
@@ -135,6 +141,8 @@ export interface StudentAssessmentDetail {
   has_password: boolean;
   // Optional whole-minute time limit; null = untimed. Shown on the Begin screen.
   time_limit_minutes: number | null;
+  // When true, the SQL question and SQL lab workspaces apply the clipboard/drag restrictions.
+  anti_cheat_enabled: boolean;
   // True once this student has ended & submitted; UI shows a Completed state and
   // hides Join/Continue (assessments are single-attempt).
   attempt_complete: boolean;

@@ -7,7 +7,8 @@ import { notifications } from '@mantine/notifications';
 /**
  * Keeps assessment text inside the assessment while `enabled`: copying out of the page
  * yields only an academic-integrity notice, and content from outside the page can't be
- * pasted or dropped in.
+ * pasted or dropped in. SQL questions and SQL labs enable it when the assessment's
+ * Anti-cheat setting is on.
  *
  * Every copy/cut on the page (Ctrl+C/X, the browser's context menu, Monaco's own copy)
  * is intercepted: the real text is kept in memory and the system clipboard gets

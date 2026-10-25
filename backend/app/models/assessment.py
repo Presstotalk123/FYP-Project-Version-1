@@ -27,6 +27,10 @@ class Assessment(Base):
     # (see AssessmentClassWindow), superseding the manual is_running start/stop.
     gateway_enabled = Column(Integer, default=0, nullable=False)
 
+    # Anti-cheat toggle. 1 = SQL questions and SQL labs in this assessment replace copied
+    # text with an integrity notice and block pasting/dragging content in from outside.
+    anti_cheat_enabled = Column(Integer, default=1, nullable=False)
+
     items = relationship(
         "AssessmentItem",
         back_populates="assessment",

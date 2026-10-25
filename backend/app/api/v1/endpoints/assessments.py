@@ -153,6 +153,7 @@ def create_assessment(
         is_deleted=0,
         password=data.password or None,
         time_limit_minutes=data.time_limit_minutes,
+        anti_cheat_enabled=1 if data.anti_cheat_enabled else 0,
     )
     db.add(assessment)
     db.flush()
@@ -184,6 +185,7 @@ def create_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -220,6 +222,7 @@ def list_assessments(
                 has_password=bool(a.password),
                 time_limit_minutes=a.time_limit_minutes,
                 gateway_enabled=bool(a.gateway_enabled),
+                anti_cheat_enabled=bool(a.anti_cheat_enabled),
                 created_at=a.created_at,
                 updated_at=a.updated_at,
             )
@@ -359,6 +362,7 @@ def get_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -411,6 +415,9 @@ def update_assessment(
     elif data.time_limit_minutes is not None:
         assessment.time_limit_minutes = data.time_limit_minutes
 
+    if data.anti_cheat_enabled is not None:
+        assessment.anti_cheat_enabled = 1 if data.anti_cheat_enabled else 0
+
     assessment.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(assessment)
@@ -427,6 +434,7 @@ def update_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -512,6 +520,7 @@ def publish_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -563,6 +572,7 @@ def unpublish_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -603,6 +613,7 @@ def start_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )
@@ -681,6 +692,7 @@ def stop_assessment(
         has_password=bool(assessment.password),
         time_limit_minutes=assessment.time_limit_minutes,
         gateway_enabled=bool(assessment.gateway_enabled),
+        anti_cheat_enabled=bool(assessment.anti_cheat_enabled),
         created_at=assessment.created_at,
         updated_at=assessment.updated_at,
     )

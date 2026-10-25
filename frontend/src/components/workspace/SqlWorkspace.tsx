@@ -48,7 +48,9 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
   const progress = useAssessmentProgress();
   useBlockBrowserBack(inAssessment);
   useWarnBeforeUnload(inAssessment);
-  useBlockExternalPaste(inAssessment);
+  // The assessment's Anti-cheat setting turns the clipboard/drag restrictions on or off.
+  const antiCheat = inAssessment && progress.antiCheat;
+  useBlockExternalPaste(antiCheat);
 
   // State
   const [query, setQuery] = useState('');
@@ -405,7 +407,7 @@ export function SqlWorkspace({ questionId, backUrl, weight, inAssessment = false
               maxQueries={maxQueries}
               attemptsUsed={attemptsUsed}
               isBagheeraActive={isBagheeraActive}
-              disableContextMenu={inAssessment}
+              disableContextMenu={antiCheat}
             />
           </Box>
 

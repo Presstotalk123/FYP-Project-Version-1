@@ -47,6 +47,8 @@ class StudentAssessmentDetail(BaseModel):
     has_password: bool
     # Optional whole-minute time limit; None = untimed. Shown on the Begin screen.
     time_limit_minutes: Optional[int] = None
+    # When true, the SQL question and SQL lab workspaces apply the clipboard/drag restrictions.
+    anti_cheat_enabled: bool = True
     # True once this student has ended & submitted; the UI shows a "Completed" state
     # and hides the Join/Continue buttons (assessments are single-attempt).
     attempt_complete: bool = False

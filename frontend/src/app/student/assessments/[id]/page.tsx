@@ -32,6 +32,7 @@ import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { UserRole } from '@/types/user.types';
 import { StudentAssessmentDetail, AssessmentSessionResponse } from '@/types/assessment.types';
 import { studentAssessmentService } from '@/services/studentAssessment.service';
+import { requestAssessmentFullscreen } from '@/components/assessment/AssessmentIntegrityGuard';
 
 /** Format an ISO instant in Singapore local time for display to students. */
 function formatWindowTime(iso: string): string {
@@ -117,6 +118,8 @@ export default function StudentAssessmentDetailPage() {
 
   const handleJoin = async () => {
     setPasswordError(null);
+    // Must run before any await so the browser still treats it as part of the click.
+    if (assessment?.anti_cheat_enabled) requestAssessmentFullscreen();
     try {
       setJoining(true);
       await studentAssessmentService.join(assessmentId, password || undefined);
@@ -124,6 +127,7 @@ export default function StudentAssessmentDetailPage() {
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string }; status?: number } };
       const detail = e.response?.data?.detail || 'Failed to join assessment';
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       // A 403 is either a wrong password or an already-submitted (single-attempt) block.
       // Only treat it as a password error when the assessment actually has a password.
       if (e.response?.status === 403 && assessment?.has_password) {
@@ -136,6 +140,7 @@ export default function StudentAssessmentDetailPage() {
   };
 
   const handleContinue = () => {
+    if (assessment?.anti_cheat_enabled) requestAssessmentFullscreen();
     router.push(`/student/assessments/${assessmentId}/overview`);
   };
 

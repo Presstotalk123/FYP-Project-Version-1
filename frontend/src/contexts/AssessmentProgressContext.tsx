@@ -18,6 +18,8 @@ interface AssessmentProgressContextValue {
   markAttempted: () => void;
   /** The assessment's Anti-cheat setting (clipboard/drag restrictions). False outside an assessment. */
   antiCheat: boolean;
+  /** True once the assessment detail has loaded, i.e. `antiCheat` is the real setting, not the fail-closed default. */
+  antiCheatLoaded: boolean;
 }
 
 // Safe default so the shared workspaces can call markAttempted() even when rendered
@@ -30,6 +32,7 @@ const DEFAULT: AssessmentProgressContextValue = {
   attemptedIds: new Set(),
   markAttempted: () => {},
   antiCheat: false,
+  antiCheatLoaded: false,
 };
 
 const AssessmentProgressContext = createContext<AssessmentProgressContextValue>(DEFAULT);
@@ -82,6 +85,7 @@ export function AssessmentProgressProvider({
   const [attemptedIds, setAttemptedIds] = useState<Set<number>>(() => loadAttemptedIds(assessmentId));
   // Fails closed: restrictions stay on until the detail says otherwise (or if it can't load).
   const [antiCheat, setAntiCheat] = useState(true);
+  const [antiCheatLoaded, setAntiCheatLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +95,7 @@ export function AssessmentProgressProvider({
         if (cancelled) return;
         setItems(detail.items);
         setAntiCheat(detail.anti_cheat_enabled);
+        setAntiCheatLoaded(true);
       })
       .catch(() => {
         // No active session yet (not joined) — the navigator just stays empty until then.
@@ -119,6 +124,7 @@ export function AssessmentProgressProvider({
     attemptedIds,
     markAttempted,
     antiCheat,
+    antiCheatLoaded,
   };
 
   return (

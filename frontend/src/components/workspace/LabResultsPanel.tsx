@@ -94,8 +94,12 @@ export function LabResultsPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleAssignAnswer = async () => {
-    if (!selectedTaskId || !currentQuery.trim()) {
+    if (!selectedTaskId) {
       notifications.show({ title: 'Validation Error', message: 'Please select a task', color: 'yellow' });
+      return;
+    }
+    if (!currentQuery.trim()) {
+      notifications.show({ title: 'Missing Query', message: 'The query editor is empty. Write or restore the query before assigning an answer.', color: 'yellow' });
       return;
     }
     setIsAssigning(true);

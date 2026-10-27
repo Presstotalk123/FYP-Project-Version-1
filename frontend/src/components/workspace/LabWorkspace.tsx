@@ -766,7 +766,15 @@ export function LabWorkspace({
   };
 
   const handleSubmitToTask = async (taskId: number) => {
-    if (!result || !sessionId || !query.trim()) return;
+    if (!result || !sessionId) return;
+    if (!query.trim()) {
+      notifications.show({
+        title: 'Missing Query',
+        message: 'The query editor is empty. Write or restore the query that produced this result before submitting.',
+        color: 'yellow',
+      });
+      return;
+    }
 
     // Clear any previous review when a new submission starts
     setLabReviewData(null);

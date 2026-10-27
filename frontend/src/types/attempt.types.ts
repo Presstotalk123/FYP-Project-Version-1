@@ -11,6 +11,8 @@ export interface ExecuteResponse {
   columns: string[];
   error_message: string | null;
   row_count: number;
+  // Row values by column position, for display — `results` collides when column names repeat.
+  rows?: unknown[][] | null;
   // Assessment deadline after crediting this query's time; null/undefined outside a timed
   // assessment. The countdown resumes from this without a separate session request.
   assessment_end_time?: string | null;

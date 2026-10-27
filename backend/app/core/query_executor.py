@@ -220,6 +220,9 @@ def _format_success(columns: List[str], results: List[Tuple], execution_time: fl
         "columns": columns,
         "results": result_dicts,
         "raw_results": results,  # Keep raw tuples for hash generation
+        # Display-only, by column position: result_dicts collide when column names repeat
+        # (e.g. P.StudentID, S.StudentID). Grading never reads this.
+        "rows": [list(row) for row in results],
         "execution_time_ms": execution_time,
         "row_count": len(results),
         "error_message": None,

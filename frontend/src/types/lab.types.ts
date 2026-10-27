@@ -68,6 +68,8 @@ export interface LabExecuteResponse {
   execution_time_ms: number;
   row_count: number;
   error_message: string | null;
+  // Row values by column position, for display — `results` collides when column names repeat.
+  rows?: unknown[][] | null;
   // Assessment deadline after crediting this query's time; null/undefined outside a timed
   // assessment. The countdown resumes from this without a separate session request.
   assessment_end_time?: string | null;

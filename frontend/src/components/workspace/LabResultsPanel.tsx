@@ -327,11 +327,15 @@ export function LabResultsPanel({
                     <tbody>
                       {result.results.map((row, idx) => (
                         <tr key={idx}>
-                          {result.columns.map((col, i) => (
-                            <td key={i}>
-                              {row[col] === null ? 'NULL' : typeof row[col] === 'object' ? JSON.stringify(row[col]) : String(row[col])}
-                            </td>
-                          ))}
+                          {result.columns.map((col, i) => {
+                            // By position: `row` is keyed by name, so repeated names collide.
+                            const value = result.rows?.[idx] ? result.rows[idx][i] : row[col];
+                            return (
+                              <td key={i}>
+                                {value === null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>

@@ -298,6 +298,7 @@ def execute_query(
         columns=result["columns"],
         error_message=error_message,
         row_count=result["row_count"],
+        rows=result.get("rows"),
         assessment_end_time=assessment_session.end_time if assessment_session else None,
         max_queries=q_max_queries,
         attempts_used=attempts_used if q_max_queries is not None else None,

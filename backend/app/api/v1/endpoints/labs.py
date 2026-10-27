@@ -1016,6 +1016,7 @@ def execute_query(
         execution_time_ms=result["execution_time_ms"],
         row_count=result["row_count"],
         error_message=result["error_message"],
+        rows=result.get("rows"),
         assessment_end_time=assessment_session.end_time if assessment_session else None,
     )
 

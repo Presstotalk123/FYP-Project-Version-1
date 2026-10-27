@@ -117,6 +117,9 @@ class LabExecuteResponse(BaseModel):
     execution_time_ms: float
     row_count: int
     error_message: Optional[str] = None
+    # Row values by column position, for display only — `results` collides when column names
+    # repeat. None when there is no positional data (errors, graph labs).
+    rows: Optional[List[List[Any]]] = None
     # Assessment deadline after crediting this query's time; None outside a timed assessment.
     # Lets the frontend resume its countdown without a separate session round-trip.
     assessment_end_time: Optional[datetime] = None

@@ -24,6 +24,7 @@ export function HeaderNav() {
     { label: "Assessments", href: "/admin/assessments" },
     // Per-student platform-time usage. Staff + admin (both can view).
     { label: "Usage", href: "/admin/usage" },
+    { label: "Chatbot Management", href: "/admin/chatbot-management" },
     // Staff + admin (deliberately outside the isAdmin gate below): the
     // /admin/settings prompt editor is editable by both roles.
     { label: "Settings", href: "/admin/settings" },

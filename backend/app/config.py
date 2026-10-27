@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     AI_AZURE_ENDPOINT: str = ""             # https://<resource>.openai.azure.com/
     AI_AZURE_API_VERSION: str = "2024-02-01"
 
+    # AskNarelle Flask API
+    ASKNARELLE_API_URL: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",

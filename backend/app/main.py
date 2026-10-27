@@ -250,3 +250,7 @@ def read_root():
 def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+# AskNarelle management uses Akela authentication and staff permissions.
+from app.api.v1.endpoints import chatbot_management  # noqa: E402
+app.include_router(chatbot_management.router, prefix="/api/v1")

@@ -8,6 +8,7 @@ import { QueryReviewCard } from './QueryReviewCard';
 import { QueryGraph } from './QueryGraph';
 import { LabChatTab } from './LabChatTab';
 import { DatabaseStateView } from './DatabaseStateView';
+import { resultKey } from '@/utils/resultKey';
 
 /* ── SVG icons ── */
 const IconCheck = () => (
@@ -317,17 +318,17 @@ export function LabResultsPanel({
               {/* Result table */}
               {result.success && result.results.length > 0 && (
                 <div className="table-wrap">
-                  <table className="da-table da-table--data">
+                  <table key={resultKey(result)} className="da-table da-table--data">
                     <thead>
                       <tr>
-                        {result.columns.map(col => <th key={col}>{col}</th>)}
+                        {result.columns.map((col, i) => <th key={i}>{col}</th>)}
                       </tr>
                     </thead>
                     <tbody>
                       {result.results.map((row, idx) => (
                         <tr key={idx}>
-                          {result.columns.map(col => (
-                            <td key={col}>
+                          {result.columns.map((col, i) => (
+                            <td key={i}>
                               {row[col] === null ? 'NULL' : typeof row[col] === 'object' ? JSON.stringify(row[col]) : String(row[col])}
                             </td>
                           ))}

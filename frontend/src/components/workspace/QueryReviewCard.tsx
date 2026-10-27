@@ -57,7 +57,7 @@ function MiniTable({
     <div className="table-wrap">
       <table className="da-table da-table--data">
         <thead>
-          <tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr>
+          <tr>{columns.map((c, i) => <th key={i}>{c}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (

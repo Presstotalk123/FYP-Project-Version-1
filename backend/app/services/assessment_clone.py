@@ -88,6 +88,9 @@ def clone_question_for_assessment(
             test_script=master.test_script,
             check_query=master.check_query,
             hide_correctness=hide_correctness,
+            # Must match the copied correct_answer_hash, which was computed with this flag:
+            # dropping it makes the clone sort student rows that the stored hash kept in order.
+            order_sensitive=master.order_sensitive,
             created_by=master.created_by,
             is_deleted=0,
             owner_assessment_id=assessment_id,

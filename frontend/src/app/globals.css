@@ -119,6 +119,9 @@ a {
    declares gap: 18px; .topbar declares none, so without it the nav would butt
    straight up against the wordmark. */
 .topbar .app-nav {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
   margin-right: auto;
   margin-left: 28px;
 }
@@ -142,6 +145,7 @@ a {
    SEGMENTED CONTROL
    ============================================================ */
 .segmented-control {
+  flex-shrink: 0;
   display: inline-flex;
   position: relative;
   background: var(--surface-muted);
@@ -165,6 +169,7 @@ a {
 }
 
 .seg-item {
+  white-space: nowrap;
   position: relative;
   z-index: 2;
   padding: 6px 16px;

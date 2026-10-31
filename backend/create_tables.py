@@ -50,6 +50,7 @@ from app.models.tutor_chat_message import TutorChatMessage
 from app.models.user import User
 from app.models.user_preference import UserPreference
 from app.models.whitelist import WhitelistEntry
+from app.models import competition as _competition_models  # noqa: F401
 from app.core.cache import CacheVersion  # register cache_versions on Base
 
 def create_tables():

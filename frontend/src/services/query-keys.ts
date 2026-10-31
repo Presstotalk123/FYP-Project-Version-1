@@ -3,6 +3,15 @@
 // Dashboard and the Problems page; `labs` by both Problems and Manage Labs).
 // Keeping the keys here also makes post-mutation invalidation consistent.
 export const queryKeys = {
+  competitionVersions: ['competitionVersions'] as const,
+  competitionIncidents: ['adminCompetitionIncidents'] as const,
+  competitionSources: ['competitionSources'] as const,
+  competitionSource: (id: number) => ['competitionSource', id] as const,
+  competitionIncident: (id: number) => ['adminCompetitionIncident', id] as const,
+  competitionCapabilities: (userId: number) => ['competitionCapabilities', userId] as const,
+  studentCompetitions: (userId: number) => ['studentCompetitions', userId] as const,
+  competition: (id: number, userId: number) => ['competition', id, userId] as const,
+  competitionItem: (sessionId: number, key: string, userId: number) => ['competitionItem', sessionId, key, userId] as const,
   questions: ['questions'] as const,
   labs: ['labs'] as const,
   erdQuestions: ['erdQuestions'] as const,

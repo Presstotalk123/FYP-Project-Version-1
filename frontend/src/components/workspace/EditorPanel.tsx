@@ -24,6 +24,8 @@ const IconEye = () => (
 );
 
 interface EditorPanelProps {
+  readOnly?: boolean;
+  runLabel?: string;
   query: string;
   onQueryChange: (value: string) => void;
   onExecute: () => void;
@@ -41,6 +43,8 @@ interface EditorPanelProps {
 }
 
 export function EditorPanel({
+  readOnly = false,
+  runLabel = 'Run Query',
   query,
   onQueryChange,
   onExecute,
@@ -73,17 +77,17 @@ export function EditorPanel({
             className="btn btn-brand"
             style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
             onClick={onExecute}
-            disabled={isExecuting || isCoolingDown || limitReached}
+            disabled={readOnly || isExecuting || isCoolingDown || limitReached}
             title={limitReached ? 'You have reached the maximum number of queries allowed for this question.' : undefined}
           >
             <IconPlay />
-            {isExecuting ? 'Running…' : 'Run Query'}
+            {isExecuting ? 'Running…' : runLabel}
           </button>
           <button
             className="btn btn-secondary"
             style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
             onClick={onClear}
-            disabled={isExecuting}
+            disabled={readOnly || isExecuting}
           >
             <IconTrash />
             Clear
@@ -132,6 +136,7 @@ export function EditorPanel({
           value={query}
           onChange={(value) => onQueryChange(value || '')}
           options={{
+            readOnly,
             minimap: { enabled: false },
             fontSize: 14,
             lineNumbers: 'on',

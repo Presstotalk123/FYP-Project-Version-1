@@ -1,0 +1,839 @@
+[
+  {
+    "key": "leetcode-175",
+    "source": {
+      "id": "175",
+      "title": "Combine Two Tables",
+      "sql_schema": "Create table If Not Exists Person (personId int, firstName varchar(255), lastName varchar(255));\nCreate table If Not Exists Address (addressId int, personId int, city varchar(255), state varchar(255));\nTruncate table Person;\ninsert into Person (personId, lastName, firstName) values ('1', 'Wang', 'Allen');\ninsert into Person (personId, lastName, firstName) values ('2', 'Alice', 'Bob');\nTruncate table Address;\ninsert into Address (addressId, personId, city, state) values ('1', '2', 'New York City', 'New York');\ninsert into Address (addressId, personId, city, state) values ('2', '3', 'Leetcode', 'California');",
+      "answer": "select p.firstName, p.lastName, a.city, a.state\nfrom Person p\nleft join Address a\nusing(personId)"
+    },
+    "document": {
+      "title": "Missing directory entries",
+      "topic": "joins",
+      "difficulty": "easy",
+      "complaint": "A registered person disappeared from our people-and-address directory.",
+      "business_rules": "The directory must display every person. Include one row for each matching address and NULL address fields when there is no match. Repeated names and address values are valid.",
+      "schema_sql": "CREATE TABLE IF NOT EXISTS Person (personId INTEGER, firstName TEXT(255), lastName TEXT(255));\nCREATE TABLE IF NOT EXISTS Address (addressId INTEGER, personId INTEGER, city TEXT(255), state TEXT(255));",
+      "components": [
+        {
+          "id": "report",
+          "label": "Application report",
+          "purpose": "Feeds the affected report in the application.",
+          "query": "SELECT p.firstName, p.lastName, a.city, a.state FROM Person AS p INNER JOIN Address AS a USING (personId)",
+          "reference_query": "SELECT p.firstName, p.lastName, a.city, a.state FROM Person AS p LEFT JOIN Address AS a USING (personId)"
+        },
+        {
+          "id": "records",
+          "label": "Record summary",
+          "purpose": "Shows how many primary records are registered.",
+          "query": "SELECT COUNT(*) AS records FROM \"Person\"",
+          "reference_query": "SELECT COUNT(*) AS records FROM \"Person\""
+        }
+      ],
+      "culprit_component": "report",
+      "fault_template": "left_to_inner:v1",
+      "fault_cause": "An INNER JOIN removes unmatched records required by this report.",
+      "checkpoints": [
+        "Compare the primary records with the report output.",
+        "Trace which relationships include, omit or multiply records.",
+        "An INNER JOIN removes unmatched records required by this report."
+      ],
+      "scenarios": [
+        {
+          "id": "visible",
+          "label": "Initial incident records",
+          "visible": true,
+          "seed_sql": "INSERT INTO Person (personId, lastName, firstName) VALUES ('1', 'Wang', 'Allen');\nINSERT INTO Person (personId, lastName, firstName) VALUES ('2', 'Alice', 'Bob');\nINSERT INTO Address (addressId, personId, city, state) VALUES ('1', '2', 'New York City', 'New York');\nINSERT INTO Address (addressId, personId, city, state) VALUES ('2', '3', 'Leetcode', 'California');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "firstName",
+                "lastName",
+                "city",
+                "state"
+              ],
+              "rows": [
+                [
+                  "Allen",
+                  "Wang",
+                  null,
+                  null
+                ],
+                [
+                  "Bob",
+                  "Alice",
+                  "New York City",
+                  "New York"
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  2
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "boundary",
+          "label": "Boundary and cardinality records",
+          "visible": false,
+          "seed_sql": "INSERT INTO Person VALUES (10,'Kai','Tan'),(20,'Kai','Tan'); INSERT INTO Address VALUES (1,10,NULL,'North'),(2,20,'East','East'),(3,20,'East','East');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "firstName",
+                "lastName",
+                "city",
+                "state"
+              ],
+              "rows": [
+                [
+                  "Kai",
+                  "Tan",
+                  null,
+                  "North"
+                ],
+                [
+                  "Kai",
+                  "Tan",
+                  "East",
+                  "East"
+                ],
+                [
+                  "Kai",
+                  "Tan",
+                  "East",
+                  "East"
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  2
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty relations",
+          "visible": false,
+          "seed_sql": "",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "firstName",
+                "lastName",
+                "city",
+                "state"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      ],
+      "oracle_confirmed": false,
+      "alternative_repairs": [
+        "SELECT p.firstName, p.lastName, a.city, a.state FROM Person AS p LEFT JOIN Address AS a USING (personId)"
+      ]
+    }
+  },
+  {
+    "key": "leetcode-183",
+    "source": {
+      "id": "183",
+      "title": "Customers Who Never Order",
+      "sql_schema": "Create table If Not Exists Customers (id int, name varchar(255));\nCreate table If Not Exists Orders (id int, customerId int);\nTruncate table Customers;\ninsert into Customers (id, name) values ('1', 'Joe');\ninsert into Customers (id, name) values ('2', 'Henry');\ninsert into Customers (id, name) values ('3', 'Sam');\ninsert into Customers (id, name) values ('4', 'Max');\nTruncate table Orders;\ninsert into Orders (id, customerId) values ('1', '3');\ninsert into Orders (id, customerId) values ('2', '1');",
+      "answer": "select name as Customers\nfrom Customers\nwhere id not in\n    (select distinct customerId\n    from Orders)"
+    },
+    "document": {
+      "title": "Outreach recipients look wrong",
+      "topic": "joins",
+      "difficulty": "easy",
+      "complaint": "Our outreach list includes regular buyers and misses people who have never ordered.",
+      "business_rules": "Show each customer with no order. A customer with one or several orders must be absent. Customers are identified by their ID, not their name.",
+      "schema_sql": "CREATE TABLE IF NOT EXISTS Customers (id INTEGER, name TEXT(255));\nCREATE TABLE IF NOT EXISTS Orders (id INTEGER, customerId INTEGER);",
+      "components": [
+        {
+          "id": "report",
+          "label": "Application report",
+          "purpose": "Feeds the affected report in the application.",
+          "query": "SELECT c.name AS Customers FROM Customers AS c WHERE EXISTS(SELECT 1 FROM Orders AS o WHERE o.customerId = c.id)",
+          "reference_query": "SELECT c.name AS Customers FROM Customers c WHERE NOT EXISTS (SELECT 1 FROM Orders o WHERE o.customerId=c.id)"
+        },
+        {
+          "id": "records",
+          "label": "Record summary",
+          "purpose": "Shows how many primary records are registered.",
+          "query": "SELECT COUNT(*) AS records FROM \"Customers\"",
+          "reference_query": "SELECT COUNT(*) AS records FROM \"Customers\""
+        }
+      ],
+      "culprit_component": "report",
+      "fault_template": "invert_exists:v1",
+      "fault_cause": "The existence predicate selects customers with orders instead of customers without orders.",
+      "checkpoints": [
+        "Compare the primary records with the report output.",
+        "Trace which relationships include, omit or multiply records.",
+        "The existence predicate selects customers with orders instead of customers without orders."
+      ],
+      "scenarios": [
+        {
+          "id": "visible",
+          "label": "Initial incident records",
+          "visible": true,
+          "seed_sql": "INSERT INTO Customers (id, name) VALUES ('1', 'Joe');\nINSERT INTO Customers (id, name) VALUES ('2', 'Henry');\nINSERT INTO Customers (id, name) VALUES ('3', 'Sam');\nINSERT INTO Customers (id, name) VALUES ('4', 'Max');\nINSERT INTO Orders (id, customerId) VALUES ('1', '3');\nINSERT INTO Orders (id, customerId) VALUES ('2', '1');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "Customers"
+              ],
+              "rows": [
+                [
+                  "Henry"
+                ],
+                [
+                  "Max"
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  4
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "boundary",
+          "label": "Boundary and cardinality records",
+          "visible": false,
+          "seed_sql": "INSERT INTO Customers VALUES (10,'Dee'),(20,'Eli'); INSERT INTO Orders VALUES (1,10),(2,10),(3,20);",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "Customers"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  2
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty relations",
+          "visible": false,
+          "seed_sql": "",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "Customers"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      ],
+      "oracle_confirmed": false,
+      "alternative_repairs": [
+        "SELECT c.name AS Customers FROM Customers c WHERE NOT EXISTS (SELECT 1 FROM Orders o WHERE o.customerId=c.id)"
+      ]
+    }
+  },
+  {
+    "key": "leetcode-181",
+    "source": {
+      "id": "181",
+      "title": "Employees Earning More Than Their Managers",
+      "sql_schema": "Create table If Not Exists Employee (id int, name varchar(255), salary int, managerId int);\nTruncate table Employee;\ninsert into Employee (id, name, salary, managerId) values ('1', 'Joe', '70000', '3');\ninsert into Employee (id, name, salary, managerId) values ('2', 'Henry', '80000', '4');\ninsert into Employee (id, name, salary, managerId) values ('3', 'Sam', '60000', NULL);\ninsert into Employee (id, name, salary, managerId) values ('4', 'Max', '90000', NULL);",
+      "answer": "select e.name as 'Employee'\nfrom Employee m \nleft join Employee e\non e.managerId = m.id\nwhere e.salary > m.salary"
+    },
+    "document": {
+      "title": "Payroll alerts reach the wrong staff",
+      "topic": "joins",
+      "difficulty": "medium",
+      "complaint": "Payroll alerts are being sent for the wrong reporting relationships.",
+      "business_rules": "An alert belongs to an employee only when their salary is strictly greater than their own manager's salary. Equal salaries and staff without a manager do not trigger alerts.",
+      "schema_sql": "CREATE TABLE IF NOT EXISTS Employee (id INTEGER, name TEXT(255), salary INTEGER, managerId INTEGER);",
+      "components": [
+        {
+          "id": "report",
+          "label": "Application report",
+          "purpose": "Feeds the affected report in the application.",
+          "query": "SELECT e.name AS \"Employee\" FROM Employee AS m LEFT JOIN Employee AS e ON e.managerId = m.id WHERE e.salary < m.salary",
+          "reference_query": "SELECT e.name AS \"Employee\" FROM Employee AS m LEFT JOIN Employee AS e ON e.managerId = m.id WHERE e.salary > m.salary"
+        },
+        {
+          "id": "records",
+          "label": "Record summary",
+          "purpose": "Shows how many primary records are registered.",
+          "query": "SELECT COUNT(*) AS records FROM \"Employee\"",
+          "reference_query": "SELECT COUNT(*) AS records FROM \"Employee\""
+        }
+      ],
+      "culprit_component": "report",
+      "fault_template": "reverse_comparison:v1",
+      "fault_cause": "The salary comparison is reversed; an employee must earn more than their own manager.",
+      "checkpoints": [
+        "Compare the primary records with the report output.",
+        "Trace which relationships include, omit or multiply records.",
+        "The salary comparison is reversed; an employee must earn more than their own manager."
+      ],
+      "scenarios": [
+        {
+          "id": "visible",
+          "label": "Initial incident records",
+          "visible": true,
+          "seed_sql": "INSERT INTO Employee (id, name, salary, managerId) VALUES ('1', 'Joe', '70000', '3');\nINSERT INTO Employee (id, name, salary, managerId) VALUES ('2', 'Henry', '80000', '4');\nINSERT INTO Employee (id, name, salary, managerId) VALUES ('3', 'Sam', '60000', NULL);\nINSERT INTO Employee (id, name, salary, managerId) VALUES ('4', 'Max', '90000', NULL);",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "Employee"
+              ],
+              "rows": [
+                [
+                  "Joe"
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  4
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "boundary",
+          "label": "Boundary and cardinality records",
+          "visible": false,
+          "seed_sql": "INSERT INTO Employee VALUES (10,'Lead',90000,NULL),(20,'Peer',90000,10),(30,'Junior',80000,10);",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "Employee"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  3
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty relations",
+          "visible": false,
+          "seed_sql": "",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "Employee"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      ],
+      "oracle_confirmed": false,
+      "alternative_repairs": [
+        "SELECT e.name AS \"Employee\" FROM Employee AS m LEFT JOIN Employee AS e ON e.managerId = m.id WHERE e.salary > m.salary"
+      ]
+    }
+  },
+  {
+    "key": "leetcode-1378",
+    "source": {
+      "id": "1378",
+      "title": "Replace Employee ID With The Unique Identifier",
+      "sql_schema": "Create table If Not Exists Employees (id int, name varchar(20));\nCreate table If Not Exists EmployeeUNI (id int, unique_id int);\nTruncate table Employees;\ninsert into Employees (id, name) values ('1', 'Alice');\ninsert into Employees (id, name) values ('7', 'Bob');\ninsert into Employees (id, name) values ('11', 'Meir');\ninsert into Employees (id, name) values ('90', 'Winston');\ninsert into Employees (id, name) values ('3', 'Jonathan');\nTruncate table EmployeeUNI;\ninsert into EmployeeUNI (id, unique_id) values ('3', '1');\ninsert into EmployeeUNI (id, unique_id) values ('11', '2');\ninsert into EmployeeUNI (id, unique_id) values ('90', '3');",
+      "answer": "select unique_id, name \nfrom Employees e left join EmployeeUNI eu on e.id = eu.id"
+    },
+    "document": {
+      "title": "Identity badges are mismatched",
+      "topic": "joins",
+      "difficulty": "medium",
+      "complaint": "The staff directory assigns a badge to the wrong employee and loses other badge mappings.",
+      "business_rules": "Display every employee's name and their mapped unique_id, or NULL when no mapping exists. Employees.id and EmployeeUNI.id identify the same employee; unique_id is a badge identifier.",
+      "schema_sql": "CREATE TABLE IF NOT EXISTS Employees (id INTEGER, name TEXT(20));\nCREATE TABLE IF NOT EXISTS EmployeeUNI (id INTEGER, unique_id INTEGER);",
+      "components": [
+        {
+          "id": "report",
+          "label": "Application report",
+          "purpose": "Feeds the affected report in the application.",
+          "query": "SELECT unique_id, name FROM Employees AS e LEFT JOIN EmployeeUNI AS eu ON e.id = eu.unique_id",
+          "reference_query": "SELECT unique_id, name FROM Employees AS e LEFT JOIN EmployeeUNI AS eu ON e.id = eu.id"
+        },
+        {
+          "id": "records",
+          "label": "Record summary",
+          "purpose": "Shows how many primary records are registered.",
+          "query": "SELECT COUNT(*) AS records FROM \"Employees\"",
+          "reference_query": "SELECT COUNT(*) AS records FROM \"Employees\""
+        }
+      ],
+      "culprit_component": "report",
+      "fault_template": "wrong_join_key:v1",
+      "fault_cause": "The join uses a different identifier domain, creating false matches or missing relationships.",
+      "checkpoints": [
+        "Compare the primary records with the report output.",
+        "Trace which relationships include, omit or multiply records.",
+        "The join uses a different identifier domain, creating false matches or missing relationships."
+      ],
+      "scenarios": [
+        {
+          "id": "visible",
+          "label": "Initial incident records",
+          "visible": true,
+          "seed_sql": "INSERT INTO Employees (id, name) VALUES ('1', 'Alice');\nINSERT INTO Employees (id, name) VALUES ('7', 'Bob');\nINSERT INTO Employees (id, name) VALUES ('11', 'Meir');\nINSERT INTO Employees (id, name) VALUES ('90', 'Winston');\nINSERT INTO Employees (id, name) VALUES ('3', 'Jonathan');\nINSERT INTO EmployeeUNI (id, unique_id) VALUES ('3', '1');\nINSERT INTO EmployeeUNI (id, unique_id) VALUES ('11', '2');\nINSERT INTO EmployeeUNI (id, unique_id) VALUES ('90', '3');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "unique_id",
+                "name"
+              ],
+              "rows": [
+                [
+                  null,
+                  "Alice"
+                ],
+                [
+                  null,
+                  "Bob"
+                ],
+                [
+                  2,
+                  "Meir"
+                ],
+                [
+                  3,
+                  "Winston"
+                ],
+                [
+                  1,
+                  "Jonathan"
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  5
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "boundary",
+          "label": "Boundary and cardinality records",
+          "visible": false,
+          "seed_sql": "INSERT INTO Employees VALUES (2,'Noor'),(3,'Uma'); INSERT INTO EmployeeUNI VALUES (2,100),(3,200);",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "unique_id",
+                "name"
+              ],
+              "rows": [
+                [
+                  100,
+                  "Noor"
+                ],
+                [
+                  200,
+                  "Uma"
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  2
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty relations",
+          "visible": false,
+          "seed_sql": "",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "unique_id",
+                "name"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      ],
+      "oracle_confirmed": false,
+      "alternative_repairs": [
+        "SELECT unique_id, name FROM Employees AS e LEFT JOIN EmployeeUNI AS eu ON e.id = eu.id"
+      ]
+    }
+  },
+  {
+    "key": "leetcode-1581",
+    "source": {
+      "id": "1581",
+      "title": "Customer Who Visited but Did Not Make Any Transactions",
+      "sql_schema": "Create table If Not Exists Visits(visit_id int, customer_id int);\nCreate table If Not Exists Transactions(transaction_id int, visit_id int, amount int);\nTruncate table Visits;\ninsert into Visits (visit_id, customer_id) values ('1', '23');\ninsert into Visits (visit_id, customer_id) values ('2', '9');\ninsert into Visits (visit_id, customer_id) values ('4', '30');\ninsert into Visits (visit_id, customer_id) values ('5', '54');\ninsert into Visits (visit_id, customer_id) values ('6', '96');\ninsert into Visits (visit_id, customer_id) values ('7', '54');\ninsert into Visits (visit_id, customer_id) values ('8', '54');\nTruncate table Transactions;\ninsert into Transactions (transaction_id, visit_id, amount) values ('2', '5', '310');\ninsert into Transactions (transaction_id, visit_id, amount) values ('3', '5', '300');\ninsert into Transactions (transaction_id, visit_id, amount) values ('9', '5', '200');\ninsert into Transactions (transaction_id, visit_id, amount) values ('12', '1', '910');\ninsert into Transactions (transaction_id, visit_id, amount) values ('13', '2', '970');",
+      "answer": "select customer_id, count(visit_id) as count_no_trans\nfrom\n(\nselect v.visit_id, v.customer_id, t.transaction_id, t.visit_id as transaction_visit\nfrom Visits v left join Transactions t on v.visit_id = t.visit_id) temp\nwhere transaction_visit is null\ngroup by customer_id"
+    },
+    "document": {
+      "title": "Unconverted visits vanish",
+      "topic": "joins",
+      "difficulty": "hard",
+      "complaint": "The customer dashboard reports no visits without purchases, despite recorded visits with no transaction.",
+      "business_rules": "For each customer with at least one visit that has no transaction, report customer_id and count_no_trans. Count visits without transactions, not transaction records; one visit can have multiple transactions.",
+      "schema_sql": "CREATE TABLE IF NOT EXISTS Visits (visit_id INTEGER, customer_id INTEGER);\nCREATE TABLE IF NOT EXISTS Transactions (transaction_id INTEGER, visit_id INTEGER, amount INTEGER);",
+      "components": [
+        {
+          "id": "report",
+          "label": "Application report",
+          "purpose": "Feeds the affected report in the application.",
+          "query": "SELECT customer_id, COUNT(visit_id) AS count_no_trans FROM (SELECT v.visit_id, v.customer_id, t.transaction_id, t.visit_id AS transaction_visit FROM Visits AS v INNER JOIN Transactions AS t ON v.visit_id = t.visit_id) AS temp WHERE transaction_visit IS NULL GROUP BY customer_id",
+          "reference_query": "SELECT customer_id, COUNT(visit_id) AS count_no_trans FROM (SELECT v.visit_id, v.customer_id, t.transaction_id, t.visit_id AS transaction_visit FROM Visits AS v LEFT JOIN Transactions AS t ON v.visit_id = t.visit_id) AS temp WHERE transaction_visit IS NULL GROUP BY customer_id"
+        },
+        {
+          "id": "records",
+          "label": "Record summary",
+          "purpose": "Shows how many primary records are registered.",
+          "query": "SELECT COUNT(*) AS records FROM \"Visits\"",
+          "reference_query": "SELECT COUNT(*) AS records FROM \"Visits\""
+        }
+      ],
+      "culprit_component": "report",
+      "fault_template": "left_to_inner:v1",
+      "fault_cause": "An INNER JOIN removes unmatched records required by this report.",
+      "checkpoints": [
+        "Compare the primary records with the report output.",
+        "Trace which relationships include, omit or multiply records.",
+        "An INNER JOIN removes unmatched records required by this report."
+      ],
+      "scenarios": [
+        {
+          "id": "visible",
+          "label": "Initial incident records",
+          "visible": true,
+          "seed_sql": "INSERT INTO Visits (visit_id, customer_id) VALUES ('1', '23');\nINSERT INTO Visits (visit_id, customer_id) VALUES ('2', '9');\nINSERT INTO Visits (visit_id, customer_id) VALUES ('4', '30');\nINSERT INTO Visits (visit_id, customer_id) VALUES ('5', '54');\nINSERT INTO Visits (visit_id, customer_id) VALUES ('6', '96');\nINSERT INTO Visits (visit_id, customer_id) VALUES ('7', '54');\nINSERT INTO Visits (visit_id, customer_id) VALUES ('8', '54');\nINSERT INTO Transactions (transaction_id, visit_id, amount) VALUES ('2', '5', '310');\nINSERT INTO Transactions (transaction_id, visit_id, amount) VALUES ('3', '5', '300');\nINSERT INTO Transactions (transaction_id, visit_id, amount) VALUES ('9', '5', '200');\nINSERT INTO Transactions (transaction_id, visit_id, amount) VALUES ('12', '1', '910');\nINSERT INTO Transactions (transaction_id, visit_id, amount) VALUES ('13', '2', '970');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "customer_id",
+                "count_no_trans"
+              ],
+              "rows": [
+                [
+                  30,
+                  1
+                ],
+                [
+                  54,
+                  2
+                ],
+                [
+                  96,
+                  1
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  7
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "boundary",
+          "label": "Boundary and cardinality records",
+          "visible": false,
+          "seed_sql": "INSERT INTO Visits VALUES (10,100),(11,100),(12,200); INSERT INTO Transactions VALUES (1,12,50),(2,12,60);",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "customer_id",
+                "count_no_trans"
+              ],
+              "rows": [
+                [
+                  100,
+                  2
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  3
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty relations",
+          "visible": false,
+          "seed_sql": "",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "customer_id",
+                "count_no_trans"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      ],
+      "oracle_confirmed": false,
+      "alternative_repairs": [
+        "SELECT customer_id, COUNT(visit_id) AS count_no_trans FROM (SELECT v.visit_id, v.customer_id, t.transaction_id, t.visit_id AS transaction_visit FROM Visits AS v LEFT JOIN Transactions AS t ON v.visit_id = t.visit_id) AS temp WHERE transaction_visit IS NULL GROUP BY customer_id"
+      ]
+    }
+  },
+  {
+    "key": "leetcode-1068",
+    "source": {
+      "id": "1068",
+      "title": "Product Sales Analysis I",
+      "sql_schema": "Create table If Not Exists Sales (sale_id int, product_id int, year int, quantity int, price int);\nCreate table If Not Exists Product (product_id int, product_name varchar(10));\nTruncate table Sales;\ninsert into Sales (sale_id, product_id, year, quantity, price) values ('1', '100', '2008', '10', '5000');\ninsert into Sales (sale_id, product_id, year, quantity, price) values ('2', '100', '2009', '12', '5000');\ninsert into Sales (sale_id, product_id, year, quantity, price) values ('7', '200', '2011', '15', '9000');\nTruncate table Product;\ninsert into Product (product_id, product_name) values ('100', 'Nokia');\ninsert into Product (product_id, product_name) values ('200', 'Apple');\ninsert into Product (product_id, product_name) values ('300', 'Samsung');",
+      "answer": "select product_name, year, price\nfrom Sales s left join Product p on s.product_id = p.product_id"
+    },
+    "document": {
+      "title": "Revenue is attributed incorrectly",
+      "topic": "joins",
+      "difficulty": "hard",
+      "complaint": "The sales dashboard shows missing revenue or attributes it to an unrelated product.",
+      "business_rules": "Report total quantity times price for each product with sales, grouping by product identity and name. Sales.product_id references Product.product_id; sale_id identifies a sale, not a product.",
+      "schema_sql": "CREATE TABLE IF NOT EXISTS Sales (sale_id INTEGER, product_id INTEGER, year INTEGER, quantity INTEGER, price INTEGER);\nCREATE TABLE IF NOT EXISTS Product (product_id INTEGER, product_name TEXT(10));",
+      "components": [
+        {
+          "id": "report",
+          "label": "Application report",
+          "purpose": "Feeds the affected report in the application.",
+          "query": "SELECT p.product_name, SUM(s.quantity*s.price) AS revenue FROM Sales s INNER JOIN Product p ON s.sale_id=p.product_id GROUP BY p.product_id,p.product_name",
+          "reference_query": "SELECT p.product_name, SUM(s.quantity*s.price) AS revenue FROM Sales s INNER JOIN Product p ON s.product_id=p.product_id GROUP BY p.product_id,p.product_name"
+        },
+        {
+          "id": "records",
+          "label": "Record summary",
+          "purpose": "Shows how many primary records are registered.",
+          "query": "SELECT COUNT(*) AS records FROM \"Sales\"",
+          "reference_query": "SELECT COUNT(*) AS records FROM \"Sales\""
+        }
+      ],
+      "culprit_component": "report",
+      "fault_template": "wrong_join_key:v1",
+      "fault_cause": "The join uses a different identifier domain, creating false matches or missing relationships.",
+      "checkpoints": [
+        "Compare the primary records with the report output.",
+        "Trace which relationships include, omit or multiply records.",
+        "The join uses a different identifier domain, creating false matches or missing relationships."
+      ],
+      "scenarios": [
+        {
+          "id": "visible",
+          "label": "Initial incident records",
+          "visible": true,
+          "seed_sql": "INSERT INTO Sales (sale_id, product_id, year, quantity, price) VALUES ('1', '100', '2008', '10', '5000');\nINSERT INTO Sales (sale_id, product_id, year, quantity, price) VALUES ('2', '100', '2009', '12', '5000');\nINSERT INTO Sales (sale_id, product_id, year, quantity, price) VALUES ('7', '200', '2011', '15', '9000');\nINSERT INTO Product (product_id, product_name) VALUES ('100', 'Nokia');\nINSERT INTO Product (product_id, product_name) VALUES ('200', 'Apple');\nINSERT INTO Product (product_id, product_name) VALUES ('300', 'Samsung');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "product_name",
+                "revenue"
+              ],
+              "rows": [
+                [
+                  "Nokia",
+                  110000
+                ],
+                [
+                  "Apple",
+                  135000
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  3
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "boundary",
+          "label": "Boundary and cardinality records",
+          "visible": false,
+          "seed_sql": "INSERT INTO Sales VALUES (1,1,2024,2,10),(2,1,2025,3,20); INSERT INTO Product VALUES (1,'Desk'),(2,'Lamp');",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "product_name",
+                "revenue"
+              ],
+              "rows": [
+                [
+                  "Desk",
+                  80
+                ]
+              ]
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  2
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty relations",
+          "visible": false,
+          "seed_sql": "",
+          "approved_outputs": {
+            "report": {
+              "columns": [
+                "product_name",
+                "revenue"
+              ],
+              "rows": []
+            },
+            "records": {
+              "columns": [
+                "records"
+              ],
+              "rows": [
+                [
+                  0
+                ]
+              ]
+            }
+          }
+        }
+      ],
+      "oracle_confirmed": false,
+      "alternative_repairs": [
+        "SELECT p.product_name, SUM(s.quantity*s.price) AS revenue FROM Sales s INNER JOIN Product p ON s.product_id=p.product_id GROUP BY p.product_id,p.product_name"
+      ]
+    }
+  }
+]

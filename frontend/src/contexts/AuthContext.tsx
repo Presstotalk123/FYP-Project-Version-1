@@ -8,6 +8,7 @@ import { User, UserRole } from '@/types/user.types';
 import { authService } from '@/services/auth.service';
 import { getPostLoginRedirect } from '@/utils/auth-redirect';
 import { usePresenceHeartbeat } from '@/hooks/use-presence-heartbeat';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface AuthContextType {
   user: User | null;
@@ -22,6 +23,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const { instance } = useMsal();
@@ -99,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    queryClient.clear();
     authService.logout();
     setUser(null);
   };

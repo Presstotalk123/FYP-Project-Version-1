@@ -31,5 +31,6 @@ from app.models.sql_tutor_conversation import SqlTutorConversation
 from app.models.sql_tutor_message import SqlTutorMessage
 from app.models.user_preference import UserPreference
 from app.models.assessment_student_flag import AssessmentStudentFlag
+from app.models import competition  # noqa: F401 -- register the Rescue tables
 
 __all__ = ["User", "UserRole", "Question", "Difficulty", "ERDiagramQuestion", "Attempt", "UserProgress", "Lab", "LabSession", "LabAttempt", "LabTask", "LabTaskSubmission", "Assessment", "AssessmentItem", "AssessmentClassWindow", "ErdTutorConversation", "ErdTutorMessage", "ErdPromptVersion", "TutorChatConversation", "TutorChatMessage", "QueryReview", "LoginActivity", "SqlConcept", "SqlConceptPrerequisite", "QuestionConcept", "LearningEvent", "ConceptMastery", "SoloClassification", "SqlTutorConversation", "SqlTutorMessage", "UserPreference", "AssessmentStudentFlag"]

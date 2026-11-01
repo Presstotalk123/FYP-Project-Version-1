@@ -182,7 +182,7 @@ export function RaPartEditor({
 
       {validation?.ok && (
         <div style={{ display: 'grid', gap: 14 }}>
-          <div className="alert-info" style={{ fontSize: 13 }}>
+          <div className="alert-success" style={{ fontSize: 13 }}>
             ✓ The model answer runs. {validation.suite && <>
               Its test databases catch {validation.suite.mutants_killed} of {validation.suite.mutants} deliberately wrong versions.
             </>}

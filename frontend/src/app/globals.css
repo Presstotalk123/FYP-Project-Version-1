@@ -605,6 +605,13 @@ a {
   color: #1e3a8a;
 }
 
+/* Relational Algebra (FYP): a correct answer. */
+.alert-success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #14532d;
+}
+
 .alert-warn {
   background: #fffbeb;
   border-color: #fde68a;

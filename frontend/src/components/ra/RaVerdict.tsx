@@ -22,7 +22,7 @@ export function RaVerdict({ grade }: { grade: RaGradeResult }) {
       : grade.method === 'sample' ? "Checked on the question's data" : null;
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div className={t.tone === 'good' ? 'alert-info' : 'alert-error'} style={{ display: 'grid', gap: 4 }}>
+      <div className={t.tone === 'good' ? 'alert-success' : 'alert-error'} style={{ display: 'grid', gap: 4 }}>
         <strong style={{ fontSize: 15 }}>{t.tone === 'good' ? '✓' : '✗'} {t.text}</strong>
         <span style={{ fontSize: 13 }}>{grade.message}</span>
         {grade.error?.hint && <span style={{ fontSize: 13 }}>{grade.error.hint}</span>}

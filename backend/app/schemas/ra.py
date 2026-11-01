@@ -1,4 +1,5 @@
 """Request/response shapes of the RA API (mirrored in frontend/src/types/ra.types.ts)."""
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -259,6 +260,9 @@ class RAQuestionListItem(BaseModel):
     solved: bool = False                     # every part solved
     parts_total: int = 1
     parts_solved: int = 0
+    # For the staff Problems list (Created column, "Author: mine") and its ordering.
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
 
 
 class RAPartOut(BaseModel):

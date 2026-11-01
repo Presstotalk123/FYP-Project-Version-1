@@ -300,3 +300,15 @@ def test_hidden_correctness_hides_the_comparison(client, staff_headers, student_
     q = client.post(BASE, json=payload(hide_correctness=True), headers=staff_headers).json()
     r = client.post(f"{BASE}/{q['id']}/submit", json={"answer": "π Sname STUDENT"}, headers=student_headers).json()
     assert r["grade"] is None and r["shown"] is None
+
+
+# ── the Problems list ────────────────────────────────────────────────────────
+def test_publish_and_unpublish_from_the_problems_list(client, staff_headers, student_headers, ra_on):
+    q = client.post(BASE, json=payload(is_published=False), headers=staff_headers).json()
+    assert client.post(f"{BASE}/{q['id']}/publish", headers=student_headers).status_code == 403
+    assert client.post(f"{BASE}/{q['id']}/publish", headers=staff_headers).json()["is_published"] is True
+    assert client.get(f"{BASE}/{q['id']}", headers=student_headers).status_code == 200
+    client.post(f"{BASE}/{q['id']}/unpublish", headers=staff_headers)
+    assert client.get(f"{BASE}/{q['id']}", headers=student_headers).status_code == 404
+    item = next(x for x in client.get(BASE, headers=staff_headers).json() if x["id"] == q["id"])
+    assert item["is_published"] is False and item["created_at"] and item["created_by"]

@@ -153,6 +153,8 @@ export interface RaQuestionListItem {
   solved: boolean; // every part solved
   parts_total: number;
   parts_solved: number;
+  created_by: number | null;
+  created_at: string | null;
 }
 
 /** One part of a question, (i), (ii), …, as students see it (never its model answer). */

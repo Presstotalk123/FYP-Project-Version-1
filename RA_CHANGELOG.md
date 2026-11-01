@@ -477,3 +477,32 @@ their answers on it, and after Submit see where their answer went right or wrong
 2. Check `π Sname STUDENT`: the result is the names you saw.
 3. Submit a wrong answer: your result (extras red), the model answer's (missing green), then the usual tables.
 4. As staff, edit the question: Regenerate, then Copy into INSERT box.
+
+## Step 13: RA under Problems and Questions, no tab of its own (1 Nov 2026)
+
+Commit: "Move RA into the Problems and Questions lists" (`git log --oneline` shows its hash).
+
+**Why.** RA had its own top-bar tab. It should sit with the other question types: staff find it on
+Problems, students on Questions, as a category in the left panel.
+
+**What was built.**
+- `components/ra/raProblems.tsx`: everything RA-specific the two shared lists need (the RA query,
+  rows/cards, badge, the Create Question entry, publish/delete helpers, `?category=ra`).
+- Staff **Problems** (`app/admin/problems/page.tsx`): a **Relational Algebra** category; RA rows in
+  All problems with publish/unpublish, edit, analytics (`/ra/analytics/{id}`) and delete; **Create
+  Question ▾ → Relational algebra question**.
+- Students' **Questions** (`app/student/page.tsx`): a **Relational Algebra** category; RA cards with
+  difficulty, parts, Completed / "n of m solved" / attempts, opening `/ra/questions/{id}`.
+- The top-bar link is gone: `HeaderNav.tsx` is back to its version at the branch point.
+- `/ra` forwards staff to Problems and students to Questions with the category selected.
+  The Playground is no longer linked (still at `/ra/playground`); class analytics stays on the
+  staff Dashboard's Relational Algebra tab.
+- Backend: `POST /ra/questions/{id}/publish` and `/unpublish`; the list gives `created_at` and
+  `created_by`. A teal `.badge-ra` (new block in `globals.css`), also on the RA question page.
+- With RA switched off nothing of this shows.
+
+**How to check it**
+1. As staff: the top bar has no Relational Algebra link; **Problems → Relational Algebra** lists the
+   RA questions; publish one, open its analytics, create one from **Create Question ▾**.
+2. As a student: **Questions → Relational Algebra** shows the published ones with progress.
+3. Open `/ra`: it lands on the list with Relational Algebra selected.

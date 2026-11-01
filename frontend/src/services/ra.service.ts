@@ -147,6 +147,11 @@ export const raService = {
     return (await api.put<RaQuestionStaff>(RA_ENDPOINTS.QUESTION(id), input)).data;
   },
 
+  /** Staff only: show the question to students, or hide it (the Problems list's publish button). */
+  async setPublished(id: number, published: boolean): Promise<void> {
+    await api.post(`${RA_ENDPOINTS.QUESTION(id)}/${published ? 'publish' : 'unpublish'}`);
+  },
+
   async deleteQuestion(id: number): Promise<void> {
     await api.delete(RA_ENDPOINTS.QUESTION(id));
   },

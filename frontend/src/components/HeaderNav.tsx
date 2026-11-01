@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { homeHeaderOwner } from "@/components/nav/home-header-owner";
 import { useEffect, useRef, useState } from "react";
-import { useRaStatus } from "@/hooks/use-ra-status";
 
 export function HeaderNav() {
   const pathname = usePathname();
@@ -42,14 +41,6 @@ export function HeaderNav() {
     { label: "Report", href: "/student/report" },
   ];
   
-  // Relational Algebra (FYP): one link for staff and students while RA_ENABLED is on.
-  const { enabled: raEnabled } = useRaStatus();
-  if (raEnabled) {
-    const raLink = { label: "Relational Algebra", href: "/ra" };
-    studentLinks.splice(studentLinks.findIndex((l) => l.href === "/student/labs") + 1, 0, raLink);
-    staffLinks.splice(staffLinks.findIndex((l) => l.href === "/admin/labs") + 1, 0, raLink);
-  }
-
   const unauthLinks = [
     { label: "Home", href: "/", exact: true },
     { label: "SQL", href: "/login" },
@@ -76,7 +67,7 @@ export function HeaderNav() {
         setPillStyle(prev => ({ ...prev, opacity: 0 }));
       }
     }
-  }, [pathname, isStaffMember, isAuthenticated, raEnabled]);
+  }, [pathname, isStaffMember, isAuthenticated]);
 
   // Hidden on the login page so nav buttons don't appear there.
   //

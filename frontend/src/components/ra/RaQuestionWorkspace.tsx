@@ -154,7 +154,7 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
         <div style={{ display: 'grid', gap: 8 }}>
           <h2 style={{ margin: 0, fontSize: 22 }}>{question.title}</h2>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <span className="badge brand-badge">RA</span>
+            <span className="badge badge-ra">RA</span>
             <span className={`badge ${question.difficulty}`}>{RA_DIFFICULTY_LABEL[question.difficulty]}</span>
             {question.solved && <span className="badge badge-success">✓ Solved</span>}
             {multi && !question.solved && !question.hide_correctness && (

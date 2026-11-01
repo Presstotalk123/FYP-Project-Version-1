@@ -19,6 +19,10 @@ import { settingsService } from '@/services/settings.service';
 import { loginActivityService } from '@/services/loginActivity.service';
 import { queryKeys } from '@/services/query-keys';
 import { byReadmeOrder } from '@/utils/questionOrder';
+// Relational Algebra (FYP): a category of this list while RA is switched on.
+import {
+  RA_CATEGORY, RA_CATEGORY_LABEL, RaCardBadges, raCategoryFromUrl, raQuestionUrl, raStudentItems, useRaQuestions,
+} from '@/components/ra/raProblems';
 import { useERAbility } from '@/hooks/use-er-ability';
 import { toERQuestionSubject } from '@/permissions/er-ability';
 
@@ -26,8 +30,8 @@ import { toERQuestionSubject } from '@/permissions/er-ability';
 // into one uid-namespaced row list, sorted in DATABASE_README_EN.md order (see
 // byReadmeOrder), and category / search / difficulty all filter client-side
 // across the pool. Labs and assessments deliberately stay on their own pages.
-type StudentProblemType = 'sql-question' | 'erd-question';
-type CategoryFilter = 'all' | 'sql' | 'erd';
+type StudentProblemType = 'sql-question' | 'erd-question' | 'ra-question';
+type CategoryFilter = 'all' | 'sql' | 'erd' | typeof RA_CATEGORY;
 
 interface PooledQuestion {
   uid: string;
@@ -47,6 +51,9 @@ interface PooledQuestion {
   /** ERD only. SQL counts its attempts; ERD records no per-attempt tally, so all
    *  the list can say is that something was graded but did not pass. */
   attempted?: boolean;
+  /** RA only: sub-questions on one schema, and how many the student has solved. */
+  parts_total?: number;
+  parts_solved?: number;
 }
 
 const difficultyClass: Record<string, string> = {
@@ -110,6 +117,7 @@ export default function StudentDashboard() {
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebouncedValue(search, 500);
   const [deletingErdId, setDeletingErdId] = useState<number | null>(null);
+  const ra = useRaQuestions();
 
   // Session-cached (see providers.tsx). SQL is fetched once UNFILTERED — all
   // filtering is client-side across the pool, matching /admin/problems — so the
@@ -211,14 +219,16 @@ export default function StudentDashboard() {
           attempted: prog !== undefined,
         };
       }),
+      ...raStudentItems(ra.questions),
     ].sort(byReadmeOrder);
-  }, [questionsQuery.data, erdQuery.data, progressQuery.data, erdProgressQuery.data]);
+  }, [questionsQuery.data, erdQuery.data, progressQuery.data, erdProgressQuery.data, ra.questions]);
 
   // Counts reflect the unfiltered pool, like the Problems sidebar.
   const categoryCounts = useMemo(() => {
     const sql = pool.filter((p) => p.problemType === 'sql-question').length;
     const erd = pool.filter((p) => p.problemType === 'erd-question').length;
-    return { all: pool.length, sql, erd };
+    const raCount = pool.filter((p) => p.problemType === 'ra-question').length;
+    return { all: pool.length, sql, erd, ra: raCount };
   }, [pool]);
 
   const filtered = useMemo(() => {
@@ -226,14 +236,15 @@ export default function StudentDashboard() {
     return pool.filter((p) => {
       if (category === 'sql' && p.problemType !== 'sql-question') return false;
       if (category === 'erd' && p.problemType !== 'erd-question') return false;
+      if (category === RA_CATEGORY && p.problemType !== 'ra-question') return false;
       if (term && !p.title.toLowerCase().includes(term)) return false;
       if (difficulty !== 'all' && p.difficulty !== difficulty) return false;
       return true;
     });
   }, [pool, category, debouncedSearch, difficulty]);
 
-  const loading = questionsQuery.isLoading || progressQuery.isLoading || erdQuery.isLoading;
-  const loadError = questionsQuery.error || progressQuery.error || erdQuery.error;
+  const loading = questionsQuery.isLoading || progressQuery.isLoading || erdQuery.isLoading || ra.isLoading;
+  const loadError = questionsQuery.error || progressQuery.error || erdQuery.error || ra.error;
   const error = loadError
     ? ((loadError as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load questions')
     : null;
@@ -280,7 +291,8 @@ export default function StudentDashboard() {
       const raw = window.sessionStorage.getItem(FILTER_STORAGE_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
-        if (saved.category === 'all' || saved.category === 'sql' || saved.category === 'erd') {
+        if (saved.category === 'all' || saved.category === 'sql' || saved.category === 'erd'
+          || saved.category === RA_CATEGORY) {
           setCategory(saved.category);
         }
         if (['all', 'easy', 'medium', 'hard'].includes(saved.difficulty)) {
@@ -290,6 +302,8 @@ export default function StudentDashboard() {
     } catch {
       // best-effort only — never let bad storage break the page
     }
+    // The old /ra page sends students here with ?category=ra; that wins over storage.
+    if (raCategoryFromUrl()) setCategory(RA_CATEGORY);
   }, []);
 
   // Persist on change. Skip the very first render so the default `all`/`all`
@@ -317,7 +331,8 @@ export default function StudentDashboard() {
     } catch {
       // best-effort only — never block navigation on storage failures
     }
-    router.push(item.problemType === 'erd-question' ? `/er-diagram/${item.id}` : `/student/workspace/${item.id}`);
+    router.push(item.problemType === 'erd-question' ? `/er-diagram/${item.id}`
+      : item.problemType === 'ra-question' ? raQuestionUrl(item.id) : `/student/workspace/${item.id}`);
   };
 
   const handleDeleteErdQuestion = async (questionId: number) => {
@@ -345,6 +360,7 @@ export default function StudentDashboard() {
     { key: 'all', label: 'All questions', count: categoryCounts.all },
     { key: 'sql', label: 'SQL', count: categoryCounts.sql },
     { key: 'erd', label: 'ERD', count: categoryCounts.erd },
+    ...(ra.enabled ? [{ key: RA_CATEGORY, label: RA_CATEGORY_LABEL, count: categoryCounts.ra }] : []),
   ];
 
   return (
@@ -509,7 +525,8 @@ export default function StudentDashboard() {
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => e.key === 'Enter' && handleQuestionClick(item)}
-                      aria-label={`${item.problemType === 'erd-question' ? 'ER question' : 'Question'}: ${item.title}`}
+                      aria-label={`${item.problemType === 'erd-question' ? 'ER question'
+                        : item.problemType === 'ra-question' ? 'Relational algebra question' : 'Question'}: ${item.title}`}
                     >
                       <div className="button-row" style={{ marginBottom: 8 }}>
                         {/* Clamped to two lines, as this title was when it sat in
@@ -582,6 +599,9 @@ export default function StudentDashboard() {
                         {item.problemType === 'sql-question' && (
                           <span className="badge badge-info">SQL</span>
                         )}
+                        {item.problemType === 'ra-question' && (
+                          <span className="badge badge-ra">RA</span>
+                        )}
                         <span className={`badge ${difficultyClass[item.difficulty] || 'neutral'}`}>
                           {capitalize(item.difficulty)}
                         </span>
@@ -609,6 +629,14 @@ export default function StudentDashboard() {
                           ) : item.attempted ? (
                             <span className="badge neutral">Attempted</span>
                           ) : null)}
+                        {item.problemType === 'ra-question' && (
+                          <RaCardBadges item={item} completedBadge={(
+                            <span className="badge badge-success">
+                              <IconCheck />
+                              Completed
+                            </span>
+                          )} />
+                        )}
                       </div>
                     </article>
                   ))}

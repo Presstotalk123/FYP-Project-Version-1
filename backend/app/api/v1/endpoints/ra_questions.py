@@ -8,6 +8,8 @@ Staff
   GET    /ra/questions/{id}/edit       everything, including the model answer
   PUT    /ra/questions/{id}            update (test databases rebuilt if the content changed)
   DELETE /ra/questions/{id}            soft delete
+  POST   /ra/questions/{id}/publish    show it to students (the Problems list's publish button)
+  POST   /ra/questions/{id}/unpublish  hide it from students
 Everyone signed in (students see published bank questions only)
   GET    /ra/questions                 the list, with this user's attempts and whether solved
   GET    /ra/questions/{id}            the question as students see it (no model answer)
@@ -207,6 +209,23 @@ def _staff_out(db: Session, q: RAQuestion, staff: User) -> dict:
     return out
 
 
+def _set_published(db: Session, question_id: int, staff: User, published: bool) -> dict:
+    q = _get(db, question_id, staff)
+    q.is_published = int(published)
+    db.commit()
+    return {"id": q.id, "is_published": published}
+
+
+@router.post("/{question_id}/publish")
+def publish_question(question_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff_role)):
+    return _set_published(db, question_id, staff, True)
+
+
+@router.post("/{question_id}/unpublish")
+def unpublish_question(question_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff_role)):
+    return _set_published(db, question_id, staff, False)
+
+
 # ── everyone ─────────────────────────────────────────────────────────────────
 @router.get("", response_model=List[RAQuestionListItem])
 def list_questions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -219,7 +238,8 @@ def list_questions(db: Session = Depends(get_db), user: User = Depends(get_curre
         out.append(RAQuestionListItem(id=q.id, title=q.title, difficulty=q.difficulty,
                                       is_published=bool(q.is_published), has_data=bool((q.data_sql or "").strip()),
                                       attempts=p.attempts, solved=p.solved and not hide,
-                                      parts_total=p.parts_total, parts_solved=0 if hide else p.parts_solved))
+                                      parts_total=p.parts_total, parts_solved=0 if hide else p.parts_solved,
+                                      created_by=q.created_by, created_at=q.created_at))
     return out
 
 

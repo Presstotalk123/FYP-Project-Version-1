@@ -5,36 +5,23 @@ import dynamic from 'next/dynamic';
 import type { BeforeMount, OnMount } from '@monaco-editor/react';
 import { RaError } from '@/types/ra.types';
 import { RaNotation } from './RaNotation';
+import { raSymbolInfo } from './raSymbols';
+import { useRaSymbolTip } from './RaSymbolTip';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 type MonacoEditor = Parameters<OnMount>[0];
 type Monaco = Parameters<OnMount>[1];
 
-/** Operators as the course slides write them; clicking inserts the symbol at the cursor. */
-const PALETTE: { symbol: string; insert?: string; title: string }[] = [
-  { symbol: 'σ', title: 'Selection — σ condition R   e.g. σ School = \'SCSE\' Students' },
-  { symbol: 'Π', title: 'Projection — Π attributes R   e.g. Π ID, Name Students' },
-  { symbol: 'ρ', title: 'Rename — ρ NewName(a, b, …) R' },
-  { symbol: 'δ', title: 'Duplicate elimination — δ R' },
-  { symbol: 'γ', title: 'Grouping & aggregation — γ School, AVG(GPA) → AvgGPA R' },
-  { symbol: '⋈', title: 'Natural join — R ⋈ S;  theta join — R ⋈ condition S' },
-  { symbol: '⟕', title: 'Left outer join — R ⟕ S  or  R ⟕ condition S' },
-  { symbol: '⟖', title: 'Right outer join — R ⟖ S' },
-  { symbol: '⟗', title: 'Full outer join — R ⟗ S' },
-  { symbol: '×', title: 'Cartesian product — R × S' },
-  { symbol: '÷', title: 'Division — R ÷ S' },
-  { symbol: '∪', title: 'Union — R ∪ S (same attributes on both sides)' },
-  { symbol: '∩', title: 'Intersection — R ∩ S' },
-  { symbol: '−', title: 'Difference — R − S' },
-  { symbol: ':=', insert: ' := ', title: 'Assignment — R1 := expression' },
-  { symbol: '→', insert: ' → ', title: 'Name a new attribute — Quiz1 + Quiz2 → Total' },
-  { symbol: '≠', title: 'Not equal' },
-  { symbol: '≤', title: 'Less than or equal' },
-  { symbol: '≥', title: 'Greater than or equal' },
-  { symbol: 'AND', insert: ' AND ', title: 'Both conditions' },
-  { symbol: 'OR', insert: ' OR ', title: 'Either condition' },
-  { symbol: 'NOT', insert: 'NOT ', title: 'Negation' },
+/** Operators as the course slides write them; clicking inserts the symbol at the cursor.
+ * Hovering one shows what it means (raSymbols.ts). */
+const PALETTE: { symbol: string; insert?: string }[] = [
+  { symbol: 'σ' }, { symbol: 'Π' }, { symbol: 'ρ' }, { symbol: 'δ' }, { symbol: 'γ' },
+  { symbol: '⋈' }, { symbol: '⟕' }, { symbol: '⟖' }, { symbol: '⟗' }, { symbol: '×' }, { symbol: '÷' },
+  { symbol: '∪' }, { symbol: '∩' }, { symbol: '−' },
+  { symbol: ':=', insert: ' := ' }, { symbol: '→', insert: ' → ' },
+  { symbol: '≠' }, { symbol: '≤' }, { symbol: '≥' },
+  { symbol: 'AND', insert: ' AND ' }, { symbol: 'OR', insert: ' OR ' }, { symbol: 'NOT', insert: 'NOT ' },
 ];
 
 // Whether the notation preview is open, remembered per browser (a convenience: off if storage is blocked).
@@ -83,6 +70,36 @@ const registerRelalg: BeforeMount = (monaco) => {
       ],
     },
   });
+  monaco.languages.registerHoverProvider('relalg', { provideHover: hoverSymbol });
+};
+
+// What may sit under the mouse on one line, longest spellings first: strings and comments
+// (never explained, so a σ inside a string isn't), \select-style commands, two-character
+// symbols, single symbols, and whole words (AND, COUNT, … but not the "OR" in ORDERS).
+const HOVER_TOKENS = /'(?:[^']|'')*'|‘[^’]*’|"[^"]*"|“[^”]*”|(?:--|\/\/).*$|\\[a-z]+|:=|->|<=|>=|<>|!=|[σπΠρδγ⋈⟕⟖⟗×÷∪∩−←→≠≤≥∧∨¬-]|[A-Za-z_]\w*/g;
+
+/** Monaco hover: what the symbol under the mouse means. */
+const hoverSymbol = (model: { getLineContent(line: number): string }, position: { lineNumber: number; column: number }) => {
+  const line = model.getLineContent(position.lineNumber);
+  const at = position.column - 1;
+  for (const m of line.matchAll(HOVER_TOKENS)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (at < start || at >= end) continue;
+    // A "-" between two letters or digits is part of a name such as teamid-one, not −.
+    if (m[0] === '-' && /\w/.test(line[start - 1] ?? '') && /\w/.test(line[end] ?? '')) return null;
+    const info = raSymbolInfo(m[0]);
+    if (!info) return null;
+    return {
+      range: { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: start + 1, endColumn: end + 1 },
+      contents: [
+        { value: `**${info.symbol}  ${info.name}**` },
+        { value: info.meaning },
+        { value: `Write: \`${info.write}\`  \nExample: \`${info.example}\`` },
+      ],
+    };
+  }
+  return null;
 };
 
 interface RaEditorProps {
@@ -101,6 +118,7 @@ interface RaEditorProps {
 
 export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260, names }: RaEditorProps) {
   const showNotation = useSyncExternalStore(subscribeShowNotation, readShowNotation, () => false);
+  const symbolTip = useRaSymbolTip();
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   // Monaco keeps the Ctrl+Enter command it was given at mount, so it calls through a
@@ -170,12 +188,17 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260,
           borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)',
         }}
       >
-        {PALETTE.map((op) => (
+        {PALETTE.map((op) => {
+          const info = raSymbolInfo(op.symbol)!;
+          return (
           <button
             key={op.symbol}
             type="button"
-            title={op.title}
-            aria-label={op.title}
+            aria-label={`${info.name}: ${info.write}`}
+            onMouseEnter={(e) => symbolTip.show(info, e.currentTarget)}
+            onMouseLeave={symbolTip.hide}
+            onFocus={(e) => symbolTip.show(info, e.currentTarget)}
+            onBlur={symbolTip.hide}
             onClick={() => insert(op.insert ?? `${op.symbol} `)}
             style={{
               minWidth: 32, height: 30, padding: '0 8px', borderRadius: 6, cursor: 'pointer',
@@ -185,7 +208,9 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260,
           >
             {op.symbol}
           </button>
-        ))}
+          );
+        })}
+        {symbolTip.tip}
         <button
           type="button"
           onClick={() => writeShowNotation(!showNotation)}

@@ -21,7 +21,7 @@ export function RaStepStructure({ feedback, steps, source, showDirection = true 
   feedback: RaStepFeedback[];
   /** The same statements evaluated on example data, for the trees and outputs. */
   steps: RaStep[] | null;
-  source: 'sample' | 'generated' | null;
+  source: 'sample' | 'example' | 'generated' | null;
   showDirection?: boolean;
 }) {
   if (feedback.length === 0) return null;
@@ -37,7 +37,7 @@ export function RaStepStructure({ feedback, steps, source, showDirection = true 
 function StepRow({ fb, step, source, showDirection }: {
   fb: RaStepFeedback;
   step: RaStep | null;
-  source: 'sample' | 'generated' | null;
+  source: 'sample' | 'example' | 'generated' | null;
   showDirection: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -72,7 +72,8 @@ function StepRow({ fb, step, source, showDirection }: {
               <>
                 <Muted>
                   ({tree.columns.join(', ')}) · {tree.row_count} {tree.row_count === 1 ? 'tuple' : 'tuples'}{' '}
-                  {source === 'sample' ? "on the question's data" : 'on an example generated database'}
+                  {source === 'sample' ? "on the question's data"
+                    : source === 'example' ? 'on the example data shown with the question' : 'on an example generated database'}
                 </Muted>
                 <RaTable columns={tree.columns} rows={tree.rows} emptyText="Empty relation" />
               </>

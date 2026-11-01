@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 // The other icons on this page are hand-rolled SVGs, the convention across the
 // plain-HTML admin pages. Tabler's stroke and currentColor defaults match them,
@@ -17,9 +17,14 @@ import { labService } from '@/services/lab.service';
 import { erDiagramService } from '@/services/er-diagram.service';
 import { queryKeys } from '@/services/query-keys';
 import { byReadmeOrder } from '@/utils/questionOrder';
+// Relational Algebra (FYP): a category of this list while RA is switched on.
+import {
+  RA_BADGE, RA_CATEGORY, RA_CATEGORY_LABEL, RA_CREATE_TYPE, raAnalyticsUrl, raCategoryFromUrl, raStaffRows,
+  deleteRaQuestion, setRaPublished, useRaQuestions,
+} from '@/components/ra/raProblems';
 
-type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question';
-type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph';
+type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question' | 'ra-question';
+type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph' | typeof RA_CATEGORY;
 
 interface Problem {
   uid: string;
@@ -40,7 +45,7 @@ interface Problem {
 // Publish only applies to SQL questions and staff-created ERD questions.
 // Student-created ERDs stay visible to students regardless, so they get no publish control.
 const isPublishable = (p: Problem): boolean => {
-  if (p.problemType === 'sql-question') return true;
+  if (p.problemType === 'sql-question' || p.problemType === 'ra-question') return true;
   if (p.problemType === 'erd-question') {
     return p.createdByRole === 'staff' || p.createdByRole === 'admin';
   }
@@ -55,6 +60,7 @@ const typeBadge: Record<ProblemType, { label: string; className: string }> = {
   'sql-lab': { label: 'SQL Lab', className: 'badge-info' },
   'graph-lab': { label: 'Graph Lab', className: 'badge-warn' },
   'erd-question': { label: 'ERD Question', className: 'brand-badge' },
+  'ra-question': RA_BADGE,
 };
 
 /* ── SVG icons ── */
@@ -129,17 +135,23 @@ export default function ProblemsPage() {
   const questionsQuery = useQuery({ queryKey: queryKeys.questions, queryFn: () => questionService.getQuestions() });
   const labsQuery = useQuery({ queryKey: queryKeys.labs, queryFn: () => labService.getLabs() });
   const erdQuery = useQuery({ queryKey: queryKeys.erdQuestions, queryFn: () => erDiagramService.getQuestions() });
+  const ra = useRaQuestions();
+  // The old /ra page sends staff here with ?category=ra.
+  useEffect(() => {
+    if (raCategoryFromUrl()) setCategory(RA_CATEGORY);
+  }, []);
 
-  const loading = questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading;
-  const loadFailed = !!(questionsQuery.error || labsQuery.error || erdQuery.error);
+  const loading = questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading || ra.isLoading;
+  const loadFailed = !!(questionsQuery.error || labsQuery.error || erdQuery.error || ra.error);
   const error = actionError ?? (loadFailed ? 'Failed to load problems' : null);
-  const refreshing = questionsQuery.isFetching || labsQuery.isFetching || erdQuery.isFetching;
+  const refreshing = questionsQuery.isFetching || labsQuery.isFetching || erdQuery.isFetching || ra.isFetching;
 
   const refresh = () => {
     setActionError(null);
     questionsQuery.refetch();
     labsQuery.refetch();
     erdQuery.refetch();
+    ra.refetch();
   };
 
   const problems = useMemo<Problem[]>(() => {
@@ -194,8 +206,9 @@ export default function ProblemsPage() {
           created_at: e.created_at,
           editUrl: `/er-diagram/${e.id}/edit`,
         })),
+        ...raStaffRows(ra.questions),
       ].sort(byReadmeOrder);
-  }, [questionsQuery.data, labsQuery.data, erdQuery.data]);
+  }, [questionsQuery.data, labsQuery.data, erdQuery.data, ra.questions]);
 
   const togglePublish = async (problem: Problem) => {
     const nextPublished = !problem.isPublished;
@@ -222,6 +235,8 @@ export default function ProblemsPage() {
         queryClient.setQueryData<typeof erdQuery.data>(queryKeys.erdQuestions, (old) =>
           old?.map((e) => (e.id === problem.id ? { ...e, is_published: nextPublished } : e))
         );
+      } else if (problem.problemType === 'ra-question') {
+        await setRaPublished(queryClient, problem.id, nextPublished);
       }
     } catch (err) {
       const e = err as { response?: { data?: { detail?: string } } };
@@ -251,6 +266,8 @@ export default function ProblemsPage() {
         queryClient.setQueryData<typeof labsQuery.data>(queryKeys.labs, (old) =>
           old?.filter((l) => l.id !== target.id)
         );
+      } else if (target.problemType === 'ra-question') {
+        await deleteRaQuestion(queryClient, target.id);
       } else {
         await erDiagramService.deleteQuestion(target.id);
         queryClient.setQueryData<typeof erdQuery.data>(queryKeys.erdQuestions, (old) =>
@@ -273,7 +290,8 @@ export default function ProblemsPage() {
     ).length;
     const erd = problems.filter((p) => p.problemType === 'erd-question').length;
     const graph = problems.filter((p) => p.problemType === 'graph-lab').length;
-    return { all: problems.length, sql, erd, graph };
+    const raCount = problems.filter((p) => p.problemType === 'ra-question').length;
+    return { all: problems.length, sql, erd, graph, ra: raCount };
   }, [problems]);
 
   const filtered = useMemo(() => {
@@ -282,6 +300,7 @@ export default function ProblemsPage() {
         return false;
       if (category === 'erd' && p.problemType !== 'erd-question') return false;
       if (category === 'graph' && p.problemType !== 'graph-lab') return false;
+      if (category === RA_CATEGORY && p.problemType !== 'ra-question') return false;
 
       if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false;
 
@@ -303,6 +322,7 @@ export default function ProblemsPage() {
     { key: 'sql', label: 'SQL', count: categoryCounts.sql },
     { key: 'erd', label: 'ERD', count: categoryCounts.erd },
     { key: 'graph', label: 'Graph', count: categoryCounts.graph },
+    ...(ra.enabled ? [{ key: RA_CATEGORY, label: RA_CATEGORY_LABEL, count: categoryCounts.ra }] : []),
   ];
 
   return (
@@ -368,7 +388,7 @@ export default function ProblemsPage() {
                     </button>
                   </Menu.Target>
                   <Menu.Dropdown>
-                    {createQuestionTypes.map((t) => (
+                    {[...createQuestionTypes, ...(ra.enabled ? [RA_CREATE_TYPE] : [])].map((t) => (
                       <Menu.Item
                         key={t.label}
                         leftSection={t.icon}
@@ -532,6 +552,17 @@ export default function ProblemsPage() {
                                       title="Student analytics"
                                       aria-label={`Analytics for ${problem.title}`}
                                       onClick={() => router.push(`/admin/sql-analytics/${problem.id}`)}
+                                      style={{ color: '#0d9488' }}
+                                    >
+                                      <IconChart />
+                                    </button>
+                                  )}
+                                  {problem.problemType === 'ra-question' && (
+                                    <button
+                                      className="icon-btn"
+                                      title="Student analytics"
+                                      aria-label={`Analytics for ${problem.title}`}
+                                      onClick={() => router.push(raAnalyticsUrl(problem.id))}
                                       style={{ color: '#0d9488' }}
                                     >
                                       <IconChart />

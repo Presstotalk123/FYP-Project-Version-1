@@ -32,8 +32,8 @@ _NAME = re.compile(r"[A-Za-z_][\w\-]*")
 _LEAD = re.compile(r"[\s>]*(?:[-*+]|\d+[.)])?[\s,;]*")
 _TYPES = {"INTEGER", "INT", "REAL", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL", "TEXT", "VARCHAR", "CHAR",
           "STRING", "DATE", "BOOLEAN"}
-_INTEGER = re.compile(r"(id|num|no|nr|number|count|qty|quantity|age|year|level|rank|ssn)$|^num",
-                      re.IGNORECASE)
+_INTEGER = re.compile(r"(id|num|no|nr|number|count|qty|quantity|age|year|level|rank|ssn|matches|goals|points|wins|"
+                      r"losses)$|^num", re.IGNORECASE)
 _REAL = re.compile(r"gpa|grade|score|mark|price|salary|amount|cost|rate|balance|weight|height|avg|fee",
                    re.IGNORECASE)
 
@@ -47,9 +47,11 @@ class Relation:
 
 
 def guess_type(attribute: str) -> str:
-    if _INTEGER.search(attribute):
+    """From the name and each word in it, so teamid-one and dept_no read as ids."""
+    words = [attribute] + re.split(r"[-_]", attribute)
+    if any(_INTEGER.search(w) for w in words if w):
         return "INTEGER"
-    if _REAL.search(attribute):
+    if any(_REAL.search(w) for w in words if w):
         return "REAL"
     return "TEXT"
 

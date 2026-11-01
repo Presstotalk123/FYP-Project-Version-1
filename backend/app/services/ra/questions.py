@@ -10,19 +10,29 @@ A question has one or more parts (ra_question_parts): one schema and data, and f
 part its own text, model answer, checkpoints, marks and test databases. Students check
 and submit one part at a time; a question is solved when every part is.
 
+A question without data of its own (empty INSERT box) shows students example data
+instead (core/ra/example_data.py), stored in ``example_data_sql`` and kept until the
+schema no longer accepts it or staff Regenerate it. Check runs on that data, and after
+Submit students see their result and the model answer's on it; the verdict still comes
+from the test databases.
+
 Students never receive the model answer, its steps or the test databases. Two per-
 question switches limit feedback further: ``show_step_direction`` (the ✓/◐/○ comparison
 of each step with the model's) and ``hide_correctness`` (only "submitted").
 """
 import json
+from collections import Counter
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from functools import lru_cache
+from typing import List, Optional, Sequence, Tuple
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import settings
 from app.core.ra import Database, EvalOptions, RAError, evaluate, parse
+from app.core.ra.compare import align, norm_row, same_columns
+from app.core.ra.example_data import build_example, to_insert_sql
 from app.core.ra.grader import Checkpoint, GradeResult, PreparedQuestion
 from app.models.ra_attempt import RAAttempt
 from app.models.ra_question import RAQuestion
@@ -106,12 +116,16 @@ def prepare(schema_sql: str, data_sql: str, model_answer: str, *, checkpoints=No
 
 
 def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, parts: List[dict],
-                 compare_bags: bool) -> List[PreparedQuestion]:
+                 compare_bags: bool, example_data_sql: Optional[str] = None) -> List[PreparedQuestion]:
     """Set a question's graded content: its schema, data and parts. ``parts`` are dicts
     with label, description, marks, model_answer, checkpoints and, for a part that
     already exists, its id. Every part is validated before anything changes; a part's
     test databases are rebuilt only if its model answer, the schema, the data or the
-    set/bag choice changed. Parts left out are deleted. ``q`` must have an id."""
+    set/bag choice changed. Parts left out are deleted. ``q`` must have an id.
+
+    With no data, the example data is ``example_data_sql`` (what the staff form shows),
+    else the question's current one, as long as the schema accepts it; otherwise it is
+    built afresh from the schema and the model answers."""
     if not parts:
         raise QuestionInputError("model_answer", RAError("RA012", "A question needs at least one part."), 0)
     existing = {p.id: p for p in parts_of(db, q)} if q.id is not None else {}
@@ -132,6 +146,12 @@ def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, 
             raise
         plan.append((spec, row, reuse, prepared))
 
+    if (data_sql or "").strip():
+        q.example_data_sql = None
+    else:
+        candidate = example_data_sql if example_data_sql is not None else q.example_data_sql
+        q.example_data_sql = candidate if candidate and fits_schema(schema_sql, candidate) else \
+            example_sql(schema_sql, [spec["model_answer"] for spec in parts])
     q.schema_sql, q.data_sql = schema_sql, data_sql or ""
     q.compare_bags = int(compare_bags)
     # The question's own model-answer columns predate parts; keep them equal to part 1.
@@ -225,16 +245,64 @@ def progress_by_question(db: Session, user: User, question_ids: List[int]) -> di
 
 
 # ── what a student sees ──────────────────────────────────────────────────────
+def fits_schema(schema_sql: str, data_sql: str) -> bool:
+    """Whether these INSERT statements load into this schema (keys, types, constraints)."""
+    try:
+        Database.from_sql(schema_sql, data_sql)
+        return True
+    except RAError:
+        return False
+
+
+def example_sql(schema_sql: str, model_answers: Sequence[str], variant: int = 0) -> str:
+    """Example data (INSERT statements) for a question with this schema and these model answers."""
+    return _example_sql(schema_sql, tuple(model_answers), variant, eval_options())
+
+
+@lru_cache(maxsize=64)
+def _example_sql(schema_sql: str, model_answers: Tuple[str, ...], variant: int, options: EvalOptions) -> str:
+    return to_insert_sql(build_example(schema_sql, model_answers, variant=variant, options=options))
+
+
+def shown_database(q: RAQuestion) -> Tuple[Optional[Database], Optional[str]]:
+    """The data students see with the question: its own ("sample"), or else its example
+    data ("example"). A question saved before example data existed gets it built here
+    (the same every time); it is stored the next time staff save the question."""
+    if (q.data_sql or "").strip():
+        return Database.from_sql(q.schema_sql, q.data_sql), "sample"
+    sql = example_sql_for(q)
+    return (Database.from_sql(q.schema_sql, sql), "example") if sql is not None else (None, None)
+
+
+def example_sql_for(q: RAQuestion) -> Optional[str]:
+    """The example data of a question without data of its own (None if it has data)."""
+    if (q.data_sql or "").strip():
+        return None
+    sql = q.example_data_sql
+    if sql and fits_schema(q.schema_sql, sql):
+        return sql
+    session = object_session(q)
+    answers = [p.model_answer for p in parts_of(session, q)] if session is not None and q.id is not None \
+        else [q.model_answer]
+    try:
+        return example_sql(q.schema_sql, answers)
+    except RAError:
+        return None
+
+
 def relations_for(q: RAQuestion) -> List[dict]:
-    """The schema (and data, if the question has any) as students see it."""
-    return Database.from_sql(q.schema_sql, q.data_sql or "").to_dict()
+    """The schema with the data students see (its own, or else its example data)."""
+    shown, _source = shown_database(q)
+    return (shown or Database.from_sql(q.schema_sql)).to_dict()
 
 
 def check(q: RAQuestion, part: RAQuestionPart, answer: str) -> Tuple[dict, str, List[dict]]:
-    """Evaluate an answer without grading it: on the question's data, or else on a
-    generated example database. Returns (result, source, relations); raises RAError."""
-    prepared = prepared_for(q, part)
-    db, source = grading.structure_database(prepared)
+    """Evaluate an answer without grading it, on the data shown with the question (or, if
+    there is none, a generated test database). Returns (result, source, relations);
+    raises RAError."""
+    db, source = shown_database(q)
+    if db is None:
+        db, source = grading.structure_database(prepared_for(q, part))
     result = evaluate(parse(answer, db.names()), db, options=eval_options())
     return ({"columns": result.columns, "rows": [list(r) for r in result.rows], "row_count": len(result.rows),
              "steps": result.statements, "warnings": [w.to_dict() for w in result.warnings]},
@@ -271,6 +339,46 @@ def for_student(q: RAQuestion, result: GradeResult) -> Optional[dict]:
         for step in data["steps"]:
             step.update(status="none", checkpoint=None, renamed=False, case=None)
     return data
+
+
+def _marks(rows: Sequence[Sequence], other: Sequence[Sequence], bag: bool) -> List[bool]:
+    """For each row, whether ``other`` lacks it (with bags, beyond the copies it has)."""
+    if bag:
+        left = Counter(other)
+        out = []
+        for r in rows:
+            out.append(left[r] <= 0)
+            left[r] -= 1
+        return out
+    present = set(other)
+    return [r not in present for r in rows]
+
+
+def shown_comparison(q: RAQuestion, part: RAQuestionPart, answer: str) -> Optional[dict]:
+    """The student's result and the model answer's on the data shown with the question,
+    for the feedback after Submit: which of the student's tuples are extra and which of
+    the model answer's are missing. None when there is no such data or the answer can't run."""
+    db, source = shown_database(q)
+    if db is None:
+        return None
+    options = eval_options()
+    try:
+        student = evaluate(parse(answer, db.names()), db, trace=False, options=options)
+        model = evaluate(prepared_for(q, part).model, db, trace=False, options=options)
+    except RAError:
+        return None
+    bag = bool(q.compare_bags)
+    out = dict(source=source, same_columns=same_columns(model.columns, student.columns),
+               student={"columns": student.columns, "rows": [list(r) for r in student.rows]},
+               expected={"columns": model.columns, "rows": [list(r) for r in model.rows]},
+               student_extra=[], expected_missing=[], equal=False)
+    if out["same_columns"]:
+        got = [norm_row(r) for r in align(student.rows, student.columns, model.columns)]
+        exp = [norm_row(r) for r in model.rows]
+        out["student_extra"] = _marks(got, exp, bag)
+        out["expected_missing"] = _marks(exp, got, bag)
+        out["equal"] = not any(out["student_extra"]) and not any(out["expected_missing"])
+    return out
 
 
 def submission_counts(db: Session, user: User, q: RAQuestion, part: RAQuestionPart) -> Tuple[Optional[int], int]:

@@ -406,6 +406,12 @@ a {
   color: #166534;
 }
 
+/* Relational Algebra (FYP): its questions in the shared lists. */
+.badge-ra {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
 .badge-warn {
   background: #fef3c7;
   color: #854d0e;
@@ -603,6 +609,13 @@ a {
   background: #eff6ff;
   border-color: #bfdbfe;
   color: #1e3a8a;
+}
+
+/* Relational Algebra (FYP): a correct answer. */
+.alert-success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #14532d;
 }
 
 .alert-warn {

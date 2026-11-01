@@ -118,7 +118,7 @@ function QuestionAnalytics() {
                           {c.attempts === 0 ? <span style={{ color: 'var(--text-muted)' }}>—</span>
                             : c.solved ? <span style={{ color: 'var(--success)' }}>✓ in {c.submits_to_correct}</span>
                               : (
-                                <span title={c.last_verdict ? VERDICT_INFO[c.last_verdict].hint : undefined}>
+                                <span style={{ color: 'var(--error)' }} title={c.last_verdict ? VERDICT_INFO[c.last_verdict].hint : undefined}>
                                   ✗ {c.attempts} · {c.last_verdict ? VERDICT_INFO[c.last_verdict].label : ''}
                                 </span>
                               )}
@@ -179,7 +179,7 @@ function StudentAttempts({ questionId, studentId, onClose }: { questionId: numbe
                       <strong style={{ color: a.correct ? 'var(--success)' : 'var(--error)' }}>
                         {VERDICT_INFO[a.verdict]?.label ?? a.verdict}
                       </strong>
-                      {a.overridden && <span className="badge neutral" style={{ marginLeft: 6 }}>overridden: {a.correct ? 'correct' : 'wrong'}</span>}
+                      {a.overridden && <span className={`badge ${a.correct ? 'badge-success' : 'badge-danger'}`} style={{ marginLeft: 6 }}>overridden: {a.correct ? 'correct' : 'wrong'}</span>}
                       {a.error ? (
                         <div style={{ color: 'var(--text-muted)' }}>
                           <code>{a.error.code}</code> {a.error.line ? `line ${a.error.line}: ` : ''}{a.error.message}

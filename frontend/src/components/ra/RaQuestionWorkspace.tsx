@@ -154,7 +154,7 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
         <div style={{ display: 'grid', gap: 8 }}>
           <h2 style={{ margin: 0, fontSize: 22 }}>{question.title}</h2>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <span className="badge brand-badge">RA</span>
+            <span className="badge badge-ra">RA</span>
             <span className={`badge ${question.difficulty}`}>{RA_DIFFICULTY_LABEL[question.difficulty]}</span>
             {question.solved && <span className="badge badge-success">✓ Solved</span>}
             {multi && !question.solved && !question.hide_correctness && (
@@ -167,9 +167,11 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
           <h3 style={{ margin: 0, fontSize: 15 }}>Schema</h3>
           <RaRelations relations={question.relations} />
           <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-            {question.has_data
-              ? 'Underlined attributes form the key. Your answer must be right on this data and also in general: it is checked on many other databases too.'
-              : 'Underlined attributes form the key. There is no data: Check runs your answer on an example database, and Submit checks it on many generated databases.'}
+            {question.data_source === 'sample'
+              ? 'Underlined attributes form the key; click a relation to see its tuples. Your answer must be right on this data and also in general: it is checked on many other databases too.'
+              : question.data_source === 'example'
+                ? 'Underlined attributes form the key; click a relation to see its tuples. The question has no data of its own, so this is example data made up for it: Check runs your answer on it, and after Submit you see your result and the model answer’s on it. Grading also checks your answer on many other generated databases.'
+                : 'Underlined attributes form the key. There is no data: Check runs your answer on an example database, and Submit checks it on many generated databases.'}
           </p>
         </div>
       </section>
@@ -261,7 +263,9 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
               Not graded. {checked.source === 'sample'
                 ? "Evaluated on the question's data."
-                : 'Evaluated on an example generated database (the question has no data):'}
+                : checked.source === 'example'
+                  ? 'Evaluated on the example data shown with the question.'
+                  : 'Evaluated on an example generated database (the question has no data):'}
             </p>
             {checked.source === 'generated' && <RaRelations relations={checked.relations} />}
             <RaTable caption={`Result — ${checked.result.row_count} ${checked.result.row_count === 1 ? 'tuple' : 'tuples'}`}
@@ -276,7 +280,7 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
         {submitted && (
           <div className="card" style={{ padding: 16, display: 'grid', gap: 16, minWidth: 0 }}>
             {submitted.grade ? (
-              <RaVerdict grade={submitted.grade} />
+              <RaVerdict grade={submitted.grade} shown={submitted.shown} />
             ) : (
               <div className="alert-info"><strong>Submitted.</strong> Your answer has been recorded.</div>
             )}

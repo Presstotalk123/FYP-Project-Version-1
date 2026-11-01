@@ -4,16 +4,16 @@ import { useQuery } from '@tanstack/react-query';
 import { raQueryKeys, raService } from '@/services/ra.service';
 import { RaTopError, RaVerdict, RaVerdictCounts } from '@/types/ra.types';
 
-/** Verdicts as staff read them in analytics, with a colour each (most to least serious last). */
+/** Verdicts as staff read them in analytics, with a colour each: green for correct, a shade of red for each kind of wrong. */
 export const VERDICT_INFO: Record<RaVerdict, { label: string; hint: string; color: string }> = {
   correct: { label: 'Correct', hint: 'Graded correct', color: 'var(--success)' },
   wrong_in_general: {
-    label: 'Wrong on some database', color: 'var(--warning)',
+    label: 'Wrong on some database', color: '#f87171',
     hint: 'Right attributes, but a different result on at least one generated test database',
   },
-  wrong_result: { label: 'Wrong on the data', hint: "A different result on the question's own data", color: 'var(--info)' },
-  wrong_columns: { label: 'Wrong attributes', hint: 'The result has different attributes from the model answer', color: 'var(--brand-lilac)' },
-  invalid_expression: { label: 'Has an error', hint: 'The answer could not be read or run (see the error codes)', color: 'var(--error)' },
+  wrong_result: { label: 'Wrong on the data', hint: "A different result on the question's own data", color: '#ef4444' },
+  wrong_columns: { label: 'Wrong attributes', hint: 'The result has different attributes from the model answer', color: '#b91c1c' },
+  invalid_expression: { label: 'Has an error', hint: 'The answer could not be read or run (see the error codes)', color: '#7f1d1d' },
 };
 const ORDER: RaVerdict[] = ['correct', 'wrong_in_general', 'wrong_result', 'wrong_columns', 'invalid_expression'];
 

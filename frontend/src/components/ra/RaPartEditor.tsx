@@ -49,7 +49,7 @@ export function romanLabel(n: number) {
  * bench that grades any answer exactly as a student's would be.
  */
 export function RaPartEditor({
-  part, index, count, onChange, onRemove, onMove, schemaSql, dataSql, compareBags, error, busy,
+  part, index, count, onChange, onRemove, onMove, schemaSql, dataSql, exampleDataSql, compareBags, error, busy,
 }: {
   part: RaPartInput;
   index: number;
@@ -59,6 +59,8 @@ export function RaPartEditor({
   onMove: (delta: -1 | 1) => void;
   schemaSql: string;
   dataSql: string;
+  /** The example data shown to students while dataSql is empty (the model answer runs on it). */
+  exampleDataSql: string | null;
   compareBags: boolean;
   error: { field: RaPartField; error: RaError } | null;
   busy: boolean;
@@ -94,6 +96,7 @@ export function RaPartEditor({
     try {
       const v = await raService.validateQuestion({
         schema_sql: schemaSql, data_sql: dataSql, compare_bags: compareBags,
+        example_data_sql: dataSql.trim() ? null : exampleDataSql,
         model_answer: part.model_answer, checkpoints: part.checkpoints,
       });
       setValidation(v);
@@ -191,8 +194,9 @@ export function RaPartEditor({
           {validation.model_result && (
             <details>
               <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
-                The model answer&apos;s steps {validation.model_result_source === 'sample'
-                  ? 'on your data' : 'on an example generated database'}
+                The model answer&apos;s steps {validation.model_result_source === 'sample' ? 'on your data'
+                  : validation.model_result_source === 'example' ? 'on the example data students see'
+                    : 'on an example generated database'}
               </summary>
               <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
                 {validation.model_result_source === 'generated' && <RaRelations relations={validation.relations} />}

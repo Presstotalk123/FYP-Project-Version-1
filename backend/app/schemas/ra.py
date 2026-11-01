@@ -187,6 +187,8 @@ class RAQuestionIn(BaseModel):
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
     data_sql: str = Field("", max_length=MAX_SQL_CHARS)
+    # With data_sql empty: the example data shown in the form (None = keep or build it).
+    example_data_sql: Optional[str] = Field(None, max_length=MAX_SQL_CHARS)
     parts: List[RAPartIn] = Field(..., min_length=1, max_length=MAX_PARTS)
     show_step_direction: bool = True
     assessment_step_direction: bool = False    # the same, when the question is in an assessment
@@ -201,6 +203,8 @@ class RAQuestionValidateIn(BaseModel):
     model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
     checkpoints: Optional[List[CheckpointIn]] = None
     compare_bags: bool = False
+    # With data_sql empty: the example data shown in the form, to run the model answer on.
+    example_data_sql: Optional[str] = Field(None, max_length=MAX_SQL_CHARS)
 
 
 class RAQuestionValidateOut(BaseModel):
@@ -210,9 +214,9 @@ class RAQuestionValidateOut(BaseModel):
     error: Optional[RAErrorOut] = None
     relations: List[RelationOut] = []
     suite: Optional[SuiteSummaryOut] = None
-    # The model answer's steps on the question's data, or on a generated example database.
+    # The model answer's steps on the question's data, its example data, or else a generated test database.
     model_result: Optional[EvalOut] = None
-    model_result_source: Optional[Literal["sample", "generated"]] = None
+    model_result_source: Optional[Literal["sample", "example", "generated"]] = None
     checkpoints: List[CheckpointIn] = []                    # the effective checkpoints
 
 
@@ -225,6 +229,22 @@ class RASchemaTextIn(BaseModel):
 class RASchemaTextOut(BaseModel):
     ok: bool
     schema_sql: str = ""
+    relations: List[RelationOut] = []
+    error: Optional[RAErrorOut] = None
+
+
+class RAExampleDataIn(BaseModel):
+    """Build example data for a question with no data of its own (staff form)."""
+    schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
+    model_answers: List[str] = Field([], max_length=MAX_PARTS)
+    variant: int = Field(0, ge=0)                          # another one: the Regenerate button
+    # The form's current example data: returned as it is if the schema still accepts it.
+    current: Optional[str] = Field(None, max_length=MAX_SQL_CHARS)
+
+
+class RAExampleDataOut(BaseModel):
+    ok: bool
+    data_sql: str = ""
     relations: List[RelationOut] = []
     error: Optional[RAErrorOut] = None
 
@@ -265,7 +285,9 @@ class RAQuestionOut(BaseModel):
     description: str
     difficulty: str
     relations: List[RelationOut]
-    has_data: bool
+    has_data: bool                           # the question has data of its own
+    # Where the tuples in ``relations`` come from: the question's data, or its example data.
+    data_source: Optional[Literal["sample", "example"]] = None
     show_step_direction: bool
     hide_correctness: bool
     attempts: int = 0
@@ -279,6 +301,7 @@ class RAQuestionOut(BaseModel):
 class RAQuestionStaffOut(RAQuestionOut):
     schema_sql: str
     data_sql: str
+    example_data_sql: Optional[str] = None   # what students see when data_sql is empty
     parts: List[RAPartStaffOut] = []
     compare_bags: bool
     is_published: bool
@@ -295,8 +318,21 @@ class RACheckOut(BaseModel):
     ok: bool
     error: Optional[RAErrorOut] = None
     result: Optional[EvalOut] = None
-    source: Optional[Literal["sample", "generated"]] = None
+    source: Optional[Literal["sample", "example", "generated"]] = None
     relations: List[RelationOut] = []
+
+
+class ShownResultOut(BaseModel):
+    """After Submit: the student's result and the model answer's on the data shown with the
+    question. ``student_extra[i]``: row i of the student's result shouldn't be there;
+    ``expected_missing[i]``: row i of the model answer's result is missing from theirs."""
+    source: Literal["sample", "example"]
+    same_columns: bool
+    equal: bool
+    student: Dict[str, Any]
+    expected: Dict[str, Any]
+    student_extra: List[bool] = []
+    expected_missing: List[bool] = []
 
 
 class RASubmitOut(BaseModel):
@@ -307,7 +343,9 @@ class RASubmitOut(BaseModel):
     # None when the question hides correctness: the student only learns it was submitted.
     grade: Optional[GradeOut] = None
     structure: Optional[EvalOut] = None
-    structure_source: Optional[Literal["sample", "generated"]] = None
+    structure_source: Optional[Literal["sample", "example", "generated"]] = None
+    # Only with ``grade`` (it shows the model answer's result on the data the student sees).
+    shown: Optional[ShownResultOut] = None
 
 
 class RAAttemptOut(BaseModel):

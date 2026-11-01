@@ -179,7 +179,9 @@ export interface RaQuestion {
   description: string;
   difficulty: RaDifficulty;
   relations: RaRelation[];
-  has_data: boolean;
+  has_data: boolean; // the question has data of its own
+  /** Where the tuples in ``relations`` come from: the question's data, or example data built for it. */
+  data_source: 'sample' | 'example' | null;
   show_step_direction: boolean;
   hide_correctness: boolean;
   attempts: number;
@@ -193,6 +195,7 @@ export interface RaQuestion {
 export interface RaQuestionStaff extends Omit<RaQuestion, 'parts'> {
   schema_sql: string;
   data_sql: string;
+  example_data_sql: string | null; // what students see while data_sql is empty
   parts: RaPartStaff[];
   compare_bags: boolean;
   is_published: boolean;
@@ -214,6 +217,8 @@ export interface RaQuestionInput {
   difficulty: RaDifficulty;
   schema_sql: string;
   data_sql: string;
+  /** With data_sql empty: the example data shown in the form (null = keep or build it). */
+  example_data_sql: string | null;
   parts: RaPartInput[];
   show_step_direction: boolean;
   assessment_step_direction: boolean;
@@ -231,8 +236,15 @@ export interface RaValidateResponse {
   relations: RaRelation[];
   suite: RaSuiteSummary | null;
   model_result: RaEvalResult | null;
-  model_result_source: 'sample' | 'generated' | null;
+  model_result_source: 'sample' | 'example' | 'generated' | null;
   checkpoints: RaCheckpoint[];
+}
+
+export interface RaExampleDataResponse {
+  ok: boolean;
+  data_sql: string;
+  relations: RaRelation[];
+  error: RaError | null;
 }
 
 /** An answer in textbook notation: one LaTeX line per statement, as the parser read it. */
@@ -253,8 +265,19 @@ export interface RaCheckResponse {
   ok: boolean;
   error: RaError | null;
   result: RaEvalResult | null;
-  source: 'sample' | 'generated' | null;
+  source: 'sample' | 'example' | 'generated' | null;
   relations: RaRelation[];
+}
+
+/** After Submit: the student's result and the model answer's on the data shown with the question. */
+export interface RaShownResult {
+  source: 'sample' | 'example';
+  same_columns: boolean;
+  equal: boolean;
+  student: { columns: string[]; rows: unknown[][] };
+  expected: { columns: string[]; rows: unknown[][] };
+  student_extra: boolean[]; // row i of the student's result shouldn't be there
+  expected_missing: boolean[]; // row i of the model answer's result is missing from theirs
 }
 
 export interface RaSubmitResponse {
@@ -264,7 +287,8 @@ export interface RaSubmitResponse {
   submissions_used: number;
   grade: RaGradeResult | null; // null when the question hides correctness
   structure: RaEvalResult | null;
-  structure_source: 'sample' | 'generated' | null;
+  structure_source: 'sample' | 'example' | 'generated' | null;
+  shown: RaShownResult | null; // only with grade
 }
 
 export interface RaAttempt {

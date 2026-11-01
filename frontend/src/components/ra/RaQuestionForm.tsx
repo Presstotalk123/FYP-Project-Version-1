@@ -8,9 +8,10 @@ import { raQueryKeys, raService } from '@/services/ra.service';
 import { RaDifficulty, RaError, RaInputField, RaPartInput, RaQuestionInput, RaQuestionStaff } from '@/types/ra.types';
 import { emptyPart, FieldError, partInput, RaPartEditor, RaPartField, romanLabel } from './RaPartEditor';
 import { RaSchemaText } from './RaSchemaText';
+import { RaExampleDataPanel, useRaExampleData } from './RaExampleData';
 
 const EMPTY: RaQuestionInput = {
-  title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', parts: [emptyPart()],
+  title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', example_data_sql: null, parts: [emptyPart()],
   show_step_direction: true, assessment_step_direction: false, compare_bags: false,
   hide_correctness: false, is_published: false,
 };
@@ -29,7 +30,7 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<RaQuestionInput>(() => initial ? {
     title: initial.title, description: initial.description, difficulty: initial.difficulty,
-    schema_sql: initial.schema_sql, data_sql: initial.data_sql,
+    schema_sql: initial.schema_sql, data_sql: initial.data_sql, example_data_sql: initial.example_data_sql,
     parts: initial.parts.length ? initial.parts.map(partInput) : [emptyPart()],
     show_step_direction: initial.show_step_direction, assessment_step_direction: initial.assessment_step_direction,
     compare_bags: initial.compare_bags, hide_correctness: initial.hide_correctness, is_published: initial.is_published,
@@ -39,6 +40,11 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
   // Stable keys for the part editors (their check results stay with them when parts move).
   const [keys, setKeys] = useState<number[]>(() => form.parts.map((_, i) => i));
   const [nextKey, setNextKey] = useState(form.parts.length);
+
+  // With the INSERT box empty, students see example data instead (RaExampleData.tsx).
+  const noData = !form.data_sql.trim();
+  const example = useRaExampleData(form.schema_sql, form.parts.map((p) => p.model_answer), form.example_data_sql,
+    noData, (sql) => set('example_data_sql', sql));
 
   const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -150,8 +156,13 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
           hint="Mark keys with PRIMARY KEY and links with REFERENCES. Add a CHECK constraint for any assumption the question makes (e.g. CHECK (a < b)): generated test data will respect it."
           error={errorFor('schema')} />
         <SqlArea label="INSERT statements (optional)" value={form.data_sql} onChange={(v) => set('data_sql', v)} rows={5}
-          hint="Students see this data. Leave it empty for a schema-only question, as in the tutorials: answers are then checked on generated databases only."
+          hint="Students see this data. Leave it empty for a schema-only question, as in the tutorials: students then see example data made up for it (below), and answers are graded on generated databases."
           error={errorFor('data')} />
+        {noData && (
+          <RaExampleDataPanel preview={example.preview} error={example.error} loading={example.loading}
+            chosen={form.example_data_sql != null} onRegenerate={() => void example.regenerate()} disabled={busy}
+            onCopy={(sql) => setForm((f) => ({ ...f, data_sql: sql, example_data_sql: null }))} />
+        )}
       </section>
 
       <section className="card" style={{ padding: 16, display: 'grid', gap: 14 }}>
@@ -167,7 +178,8 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
         {form.parts.map((part, index) => (
           <RaPartEditor key={keys[index]} part={part} index={index} count={form.parts.length}
             onChange={(p) => setPart(index, p)} onRemove={() => removePart(index)} onMove={(d) => movePart(index, d)}
-            schemaSql={form.schema_sql} dataSql={form.data_sql} compareBags={form.compare_bags}
+            schemaSql={form.schema_sql} dataSql={form.data_sql} exampleDataSql={example.preview?.sql ?? null}
+            compareBags={form.compare_bags}
             error={partError(index)} busy={busy} />
         ))}
         <div>

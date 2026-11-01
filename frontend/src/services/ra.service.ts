@@ -1,6 +1,6 @@
 import api from '@/services/api.service';
 import {
-  RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaNotationResponse, RaPlaygroundGradeResponse,
+  RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaExampleDataResponse, RaNotationResponse, RaPlaygroundGradeResponse,
   RaPlaygroundRunResponse, RaQuestion, RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff,
   RaSchemaTextResponse, RaStatus, RaSubmitResponse, RaValidateResponse, RaClassAnalytics, RaQuestionAnalytics,
   RaStudentAttempts,
@@ -17,6 +17,7 @@ export const RA_ENDPOINTS = {
   QUESTIONS: '/ra/questions',
   QUESTIONS_VALIDATE: '/ra/questions/validate',
   QUESTIONS_SCHEMA_FROM_TEXT: '/ra/questions/schema-from-text',
+  QUESTIONS_EXAMPLE_DATA: '/ra/questions/example-data',
   QUESTION: (id: number) => `/ra/questions/${id}`,
   QUESTION_EDIT: (id: number) => `/ra/questions/${id}/edit`,
   QUESTION_CHECK: (id: number) => `/ra/questions/${id}/check`,
@@ -92,7 +93,7 @@ export const raService = {
   },
 
   /** Staff only: check one part's model answer and preview its test databases; nothing is saved. */
-  async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags'>
+  async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags' | 'example_data_sql'>
     & Pick<RaPartInput, 'model_answer' | 'checkpoints'>): Promise<RaValidateResponse> {
     return (await api.post<RaValidateResponse>(RA_ENDPOINTS.QUESTIONS_VALIDATE, input)).data;
   },
@@ -125,6 +126,17 @@ export const raService = {
   async schemaFromText(text: string, linkKeys: boolean): Promise<RaSchemaTextResponse> {
     return (await api.post<RaSchemaTextResponse>(RA_ENDPOINTS.QUESTIONS_SCHEMA_FROM_TEXT,
       { text, link_keys: linkKeys })).data;
+  },
+
+  /**
+   * Staff only: example data for a question whose INSERT box is empty — ``current`` as it is
+   * if the schema still accepts it, else built from the schema and model answers;
+   * ``variant`` > 0 gives another one (Regenerate).
+   */
+  async exampleData(schemaSql: string, modelAnswers: string[], variant = 0,
+    current: string | null = null): Promise<RaExampleDataResponse> {
+    return (await api.post<RaExampleDataResponse>(RA_ENDPOINTS.QUESTIONS_EXAMPLE_DATA,
+      { schema_sql: schemaSql, model_answers: modelAnswers, variant, current })).data;
   },
 
   async createQuestion(input: RaQuestionInput): Promise<RaQuestionStaff> {

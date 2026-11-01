@@ -440,3 +440,40 @@ difference.
 1. Open an RA question; hover σ on the operator bar: the pop-up shows name, meaning, Write and Example.
 2. Type `R1 := σ GPA >= 3 Students` and hover `σ`, `:=` and `>=` in the editor.
 3. Turn on **Preview notation σₓ** and hover σ and ← in the preview.
+
+## Step 12: Example data for questions without data (1 Nov 2026)
+
+Commit: "Show example data for RA questions that have none" (`git log --oneline` shows its hash).
+
+**Why.** Most course questions give only a schema. Students saw empty tables and only met data after
+pressing Check, with placeholder values (`Sname_2`). They should see realistic data up front, run
+their answers on it, and after Submit see where their answer went right or wrong on that same data.
+
+**What was built.**
+- `core/ra/example_data.py` builds one example database per question: the test-database generator
+  with realistic values (`core/ra/example_values.py`, guessed from attribute and relation names, e.g.
+  Sname → Alice, Dname → Computer Science, a student's Year → 1–4, GPA → 2.5–4.5), the model
+  answers' constants, 3–5 tuples per relation. Attributes named like another relation's key are
+  treated as a reference to it, so the data is consistent even when the schema declares no
+  REFERENCES (only here; the test databases keep only declared references). Of 300 seeded
+  candidates it keeps the one that best shows the model answers: non-empty results, each σ and −
+  keeping some tuples but not all, varied values. Same question → same data.
+- Stored in the new column `ra_questions.example_data_sql` (added at startup by `local_schema.py`;
+  copied into assessment clones). Kept until the schema no longer accepts it or staff Regenerate it;
+  questions saved earlier get it on the fly.
+- Students: the schema panel shows it; Check and Show structure run on it. After Submit (when
+  correctness is shown): the verdict, then **Your answer returns** (extra tuples ✗ red), then **The
+  model answer returns** (missing tuples ✓ green), then the usual feedback. This shows the expected
+  result on the data students see, which context.md §5.2 had ruled out; changed on the user's
+  decision. The verdict itself is unchanged: it still comes from the generated test databases.
+- Staff: `POST /ra/questions/example-data`; on the form, an **Example data shown to students** panel
+  under the empty INSERT box with **Regenerate** and **Copy into INSERT box**. Check the model
+  answer runs on it too.
+- `generator.py` gained optional realistic value pools and a minimum size; with the defaults it
+  generates exactly the same test databases as before.
+
+**How to check it**
+1. Open a question without INSERT data: click STUDENT in the schema panel to see its tuples.
+2. Check `π Sname STUDENT`: the result is the names you saw.
+3. Submit a wrong answer: your result (extras red), the model answer's (missing green), then the usual tables.
+4. As staff, edit the question: Regenerate, then Copy into INSERT box.

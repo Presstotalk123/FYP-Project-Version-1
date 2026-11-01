@@ -90,7 +90,8 @@ def test_submit_grades_records_and_tracks_progress(client, student_headers, crea
                         headers=student_headers).json()
     assert wrong["grade"]["verdict"] == "wrong_in_general" and wrong["grade"]["counterexample"]
     assert [s["status"] for s in wrong["grade"]["steps"]] == ["close", "close", "close"]
-    assert wrong["structure_source"] == "generated" and len(wrong["structure"]["steps"]) == 3
+    # No data of its own, so the steps are shown on its example data.
+    assert wrong["structure_source"] == "example" and len(wrong["structure"]["steps"]) == 3
     right = client.post(f"{BASE}/{qid}/submit", json={"answer": Q1_II}, headers=student_headers).json()
     assert right["grade"]["verdict"] == "correct"
     history = client.get(f"{BASE}/{qid}/attempts", headers=student_headers).json()
@@ -103,7 +104,10 @@ def test_check_runs_without_recording(client, student_headers, created):
     qid = created["id"]
     before = len(client.get(f"{BASE}/{qid}/attempts", headers=student_headers).json())
     r = client.post(f"{BASE}/{qid}/check", json={"answer": "π Sname STUDENT"}, headers=student_headers).json()
-    assert r["ok"] and r["source"] == "generated" and r["result"]["columns"] == ["Sname"]
+    assert r["ok"] and r["source"] == "example" and r["result"]["columns"] == ["Sname"]
+    seen = client.get(f"{BASE}/{qid}", headers=student_headers).json()
+    student_table = next(t for t in seen["relations"] if t["name"] == "STUDENT")
+    assert sorted(r["result"]["rows"]) == sorted([row[1]] for row in student_table["rows"])   # the data they see
     bad = client.post(f"{BASE}/{qid}/check", json={"answer": "π Nope STUDENT"}, headers=student_headers).json()
     assert not bad["ok"] and bad["error"]["code"] == "RA003"
     assert len(client.get(f"{BASE}/{qid}/attempts", headers=student_headers).json()) == before
@@ -221,3 +225,78 @@ def test_a_text_schema_becomes_create_table(client, staff_headers, student_heade
     bad = client.post(url, json={"text": "R(A,, B)"}, headers=staff_headers).json()
     assert not bad["ok"] and bad["error"]["code"] == "RA020" and bad["error"]["line"] == 1
     assert client.post(url, json={"text": text}, headers=student_headers).status_code == 403
+
+
+# ── example data (a question with no INSERTs) ────────────────────────────────
+def test_a_question_without_data_shows_example_data(client, staff_headers, student_headers, created):
+    seen = client.get(f"{BASE}/{created['id']}", headers=student_headers).json()
+    assert seen["data_source"] == "example" and seen["has_data"] is False
+    assert all(3 <= len(t["rows"]) <= 5 for t in seen["relations"])
+    names = {row[1] for row in next(t for t in seen["relations"] if t["name"] == "STUDENT")["rows"]}
+    assert not any(n.startswith("Sname_") for n in names)                 # realistic, not placeholders
+    staff = client.get(f"{BASE}/{created['id']}/edit", headers=staff_headers).json()
+    assert staff["example_data_sql"].startswith("INSERT INTO")
+    assert client.get(f"{BASE}/{created['id']}", headers=student_headers).json()["relations"] == seen["relations"]
+
+
+def test_a_question_with_data_has_no_example(client, staff_headers, student_headers, ra_on):
+    q = client.post(BASE, json=payload(data_sql=TUTORIAL_Q1["data_sql"]), headers=staff_headers).json()
+    assert q["example_data_sql"] is None and q["data_source"] == "sample"
+
+
+def test_staff_example_data_is_kept_unless_the_schema_rejects_it(client, staff_headers, created):
+    qid, pid = created["id"], created["parts"][0]["id"]
+    mine = "INSERT INTO STUDENT VALUES (1, 'Zoe', 'F', 20, 1, 3.0);"
+    r = client.put(f"{BASE}/{qid}", json=payload(pid, example_data_sql=mine), headers=staff_headers).json()
+    assert r["example_data_sql"] == mine
+    # Left out of the form: kept.
+    assert client.put(f"{BASE}/{qid}", json=payload(pid), headers=staff_headers).json()["example_data_sql"] == mine
+    # A schema it no longer fits (STUDENT loses a column): rebuilt.
+    schema = TUTORIAL_Q1["schema_sql"].replace(", GPA REAL);", ");").replace("GPA", "Age")
+    body = payload(pid, schema_sql=schema, model_answer="π Sname STUDENT")
+    r = client.put(f"{BASE}/{qid}", json=body, headers=staff_headers).json()
+    assert r["example_data_sql"] != mine and r["example_data_sql"].startswith("INSERT INTO")
+
+
+def test_example_data_endpoint_regenerates(client, staff_headers, student_headers, ra_on):
+    url = f"{BASE}/example-data"
+    body = {"schema_sql": TUTORIAL_Q1["schema_sql"], "model_answers": [Q1_I, "half-written σ"]}
+    first = client.post(url, json=body, headers=staff_headers).json()
+    again = client.post(url, json=body, headers=staff_headers).json()
+    other = client.post(url, json={**body, "variant": 1}, headers=staff_headers).json()
+    assert first["ok"] and first["data_sql"] == again["data_sql"] != other["data_sql"]
+    assert {t["name"] for t in first["relations"]} >= {"DEPT", "PROF"}
+    assert client.post(url, json=body, headers=student_headers).status_code == 403
+    kept = client.post(url, json={**body, "current": other["data_sql"]}, headers=staff_headers).json()
+    assert kept["data_sql"] == other["data_sql"]
+    unfit = client.post(url, json={**body, "current": "INSERT INTO NOPE VALUES (1);"}, headers=staff_headers).json()
+    assert unfit["data_sql"] == first["data_sql"]
+    bad = client.post(url, json={"schema_sql": "CREATE TABL x"}, headers=staff_headers).json()
+    assert bad["ok"] is False and bad["error"]
+
+
+def test_validate_runs_the_model_answer_on_the_example_data(client, staff_headers, ra_on):
+    example = client.post(f"{BASE}/example-data", json={"schema_sql": TUTORIAL_Q1["schema_sql"],
+                                                        "model_answers": [Q1_II]}, headers=staff_headers).json()
+    v = client.post(f"{BASE}/validate", json=payload(example_data_sql=example["data_sql"]), headers=staff_headers).json()
+    assert v["ok"] and v["model_result_source"] == "example"
+
+
+def test_submit_shows_both_results_on_the_data_students_see(client, student_headers, created):
+    qid = created["id"]
+    wrong = client.post(f"{BASE}/{qid}/submit", json={"answer": "π Sname STUDENT"}, headers=student_headers).json()
+    shown = wrong["shown"]
+    assert wrong["grade"]["verdict"] != "correct" and shown["source"] == "example"
+    assert shown["same_columns"] and not shown["equal"] and any(shown["student_extra"])
+    assert len(shown["student_extra"]) == len(shown["student"]["rows"])
+    assert len(shown["expected_missing"]) == len(shown["expected"]["rows"])
+    right = client.post(f"{BASE}/{qid}/submit", json={"answer": Q1_II}, headers=student_headers).json()
+    assert right["shown"]["equal"] and right["shown"]["student"]["rows"] == right["shown"]["expected"]["rows"]
+    typo = client.post(f"{BASE}/{qid}/submit", json={"answer": "π Nope STUDENT"}, headers=student_headers).json()
+    assert typo["shown"] is None
+
+
+def test_hidden_correctness_hides_the_comparison(client, staff_headers, student_headers, ra_on):
+    q = client.post(BASE, json=payload(hide_correctness=True), headers=staff_headers).json()
+    r = client.post(f"{BASE}/{q['id']}/submit", json={"answer": "π Sname STUDENT"}, headers=student_headers).json()
+    assert r["grade"] is None and r["shown"] is None

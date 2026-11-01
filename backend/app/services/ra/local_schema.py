@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # (table, column, SQL type and default) — added when missing.
 _COLUMNS = (
     ("ra_questions", "assessment_step_direction", "INTEGER NOT NULL DEFAULT 0"),
+    ("ra_questions", "example_data_sql", "TEXT"),
     ("ra_attempts", "part_id", "INTEGER REFERENCES ra_question_parts(id)"),
 )
 _LOCK_KEY = 727_001          # pg_advisory_lock key, private to this upgrade

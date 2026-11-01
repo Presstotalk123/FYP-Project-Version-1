@@ -3,6 +3,7 @@
 Staff
   POST   /ra/questions/validate        check a draft and preview its test databases (nothing saved)
   POST   /ra/questions/schema-from-text  turn STUDENT(*Sid, Sname) lines into CREATE TABLE statements
+  POST   /ra/questions/example-data    example data for a question with no INSERTs (Regenerate)
   POST   /ra/questions                 create
   GET    /ra/questions/{id}/edit       everything, including the model answer
   PUT    /ra/questions/{id}            update (test databases rebuilt if the content changed)
@@ -34,9 +35,9 @@ from app.models.ra_question import RAQuestion
 from app.models.ra_question_part import RAQuestionPart
 from app.models.user import User
 from app.schemas.ra import (CheckpointIn, EvalOut, GradeOut, RAAnswerIn, RAAttemptOut, RACheckOut,
-                            RAErrorOut, RAQuestionIn, RAQuestionListItem, RAQuestionOut, RAQuestionStaffOut,
+                            RAErrorOut, RAExampleDataIn, RAExampleDataOut, RAQuestionIn, RAQuestionListItem, RAQuestionOut, RAQuestionStaffOut,
                             RAQuestionValidateIn, RAQuestionValidateOut, RASchemaTextIn, RASchemaTextOut,
-                            RASubmitOut, RelationOut,
+                            RASubmitOut, RelationOut, ShownResultOut,
                             SuiteSummaryOut)
 from app.services.ra import assessment as ra_assessment, grading, questions as svc
 
@@ -71,8 +72,10 @@ def _student_out(db: Session, q: RAQuestion, user: User) -> dict:
         parts.append(dict(id=part.id, label=part.label, description=part.description, marks=part.marks,
                           attempts=attempts, solved=solved and not hide,
                           submissions_used=ra_assessment.submissions_used(db, part, user)))
+    shown, source = svc.shown_database(q)
     return dict(id=q.id, title=q.title, description=q.description, difficulty=q.difficulty,
-                relations=svc.relations_for(q), has_data=bool((q.data_sql or "").strip()),
+                relations=(shown or Database.from_sql(q.schema_sql)).to_dict(), data_source=source,
+                has_data=bool((q.data_sql or "").strip()),
                 show_step_direction=bool(q.show_step_direction), hide_correctness=hide,
                 attempts=sum(p["attempts"] for p in parts),
                 solved=bool(parts) and all(p["solved"] for p in parts),
@@ -100,7 +103,11 @@ def validate_question(body: RAQuestionValidateIn, _staff: User = Depends(require
                                checkpoints=checkpoints, bag=body.compare_bags)
     except svc.QuestionInputError as e:
         return RAQuestionValidateOut(ok=False, error_source=e.source, error=RAErrorOut.from_engine(e.error))
-    db, source = grading.structure_database(prepared)
+    example = body.example_data_sql if not (body.data_sql or "").strip() else None
+    if example and svc.fits_schema(body.schema_sql, example):
+        db, source = Database.from_sql(body.schema_sql, example), "example"
+    else:
+        db, source = grading.structure_database(prepared)
     model = evaluate(prepared.model, db, options=svc.eval_options())
     relations = Database.from_sql(body.schema_sql, body.data_sql).to_dict()
     return RAQuestionValidateOut(
@@ -123,6 +130,22 @@ def schema_from_text(body: RASchemaTextIn, _staff: User = Depends(require_staff_
     return RASchemaTextOut(ok=True, schema_sql=schema_sql, relations=[RelationOut(**r) for r in relations])
 
 
+@router.post("/example-data", response_model=RAExampleDataOut)
+def example_data(body: RAExampleDataIn, _staff: User = Depends(require_staff_role)):
+    """Example data for the staff form when its INSERT box is empty (nothing saved): the
+    form's ``current`` one if the schema still accepts it, else one built from the schema
+    and model answers (those that can't be read yet are ignored); ``variant`` > 0 gives another."""
+    try:
+        if body.current and svc.fits_schema(body.schema_sql, body.current):
+            data_sql = body.current
+        else:
+            data_sql = svc.example_sql(body.schema_sql, body.model_answers, body.variant)
+        relations = Database.from_sql(body.schema_sql, data_sql).to_dict()
+    except RAError as e:
+        return RAExampleDataOut(ok=False, error=RAErrorOut.from_engine(e))
+    return RAExampleDataOut(ok=True, data_sql=data_sql, relations=[RelationOut(**r) for r in relations])
+
+
 def _apply(db: Session, q: RAQuestion, body: RAQuestionIn) -> None:
     q.title, q.description, q.difficulty = body.title, body.description, body.difficulty
     q.show_step_direction = int(body.show_step_direction)
@@ -131,7 +154,7 @@ def _apply(db: Session, q: RAQuestion, body: RAQuestionIn) -> None:
     q.is_published = int(body.is_published)
     try:
         svc.save_content(db, q, schema_sql=body.schema_sql, data_sql=body.data_sql, parts=_parts_in(body),
-                         compare_bags=body.compare_bags)
+                         compare_bags=body.compare_bags, example_data_sql=body.example_data_sql)
     except svc.QuestionInputError as e:
         db.rollback()
         raise _input_error(e)
@@ -178,7 +201,8 @@ def _staff_out(db: Session, q: RAQuestion, staff: User) -> dict:
         part.update(model_answer=row.model_answer,
                     checkpoints=json.loads(row.checkpoints_json) if row.checkpoints_json else None,
                     suite=json.loads(row.suite_summary_json) if row.suite_summary_json else None)
-    out.update(schema_sql=q.schema_sql, data_sql=q.data_sql or "", compare_bags=bool(q.compare_bags),
+    out.update(schema_sql=q.schema_sql, data_sql=q.data_sql or "", example_data_sql=svc.example_sql_for(q),
+               compare_bags=bool(q.compare_bags),
                is_published=bool(q.is_published), assessment_step_direction=bool(q.assessment_step_direction))
     return out
 
@@ -228,6 +252,10 @@ def submit_answer(question_id: int, body: RAAnswerIn, db: Session = Depends(get_
     shown = svc.for_student(q, submission.result) if not svc.is_staff(user) else submission.result.to_dict()
     if shown is not None:
         out.grade = GradeOut(**shown)
+        if submission.result.verdict != "invalid_expression":
+            comparison = svc.shown_comparison(q, part, body.answer)
+            if comparison is not None:
+                out.shown = ShownResultOut(**comparison)
     if submission.result.verdict != "invalid_expression":
         try:
             result, source, _relations = svc.check(q, part, body.answer)

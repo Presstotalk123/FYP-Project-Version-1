@@ -30,7 +30,7 @@ answer meets exactly the same databases.
 import random
 import sqlite3
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.core.ra import ast
 from app.core.ra.schema import Database, Row, Table
@@ -38,6 +38,10 @@ from app.core.ra.schema import Database, Row, Table
 _NUMERIC = ("INTEGER", "REAL", "NUMERIC")
 # Relation sizes 0..5, weighted towards 2–4 tuples.
 _SIZE_WEIGHTS = (1, 2, 3, 3, 2, 1)
+
+# Where a pool's own values come from, given (attribute, relation, affinity) of the first
+# attribute in it: example_data.py passes realistic ones. None = the placeholders below.
+ValueSource = Callable[[str, str, str], List[object]]
 
 
 @dataclass(frozen=True)
@@ -123,7 +127,7 @@ def _neighbours(op: str, v) -> List[object]:
 class Pools:
     """One pool of candidate values per class of attributes that share values."""
 
-    def __init__(self, db: Database, hints: Hints, config: GenConfig):
+    def __init__(self, db: Database, hints: Hints, config: GenConfig, values: Optional[ValueSource] = None):
         uf = _UnionFind()
         names = {c.casefold() for t in db.tables for c in t.column_names}
         for t in db.tables:
@@ -139,18 +143,22 @@ class Pools:
 
         # Type and display name of each class come from the first attribute in it.
         kinds: Dict[str, str] = {}
-        labels: Dict[str, str] = {}
+        labels: Dict[str, Tuple[str, str, str]] = {}          # (attribute, relation, affinity)
         for t in db.tables:
             for c, affinity in t.columns:
                 k = self._class[c.casefold()]
                 kinds.setdefault(k, "number" if affinity in _NUMERIC else "text")
-                labels.setdefault(k, c)
+                labels.setdefault(k, (c, t.name, affinity))
         self.kind = kinds
 
         pools: Dict[str, List[object]] = {}
         for k, kind in kinds.items():
-            base = list(range(1, config.pool_size + 1)) if kind == "number" else \
-                [f"{labels[k]}_{i}" for i in range(1, config.pool_size + 1)]
+            if values is not None:
+                base = list(values(*labels[k]))
+            elif kind == "number":
+                base = list(range(1, config.pool_size + 1))
+            else:
+                base = [f"{labels[k][0]}_{i}" for i in range(1, config.pool_size + 1)]
             pools[k] = base
         for name, consts in hints.constants.items():
             k = self._class.get(name)
@@ -175,26 +183,30 @@ class Pools:
 
 # ── databases ─────────────────────────────────────────────────────────────────
 class Generator:
-    def __init__(self, db: Database, programs: Sequence[ast.Program], config: GenConfig = GenConfig()):
+    def __init__(self, db: Database, programs: Sequence[ast.Program], config: GenConfig = GenConfig(),
+                 values: Optional[ValueSource] = None):
         self.db = db
         self.config = config
-        self.pools = Pools(db, collect_hints(programs), config)
+        self.pools = Pools(db, collect_hints(programs), config, values)
         self.order = _parents_first(db.tables)
         self._conn = _validator(db)
 
     def close(self) -> None:
         self._conn.close()
 
-    def generate(self, rng: random.Random, max_rows: Optional[int] = None) -> Database:
-        """One random database that satisfies every constraint of the schema."""
+    def generate(self, rng: random.Random, max_rows: Optional[int] = None, min_rows: int = 0) -> Database:
+        """One random database that satisfies every constraint of the schema, with
+        min_rows..max_rows tuples per relation (fewer if the constraints allow no more)."""
         max_rows = self.config.max_rows if max_rows is None else max_rows
         weights = _SIZE_WEIGHTS[:max_rows + 1] if max_rows <= 5 else None
+        if weights and min_rows:
+            weights = tuple(w if i >= min_rows else 0 for i, w in enumerate(weights))
         conn = self._conn
         conn.execute("SAVEPOINT gen")
         try:
             kept: Dict[str, List[Row]] = {}
             for table in self.order:
-                target = rng.choices(range(len(weights)), weights)[0] if weights else rng.randint(0, max_rows)
+                target = rng.choices(range(len(weights)), weights)[0] if weights else rng.randint(min_rows, max_rows)
                 placeholders = ", ".join("?" for _ in table.columns)
                 sql = f'INSERT INTO "{table.name}" VALUES ({placeholders})'
                 for _ in range(target * 2):            # extra tries: some rows break a key or CHECK

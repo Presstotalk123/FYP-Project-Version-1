@@ -25,6 +25,9 @@ class RAQuestion(Base):
 
     schema_sql = Column(Text, nullable=False)               # CREATE TABLE …; CHECK constraints = assumptions
     data_sql = Column(Text, nullable=False, default="")     # INSERT …; may be empty
+    # With data_sql empty: the example data students see instead (INSERT …, built by
+    # core/ra/example_data.py or chosen by staff with Regenerate). NULL = build it on demand.
+    example_data_sql = Column(Text, nullable=True)
     model_answer = Column(Text, nullable=False)             # RA, step by step; never shown to students
     # [{"statement": "R1" | null, "label": "the Civil Engineering courses"}]; NULL = every model step.
     checkpoints_json = Column(Text, nullable=True)

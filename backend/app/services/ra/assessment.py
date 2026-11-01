@@ -47,6 +47,7 @@ def clone_for_assessment(db: Session, question_id: int, assessment_id: int, hide
     clone = RAQuestion(
         title=master.title, description=master.description, difficulty=master.difficulty,
         schema_sql=master.schema_sql, data_sql=master.data_sql, model_answer=master.model_answer,
+        example_data_sql=master.example_data_sql,
         checkpoints_json=master.checkpoints_json,
         # In an exam the question's own "in assessments" choice decides, never practice's.
         show_step_direction=master.assessment_step_direction if not hide_correctness else 0,

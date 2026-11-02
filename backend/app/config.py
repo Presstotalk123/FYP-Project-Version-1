@@ -5,6 +5,13 @@ from typing import Optional
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
+    # Database Rescue ships dark; staff can prepare content before cohort rollout.
+    COMPETITIONS_ENABLED: bool = False
+    COMPETITION_DB_PATH: str = "./competition_databases/"
+    COMPETITION_SQL_MAX_CHARS: int = 20000
+    COMPETITION_QUERY_SECONDS: float = 5.0
+    COMPETITION_JUDGE_SECONDS: float = 15.0
+
     # Database
     DATABASE_URL: str = "sqlite:///./sql_learning.db"
 

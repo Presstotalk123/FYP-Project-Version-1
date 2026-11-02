@@ -5,9 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { homeHeaderOwner } from "@/components/nav/home-header-owner";
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from '@tanstack/react-query';
-import { competitionService } from '@/services/competition.service';
-import { queryKeys } from '@/services/query-keys';
 
 export function HeaderNav() {
   const pathname = usePathname();
@@ -18,20 +15,11 @@ export function HeaderNav() {
   const segmentedRef = useRef<HTMLDivElement>(null);
 
   const isStaffMember = isStaff || isAdmin;
-  const competitionCapability = useQuery({
-    queryKey: queryKeys.competitionCapabilities(user?.id ?? 0),
-    queryFn: competitionService.capabilities,
-    enabled: isAuthenticated,
-    staleTime: 60000,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-  });
 
   const staffLinks = [
     { label: "Dashboard", href: "/admin", exact: true },
     { label: "Problems", href: "/admin/problems" },
     { label: "Labs", href: "/admin/labs" },
-    { label: "Competition", href: "/admin/competitions" },
     { label: "Assessments", href: "/admin/assessments" },
     // Per-student platform-time usage. Staff + admin (both can view).
     { label: "Usage", href: "/admin/usage" },
@@ -48,7 +36,6 @@ export function HeaderNav() {
     { label: "Course Info", href: "/student/course" },
     { label: "Questions", href: "/student", exact: true },
     { label: "SQL Labs", href: "/student/labs" },
-    ...(competitionCapability.data?.enabled ? [{ label: "Competition", href: "/student/competitions" }] : []),
     { label: "Assessments", href: "/student/assessments" },
     { label: "My Learning", href: "/student/analytics" },
     { label: "Report", href: "/student/report" },
@@ -80,7 +67,7 @@ export function HeaderNav() {
         setPillStyle(prev => ({ ...prev, opacity: 0 }));
       }
     }
-  }, [pathname, isStaffMember, isAuthenticated, competitionCapability.data?.enabled]);
+  }, [pathname, isStaffMember, isAuthenticated]);
 
   // Hidden on the login page so nav buttons don't appear there.
   //

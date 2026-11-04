@@ -167,9 +167,14 @@ def derive(observation: dict):
         marker = ep.get("observed_text_marker") or ""
         cue = ep.get("observed_endpoint_cue") or ""
         card, part, why = derive_endpoint(marker, cue, trust_absent_cue)
+        # Every number the student wrote at this end, when there is more than
+        # one (drawio_parser); the derived value reads the first, and
+        # deterministic_checks fails an end whose numbers differ in meaning.
+        written = [m for m in ep.get("observed_text_markers") or [] if str(m).strip()]
         cards.append({
             "relationship_id": rid, "entity_id": eid,
             "raw_marker": marker or cue,
+            **({"written_markers": written} if len(written) > 1 else {}),
             # raw_marker drops the cue whenever text was written; an
             # integrity_constraint_match check is about the cue alone.
             "endpoint_cue": cue,

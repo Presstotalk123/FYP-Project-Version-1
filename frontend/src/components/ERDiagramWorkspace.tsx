@@ -35,11 +35,12 @@ import { DrawioBoard, type DrawioBoardHandle } from "@/components/DrawioBoard";
 import { DrawioFocusLayout, type DrawioFocusLayoutHandle } from "@/components/DrawioFocusLayout";
 import drawioTheme from "@/components/DrawioTheme.module.css";
 import {
+  buildRubricDeductionItems,
   buildRubricDisplayGroups,
   formatScoreValue,
   summarizeRubricStatuses,
 } from "@/utils/er-rubric-results";
-import { RubricDisplayGroups } from "@/components/RubricDisplayGroups";
+import { RubricDeductions, RubricDisplayGroups } from "@/components/RubricDisplayGroups";
 import { erDiagramService } from "@/services/er-diagram.service";
 import { useErDraft } from "@/hooks/use-er-draft";
 import { useRunCooldown } from "@/hooks/use-run-cooldown";
@@ -376,6 +377,10 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
   const rubricStatusCounts = useMemo(
     () => (rubricGroups ? summarizeRubricStatuses(rubricGroups).filter((item) => item.count > 0) : []),
     [rubricGroups],
+  );
+  const rubricDeductionItems = useMemo(
+    () => buildRubricDeductionItems(latestStructuredOutput),
+    [latestStructuredOutput],
   );
 
   useEffect(() => {
@@ -797,6 +802,8 @@ export function ERDiagramWorkspace({ question, weight, backUrl }: WorkspaceProps
                 </Stack>
               </Paper>
             ) : null}
+
+            <RubricDeductions items={rubricDeductionItems} />
 
             <RubricDisplayGroups groups={rubricGroups} />
           </Stack>

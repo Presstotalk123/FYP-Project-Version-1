@@ -46,6 +46,7 @@ import logging
 from collections import Counter
 
 from app.services.erd_tutor.deterministic_checks import _Model, _norm_name
+from app.services.erd_tutor.name_matching import normalize_label
 
 logger = logging.getLogger(__name__)
 
@@ -140,10 +141,16 @@ def _entity_ids(model, name):
     different thing: the conference question spells an entity AFFLIATION,
     students copy it, and the generator wrote AFFILIATION into these checks.
     It must be the only drawn name that close, or the judge keeps the check.
+    The same name in another case or number ("Users" for USER) is the same
+    entity by the grader's naming rule (name_matching.normalize_label), though
+    short names fall under the 0.9 spelling cutoff.
     """
     key = _norm_name(name)
     if key in model.ids_by_name:
         return model.ids_by_name[key]
+    same = [ids for label, ids in model.ids_by_name.items() if normalize_label(label) == normalize_label(name)]
+    if len(same) == 1:
+        return same[0]
     close = difflib.get_close_matches(key, list(model.ids_by_name), n=2, cutoff=0.9)
     return model.ids_by_name[close[0]] if len(close) == 1 else []
 

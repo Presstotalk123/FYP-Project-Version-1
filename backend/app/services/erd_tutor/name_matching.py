@@ -184,6 +184,23 @@ def drawn_label(item) -> str:
     return str(item.get("raw_name") or item.get("normalized_name") or "").strip()
 
 
+def joins(participant_ids, id_sets) -> bool:
+    """True when a relationship with these participant ids joins every named
+    entity, each in a line end of its own: [A, A] needs a relationship drawn
+    from A to itself, [A, B, C] one diamond joining all three. ``id_sets`` holds,
+    per named entity, the ids drawn under that name. A relationship's own label
+    plays no part (staff, 2026-11-04: the name of a relationship is never graded)."""
+    ends = list(participant_ids or [])
+
+    def place(i, used):
+        if i == len(id_sets):
+            return True
+        return any(place(i + 1, used | {k}) for k, pid in enumerate(ends)
+                   if k not in used and pid in id_sets[i])
+
+    return bool(id_sets) and place(0, frozenset())
+
+
 class _Model:
     """Index the canonical ERD for name lookups."""
 
@@ -215,6 +232,15 @@ class _Model:
 
     def find_object(self, kind, name):
         return self._match(self.entities if kind == "entity" else self.relationships, name)
+
+    def relationships_joining(self, names):
+        """Ids of the relationships joining the entities named, whatever they are
+        called; [] when an entity is not drawn under its name."""
+        id_sets = [self.ids(self.entities, n) for n in names]
+        if not all(id_sets):
+            return []
+        return [r.get("id") for r in self.relationships
+                if joins(r.get("participant_entity_ids"), id_sets)]
 
     def find_attribute(self, name, owner_ids, key_only):
         target = normalize_label(name)
@@ -315,8 +341,19 @@ def _drawn(item):
     return drawn_label(item)
 
 
-def _resolve(model, kind, name, owner_name, key_only):
-    """-> (required, drawn) when the name is found, else None."""
+def _resolve(model, kind, name, owner_name, key_only, participants=()):
+    """-> (required, drawn) when the name is found, else None.
+
+    A relationship attribute is looked for on the relationship that joins the
+    check's participants when the check names them - a relationship's own name
+    is never graded - and on the relationship carrying ``owner_name`` otherwise.
+    """
+    if kind == "rel_attribute" and len(participants) >= 2:
+        owner_ids = model.relationships_joining(participants)
+        if not owner_ids:
+            return None          # nothing joins them: the judge decides this check
+        found = model.find_attribute(name, owner_ids, key_only)
+        return (name, _drawn(found)) if found else None
     if kind in ("attribute", "rel_attribute"):
         owner_ids = None
         if owner_name:
@@ -366,7 +403,8 @@ def _apply(judge_result, rubric, canonical):
         if not reqs:
             continue
 
-        pairs = [_resolve(model, *req) for req in reqs]
+        participants = _listed(rc["target"].get("participants"))
+        pairs = [_resolve(model, *req, participants=participants) for req in reqs]
         if any(p is None for p in pairs):
             continue        # a required name is absent or only a synonym: judge keeps it
 

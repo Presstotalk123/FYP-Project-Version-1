@@ -196,3 +196,52 @@ export const formatScoreValue = (value: number | string | undefined | null): str
   }
   return "0";
 };
+
+export type RubricDeductionItem = {
+  key: string;
+  title: string;
+  reason: string;
+  points: number;
+};
+
+// What a mark extra is called to the student (scoring.py _MARK_PHRASE).
+const MARK_PHRASE: Record<string, string> = {
+  key: "key underline on",
+  weak: "weak border on",
+  identifying: "double diamond on",
+  hierarchy: "hierarchy",
+  cardinality: "cardinality label on",
+};
+
+/**
+ * The extra-element deductions that cost the student points, named the way the
+ * student message names them (scoring.py _name_for_student). A waived entry, or
+ * one the cap took to 0, costs nothing and is left out, as the message leaves it
+ * out, so the items add up to the score's deducted points.
+ */
+export const buildRubricDeductionItems = (
+  structuredOutput: ERSubmissionStructuredOutput | null,
+): RubricDeductionItem[] => {
+  const deductions = structuredOutput?.score?.deductions;
+  if (!Array.isArray(deductions)) return [];
+  return deductions.flatMap((deduction, index) => {
+    const points = Number(deduction?.points);
+    if (!deduction || deduction.waived || !Number.isFinite(points) || points <= 0) return [];
+    const label = String(deduction.label ?? "").trim() || String(deduction.canonical_id ?? "");
+    let title: string;
+    if (deduction.kind === "mark") {
+      title = `Extra ${MARK_PHRASE[deduction.mark ?? ""] ?? "mark on"} ${label}`;
+    } else if (deduction.kind === "line") {
+      const ends = label.split(" – ");
+      title = ends.length === 2 ? `Extra line between ${ends[0]} and ${ends[1]}` : `Extra line ${label}`;
+    } else {
+      title = `Extra ${deduction.kind}: ${label}`;
+    }
+    return [{
+      key: `${deduction.canonical_id}:${deduction.mark ?? ""}:${index}`,
+      title,
+      reason: String(deduction.brief_reason ?? "").trim(),
+      points,
+    }];
+  });
+};

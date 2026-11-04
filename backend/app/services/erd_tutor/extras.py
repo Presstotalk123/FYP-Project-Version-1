@@ -23,7 +23,9 @@ Existence and counts, which are mechanical:
     entity drawn between them in its place, with its two relationships (_bridged)
   * a mark extra (key, weak, ...) sits on an element that is drawn with that mark
     and that no check asks to see marked; a hierarchy mark sits on the hierarchy
-  * no element is charged twice
+  * no element is charged twice; the numbers and arrowheads on an extra
+    relationship are a second deduction, as its cardinality label (staff,
+    2026-11-05), added by the guard itself
 Every rubric check that can be read is used; one that cannot is skipped
 (name_matching.rubric_checks), so a malformed check never switches the guard off.
 
@@ -646,12 +648,38 @@ def confirm_extras(extras, rubric, canonical, quiet=False):
     MARK_CHECK_TYPES. The rubric asks nothing about that kind, and there is no
     check to price it from. A hierarchy mark keyed on an entity is read as the
     one hierarchy that entity is in (dropped when it is in none, or in several).
+
+    The numbers and arrowheads on an extra relationship follow it as a second
+    entry of their own (_with_numbers_on_extra_relationships), whoever listed it.
     """
     try:
-        return _confirm(extras, _rules(_as_dict(rubric), _as_dict(canonical)), quiet)
+        rules = _rules(_as_dict(rubric), _as_dict(canonical))
+        return _with_numbers_on_extra_relationships(_confirm(extras, rules, quiet), rules)
     except Exception:
         logger.exception("extras: guard failed, no extras confirmed")
         return []
+
+
+def _with_numbers_on_extra_relationships(kept, rules):
+    """kept, with the numbers and arrowheads on each extra relationship charged
+    right after it as a cardinality label (staff, 2026-11-05: a duplicate
+    "publishes" drawn with 1..N at both ends cost the relationship and nothing
+    for its numbers). Only on a rubric that scores cardinality labels at all, so
+    there is a check to price them from, and only on a relationship drawn with a
+    number or an arrowhead at an end (rules.marked). _confirm has dropped every
+    mark entry on an extra element, so the label is charged once, whether or not
+    the judge listed it too."""
+    if "cardinality" not in rules.scored_marks:
+        return kept
+    out = []
+    for k in kept:
+        out.append(k)
+        if k["kind"] == "relationship" and k["canonical_id"] in rules.marked:
+            out.append({"canonical_id": k["canonical_id"], "kind": "mark", "mark": "cardinality",
+                        "label": k["label"],
+                        "brief_reason": "Numbers or arrowheads are drawn on a relationship the "
+                                        "rubric does not ask for."})
+    return out
 
 
 def _hierarchy_of(cid, rules, warn, note):
@@ -786,8 +814,9 @@ def unaccounted_elements(rubric, canonical):
     After the elements come the marks (kind "mark", with the mark in "mark"): a
     mark the model shows on an element that is not a candidate itself, that no
     check asks for, and of a kind the rubric has a scoring check for. A mark on an
-    extra element is never listed separately: the element's own deduction stands.
-    See _mark_candidates.
+    extra element is never listed separately: the element's own deduction stands,
+    and the numbers on an extra relationship are charged with it by confirm_extras,
+    with no ruling. See _mark_candidates.
 
     Computed by the guard's own rules, so the two cannot disagree: every drawn
     element is put to confirm_extras as if the judge had listed it, and what
@@ -1089,9 +1118,10 @@ def _mark_candidates(rules, canonical, drawn, skip):
     (rules.scored_marks): a mark extra is priced from those checks, and a rubric
     with none of them asks nothing about that mark.
 
-    A carrier that is itself a candidate (skip) has no mark candidate: its mark is
-    part of the extra element, which is charged once. The same for a hierarchy
-    with an extra entity in it. In model order after the elements: entities,
+    A carrier that is itself a candidate (skip) has no mark candidate: nothing is
+    ruled on twice. Its key, weak or double-diamond mark goes with the extra
+    element; the numbers on an extra relationship are charged after it by
+    confirm_extras. The same for a hierarchy with an extra entity in it. In model order after the elements: entities,
     relationships, attributes, then hierarchies.
 
     A hierarchy candidate carries _aliases: the entities that are in it and in no

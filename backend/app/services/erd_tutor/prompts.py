@@ -1084,6 +1084,32 @@ Status policy:
    that requires "plain" or whose cue is unknown. Relationship absent -> apply
    missing_policy.
 
+14h. cardinality_match compares the NUMBER written at each line end with the
+   value the rubric requires there (target.endpoints[].cardinality). Rubric
+   values are in the course notation: ">=1" one or more, ">=0" zero or more,
+   "1" exactly one, "0..1" zero or one, "N" many with the minimum not graded;
+   older rubrics use ranges ("1..N" means ">=1", "1..1" means "1"). Compare by
+   meaning, never by spelling: a student's "1..N" satisfies ">=1", a student's
+   "1" does not. Read the student's number from that endpoint's raw_marker in
+   cv_current_erd_model.cardinalities; a raw_marker of "(from description)"
+   means the student gave the value in words, so use normalized_cardinality.
+   Arrowheads do NOT count toward this check: an end whose raw_marker is only
+   a cue (no_arrow_visible, sharp_arrowhead, curved_arrowhead) has no number,
+   whatever its arrowhead. An end with written_markers carries every number
+   the student wrote there: when they differ in meaning (">=1" and "1"), the
+   student wrote two different numbers at one end and the check fails,
+   whatever its equivalence_options; the same bound written twice (">=1" and
+   "1..N") is one number.
+
+14i. A relationship's name is never graded. relationship_presence passes when
+   any relationship in cv_current_erd_model joins the entities in
+   target.participants, whatever it is labelled, and also when it is
+   unlabelled; target.relationship is only the model answer's label, for
+   reference. For relationship_attribute_presence, look for the attribute on
+   the relationship that joins target.participants, whatever it is called.
+   Entity and attribute names follow rules 14c and 14d: a similar name passes
+   unless the check fixes the exact name.
+
 Problem statement policy:
 15. Problem_Statement defines the target semantics.
    - It does NOT replace missing student evidence unless the rubric explicitly allows that equivalence.
@@ -1222,7 +1248,7 @@ After the checks, list in "extras" every drawn element in the student ERD model 
 - One required element is satisfied by one drawn element. A second drawn element that claims the same required element is extra.
 - An element is extra only for a kind of element the rubric has a check for: where the rubric has no attribute check at all (attribute_presence or relationship_attribute_presence), drawn attributes are not extra; the same for entities (entity_presence) and relationships (relationship_presence or identifying_relationship_correct).
 - The problem statement is not a source of requirements here. An element the problem statement mentions, but no check requires, is extra.
-- A mark is extra when an element carries it and no check asks for it: an underlined attribute with no key_presence check for it, a double-bordered entity with no weak_entity_correct check, a double diamond with no identifying_relationship_correct check, a specialization with no hierarchy check, a cardinality label on a relationship with no cardinality, participation, endpoints or integrity check. A mark is extra only for a kind of mark the rubric has a check for: where the rubric has no check of that kind at all, drawing the mark is not extra. A mark on an element that is itself extra is not listed again.
+- A mark is extra when an element carries it and no check asks for it: an underlined attribute with no key_presence check for it, a double-bordered entity with no weak_entity_correct check, a double diamond with no identifying_relationship_correct check, a specialization with no hierarchy check, a cardinality label on a relationship with no cardinality, participation, endpoints or integrity check. A mark is extra only for a kind of mark the rubric has a check for: where the rubric has no check of that kind at all, drawing the mark is not extra. A mark on an element that is itself extra is not listed again; the grader charges the numbers and arrowheads on an extra relationship itself.
 - Each drawn element counts once. The attributes and relationships of an extra entity are extras in their own right, but not those of a second copy of a required entity: what the rubric requires of that entity is not extra, wherever it is drawn.
 - Never list uncertain_items or unclassified_labels; they are not drawn elements.
 - bare_lines in the student ERD model are lines that join two entities with no relationship diamond. A bare line is not a relationship: it satisfies no check, so a check that asks for a relationship between those entities fails when only a bare line joins them. The grader charges each bare line as an extra itself; do not list it.

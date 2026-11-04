@@ -24,13 +24,16 @@ POLICY (decide only what is definite; everything else stays with the judge)
       ONE check and no relationship_presence check, so drawn-but-single is where
       the presence marks went), otherwise fail
     * both are drawn, NOTHING joins them, no equivalences   -> missing_policy
-  relationship_presence (only when the target names two participants)
-    * both are drawn, nothing joins them - no relationship, no ISA hierarchy,
-      no common neighbour entity - and no equivalences      -> missing_policy
+  relationship_presence (when the target names two or more participants)
+    * a relationship joins them, whatever it is called      -> pass
+      (staff, 2026-11-04: the name of a relationship is never graded; [A, A]
+      needs a line from A to itself, [A, B, C] one diamond joining all three)
+    * two participants both drawn, nothing joins them - no relationship, no
+      ISA hierarchy, no common neighbour entity - and no equivalences
+                                                            -> missing_policy
     Measured, 4 of 4 gradings: with the AUTHORING-ARTICLE diamond left out the
     judge passed both checks for it, because other double diamonds labelled
-    "for" exist. Presence of the RIGHT relationship (label, meaning) is still
-    a naming question and stays with the judge and ``name_matching``.
+    "for" exist. Absence and presence are both lookups by participants.
   hierarchy_supertype_subtype_correct (target.entities = [supertype, subtype...])
     * specializations give every subtype that supertype     -> pass
     * no specialization joins the supertype to any of them,
@@ -47,7 +50,7 @@ label, and a label shared with another diamond must not undo "not drawn".
 
 import logging
 
-from app.services.erd_tutor.name_matching import flag, normalize_label
+from app.services.erd_tutor.name_matching import flag, joins, normalize_label
 
 logger = logging.getLogger(__name__)
 
@@ -142,13 +145,30 @@ def _identifying_relationship(model, target, has_equiv, policy):
     return None
 
 
+def _listed_names(names):
+    if len(names) == 2 and normalize_label(names[0]) == normalize_label(names[1]):
+        return f"{names[0]} to itself"
+    return " and ".join(names) if len(names) == 2 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 def _relationship_presence(model, target, has_equiv, policy):
     names = list(target.get("participants") or [])
+    if len(names) < 2:
+        return None
+    id_sets = [model.ids(n) for n in names]
+    if not all(id_sets):
+        return None
+    joining = [r for r in model.relationships if joins(r.get("participant_entity_ids"), id_sets)]
+    if joining:
+        drawn = [_drawn(model.entities_named(n)[0]) for n in names]
+        label = _drawn(joining[0])
+        return ("pass", f"A relationship joins {_listed_names(drawn)}"
+                        f"{f' ({label})' if label else ''}; its name is not graded.")
     if len(names) != 2 or has_equiv:
         return None
-    ids_a, ids_b = model.ids(names[0]), model.ids(names[1])
-    if not ids_a or not ids_b or model.rels_between(ids_a, ids_b):
-        return None
+    ids_a, ids_b = id_sets
+    if model.rels_between(ids_a, ids_b):
+        return None      # it takes part in other relationships, none drawn the way asked
     # Older rubrics write an ISA link as a relationship, and accept an M:N drawn
     # through an associative entity without listing the equivalence.
     if (model.is_subtype(ids_a, ids_b) or model.is_subtype(ids_b, ids_a)

@@ -17,6 +17,10 @@ For each rubric check with dimension "cardinality" and two explicit endpoints:
   * definite MISMATCH, and the check has NO equivalence_options
                                     -> override the judge to fail, naming the
                                        exact endpoint and values
+  * two numbers that differ in meaning written at one end, WHATEVER the
+    equivalence_options             -> override the judge to fail (staff,
+                                       2026-11-05: no way of drawing the
+                                       relationship makes that end right)
   * no contradiction, at least one required bound confirmed, the rest not
     stated in the diagram, and NO equivalence_options
                                     -> override the judge to partial. A student
@@ -51,7 +55,9 @@ its maximum from the arrowhead at its own end was read wrongly whenever the
 course drew that arrowhead to bound the OTHER end: the EduBot model answer
 failed its own Model-Tool check that way. An end the parser did not produce
 (an LLM-built model, or a value the student gave in words) still counts by
-its derived value.
+its derived value. An end with more than one number (written_markers) is read
+as one number when they all mean the same (">=1" and "1..N"), and is wrong
+when they do not (">=1" and "1"): the student has not said which.
 """
 
 import logging
@@ -156,6 +162,19 @@ def _read_written(label):
     return _bounds(_compact(label).rsplit(":", 1)[-1])
 
 
+# What _Model.endpoint finds at an end carrying two different numbers.
+_CONFLICT = object()
+
+
+def _differing(card):
+    """Every number written at this end when they do not all mean the same,
+    else None. A label that cannot be read is compared by its text."""
+    markers = [str(m).strip() for m in card.get("written_markers") or [] if str(m).strip()]
+    meanings = {_read_written(m) if _read_written(m) != (None, None) else _compact(m)
+                for m in markers}
+    return markers if len(meanings) > 1 else None
+
+
 def _min_from_participation(part):
     return {"total": 1, "partial": 0}.get(str(part or "").strip().lower())
 
@@ -218,6 +237,9 @@ class _Model:
                 if written == "":
                     return ((None, None), "nothing written")
                 if written is not None:
+                    several = _differing(card)
+                    if several:
+                        return (_CONFLICT, f"written {' and '.join(several)}")
                     return (_read_written(written), f"written {written}")
                 lo, hi = _parse_range(card.get("normalized_cardinality"))
                 if lo is None:
@@ -249,8 +271,11 @@ def _match(required, found):
     -> (verdict, confirmed): verdict is 'match' | 'mismatch' | 'unknown';
     confirmed counts required components the diagram states AND matches. The
     count is what separates "partly verified" (-> partial) from "nothing
-    readable at all" (-> fail).
+    readable at all" (-> fail). Two different numbers at the end (_CONFLICT)
+    are 'conflict', which confirms nothing.
     """
+    if found is _CONFLICT:
+        return ("conflict", 0)
     r_lo, r_hi = required
     f_lo, f_hi = found
     verdict, confirmed = "match", 0
@@ -326,7 +351,7 @@ def _apply(judge_result, rubric, canonical):
         # endpoint still counts: one labelled end and one bare end is partial
         # evidence, not unreadable evidence.
         best = None  # (verdict, confirmed, detail)
-        rank = {"match": 0, "unknown": 1, "mismatch": 2}
+        rank = {"match": 0, "unknown": 1, "mismatch": 2, "conflict": 2}
         for rel_a, rel_b in candidates:
             end_a = model.endpoint(rel_a, ids[0])
             end_b = model.endpoint(rel_b, ids[1])
@@ -338,7 +363,8 @@ def _apply(judge_result, rubric, canonical):
                 v_a, c_a = _match(wanted[0][1], fa)
                 v_b, c_b = _match(wanted[1][1], fb)
                 confirmed = c_a + c_b
-                verdict = ("mismatch" if "mismatch" in (v_a, v_b)
+                verdict = ("conflict" if "conflict" in (v_a, v_b)
+                           else "mismatch" if "mismatch" in (v_a, v_b)
                            else "unknown" if "unknown" in (v_a, v_b) else "match")
                 detail = (f"{wanted[0][0]}: required {wanted[0][2]}, {shown_a}; "
                           f"{wanted[1][0]}: required {wanted[1][2]}, {shown_b}")
@@ -356,6 +382,12 @@ def _apply(judge_result, rubric, canonical):
         if verdict == "match":
             jc["status"] = "pass"
             jc["brief_reason"] = f"Endpoint values match the requirement{via}: {detail}."
+        elif verdict == "conflict":
+            # Wrong in every drawing of the relationship, so no equivalence
+            # option hands it to the judge.
+            jc["status"] = "fail"
+            jc["brief_reason"] = (f"Endpoint values do not match the requirement{via}: two "
+                                  f"different numbers are written at one end: {detail}.")
         elif has_equiv:
             continue  # equivalence options exist and direct evidence is not a match
         elif verdict == "mismatch":

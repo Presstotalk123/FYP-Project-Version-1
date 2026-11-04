@@ -15,10 +15,13 @@ stage is skipped. Image uploads (and any XML this parser cannot make sense of) s
 go through vision — see ``nodes.observe_node``.
 
 CONTRACT
-``parse_drawio`` returns a dict matching ``schemas.ObservationJSON``, plus one key
+``parse_drawio`` returns a dict matching ``schemas.ObservationJSON``, plus two keys
 the vision stage has no equivalent for: ``bare_lines``, the lines that join two
-entity boxes with no diamond between them (see the end of ``parse_drawio``).
-Everything downstream (normalize, grade, score) reads the rest unchanged.
+entity boxes with no diamond between them (see the end of ``parse_drawio``), and
+on a relationship endpoint carrying more than one distinct number,
+``observed_text_markers``, all of them in reading order (``observed_text_marker``
+stays the first). Everything downstream (normalize, grade, score) reads the rest
+unchanged.
 
 NOTATION MAPPING (mxGraph style -> ERD construct)
   rectangle                          -> entity
@@ -476,14 +479,26 @@ def parse_drawio(xml_text: str) -> dict:
     # Free-floating arcs -> curved cue at their endpoint.
     arc_at = {k: c.id for k, c in assign(arcs, limit=90.0).items()}
 
+    # The first number bound to an end is its marker; every distinct number
+    # bound to it is kept too. A second number at one end used to be dropped,
+    # so the grade depended on which label came first in the file; staff
+    # (2026-11-05) grade two different numbers at one end as wrong, and that is
+    # decided where the meaning is read (deterministic_checks).
+    marker_at, written_at = {}, {}
+
+    def bind(edge_id, text):
+        marker_at.setdefault(edge_id, text)
+        written = written_at.setdefault(edge_id, [])
+        if text not in written:
+            written.append(text)
+
     # Edge labels bind to their own edge (exact, no geometry needed).
-    marker_at = {}
     for lab in edgelabels:
         parent = by_id.get(lab.parent)
         text = marker_text(lab.value)
         if not parent or not parent.is_edge or not text:
             continue
-        marker_at.setdefault(parent.id, text)
+        bind(parent.id, text)
 
     # Text typed straight onto a connector (double-click mid-line) is the
     # edge's own value, not a child cell. One edge has one entity endpoint, so
@@ -491,12 +506,12 @@ def parse_drawio(xml_text: str) -> dict:
     for e in edges:
         text = marker_text(e.value)
         if text:
-            marker_at.setdefault(e.id, text)
+            bind(e.id, text)
 
-    # Free-floating text markers -> nearest free endpoint.
+    # Free-floating text markers -> nearest endpoint.
     free = [t for t in texts if marker_text(t.value)]
     for edge_id, cell in assign(free, limit=120.0).items():
-        marker_at.setdefault(edge_id, marker_text(cell.value))
+        bind(edge_id, marker_text(cell.value))
 
     out_endpoints = []
     for rel in relationships:
@@ -513,10 +528,12 @@ def parse_drawio(xml_text: str) -> dict:
                     cue = "curved_arrowhead"
                 elif kind == "sharp":
                     cue = "sharp_arrowhead"
+            written = written_at.get(edge.id, [])
             out_endpoints.append({
                 "relationship_id": rel_id[rel.id],
                 "entity_id": ent_id[tgt_id],
                 "observed_text_marker": marker_at.get(edge.id, ""),
+                **({"observed_text_markers": written} if len(written) > 1 else {}),
                 "observed_endpoint_cue": cue,
                 "evidence": "Read from the draw.io source: "
                             + (f"arc cell {arc_at[edge.id]} at this endpoint"

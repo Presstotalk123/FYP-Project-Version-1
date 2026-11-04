@@ -1095,7 +1095,11 @@ Status policy:
    means the student gave the value in words, so use normalized_cardinality.
    Arrowheads do NOT count toward this check: an end whose raw_marker is only
    a cue (no_arrow_visible, sharp_arrowhead, curved_arrowhead) has no number,
-   whatever its arrowhead.
+   whatever its arrowhead. An end with written_markers carries every number
+   the student wrote there: when they differ in meaning (">=1" and "1"), the
+   student wrote two different numbers at one end and the check fails,
+   whatever its equivalence_options; the same bound written twice (">=1" and
+   "1..N") is one number.
 
 14i. A relationship's name is never graded. relationship_presence passes when
    any relationship in cv_current_erd_model joins the entities in

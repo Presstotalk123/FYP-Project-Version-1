@@ -1084,6 +1084,28 @@ Status policy:
    that requires "plain" or whose cue is unknown. Relationship absent -> apply
    missing_policy.
 
+14h. cardinality_match compares the NUMBER written at each line end with the
+   value the rubric requires there (target.endpoints[].cardinality). Rubric
+   values are in the course notation: ">=1" one or more, ">=0" zero or more,
+   "1" exactly one, "0..1" zero or one, "N" many with the minimum not graded;
+   older rubrics use ranges ("1..N" means ">=1", "1..1" means "1"). Compare by
+   meaning, never by spelling: a student's "1..N" satisfies ">=1", a student's
+   "1" does not. Read the student's number from that endpoint's raw_marker in
+   cv_current_erd_model.cardinalities; a raw_marker of "(from description)"
+   means the student gave the value in words, so use normalized_cardinality.
+   Arrowheads do NOT count toward this check: an end whose raw_marker is only
+   a cue (no_arrow_visible, sharp_arrowhead, curved_arrowhead) has no number,
+   whatever its arrowhead.
+
+14i. A relationship's name is never graded. relationship_presence passes when
+   any relationship in cv_current_erd_model joins the entities in
+   target.participants, whatever it is labelled, and also when it is
+   unlabelled; target.relationship is only the model answer's label, for
+   reference. For relationship_attribute_presence, look for the attribute on
+   the relationship that joins target.participants, whatever it is called.
+   Entity and attribute names follow rules 14c and 14d: a similar name passes
+   unless the check fixes the exact name.
+
 Problem statement policy:
 15. Problem_Statement defines the target semantics.
    - It does NOT replace missing student evidence unless the rubric explicitly allows that equivalence.

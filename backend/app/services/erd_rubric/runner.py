@@ -16,7 +16,9 @@ from typing import Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.services.erd_rubric import prompts
+from app.services.erd_rubric.connectors import add_connector_checks
 from app.services.erd_rubric.schemas import RubricGeneration
+from app.services.erd_rubric.wording import standardise_wording
 from app.services.erd_rubric.llm import make_rubric_llm
 
 
@@ -73,4 +75,15 @@ async def generate_rubric(*, mode: str, notation: str, problem_statement: str,
 
     llm = make_rubric_llm().with_structured_output(RubricGeneration)
     result = await llm.ainvoke([SystemMessage(prompts.RUBRIC_SYSTEM), HumanMessage(content=content)])
-    return result.model_dump()
+    out = result.model_dump()
+    # A new rubric's connector checks follow its numbers (see connectors.py),
+    # and no check reads as if a shape's name were required (see wording.py).
+    # Patch mode leaves a saved rubric's checks as they are.
+    if mode == "create":
+        standardise_wording(out["rubric_json"])
+        notes = add_connector_checks(out["rubric_json"])
+        if notes:
+            meta = out["rubric_json"]["meta"]
+            meta["assumptions"] = (f"{meta['assumptions']} Connector marks set from the number at "
+                                   f"the other end of each line: {'; '.join(notes)}.").strip()
+    return out

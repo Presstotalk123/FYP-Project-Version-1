@@ -8,8 +8,10 @@ import { OverviewTab } from '@/components/admin/dashboard/OverviewTab';
 import { AssessmentAnalyticsTab } from '@/components/admin/dashboard/AssessmentAnalyticsTab';
 import { ErdAnalyticsTab } from '@/components/admin/dashboard/ErdAnalyticsTab';
 import { SqlAnalyticsTab } from '@/components/admin/dashboard/SqlAnalyticsTab';
+import { RaClassAnalytics } from '@/components/ra/RaClassAnalytics';  // Relational Algebra (FYP)
+import { useRaStatus } from '@/hooks/use-ra-status';
 
-type DashboardTab = 'overview' | 'assessments' | 'erd' | 'sql';
+type DashboardTab = 'overview' | 'assessments' | 'erd' | 'sql' | 'ra';
 
 const TABS: { key: DashboardTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
@@ -20,6 +22,9 @@ const TABS: { key: DashboardTab; label: string }[] = [
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<DashboardTab>('overview');
+  // Relational Algebra (FYP): its tab only while the module is switched on.
+  const { enabled: raEnabled } = useRaStatus();
+  const tabs = raEnabled ? [...TABS, { key: 'ra' as const, label: 'Relational Algebra' }] : TABS;
 
   return (
     <ProtectedRoute allowedRoles={[UserRole.STAFF, UserRole.ADMIN]}>
@@ -52,7 +57,7 @@ export default function AdminDashboard() {
               Dashboard
             </span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {TABS.map((t) => {
+              {tabs.map((t) => {
                 const active = tab === t.key;
                 return (
                   <button
@@ -87,6 +92,7 @@ export default function AdminDashboard() {
             {tab === 'overview' ? <OverviewTab />
               : tab === 'assessments' ? <AssessmentAnalyticsTab />
               : tab === 'erd' ? <ErdAnalyticsTab />
+              : tab === 'ra' && raEnabled ? <RaClassAnalytics />
               : <SqlAnalyticsTab />}
           </div>
         </div>

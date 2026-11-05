@@ -5,6 +5,7 @@ from enum import Enum
 
 
 class AssessmentItemType(str, Enum):
+    normalization_question = "normalization_question"
     sql_question = "sql_question"
     er_question = "er_question"
     sql_lab = "sql_lab"
@@ -335,6 +336,8 @@ class AssessmentAnalyticsSummaryResponse(BaseModel):
     platform_signed_in: int
     # Bank (practice) questions only — assessment-owned clones stay out, matching
     # what staff see in Problems.
+    total_normalization_questions: int = 0
+    total_normalization_submissions: int = 0
     total_sql_questions: int
     total_erd_questions: int
     # Graded attempts by students across the whole platform (staff test runs

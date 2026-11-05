@@ -8,13 +8,18 @@ one student answer:
      up here, with line/column.                                → invalid_expression
   2. Its final attributes must be the model answer's (any order). → wrong_columns
   3. If the question has data: same result on it?             → wrong_result
-  4. If both answers use only σ(=), Π, ⋈, ×, ρ, ∪: decide exactly with the
-     Chandra–Merlin test (conjunctive.py).                    → correct / wrong_in_general
-  5. Otherwise run it on every test database (plus a few made for the constants only
-     the student used, so a hard-coded value is caught).      → correct / wrong_in_general
+  4. Run it on every test database: the question's stored suite, plus a few made for
+     the constants only the student used (so a hard-coded value is caught).
+                                                              → wrong_in_general (method "tested")
+  5. Passed every test: try to *prove* it equivalent to the model answer on every valid
+     database with the Z3 solver (equivalence.py).
+       proved equivalent                                      → correct (method "proof")
+       a valid database where they differ                     → wrong_in_general (method "proof")
+       undecided within the fixed amount of work              → correct (method "tested")
 
-Every wrong verdict after step 2 comes with the smallest database found on which the two
-answers differ (shrink.py).
+A wrong verdict is therefore always backed by a real database; only a correct verdict
+can rest on testing alone, and ``method`` says which. Every wrong verdict after step 2
+comes with the smallest valid database found on which the two answers differ (shrink.py).
 
 Step feedback ("Show structure"): every statement of the student's answer is compared,
 **by content, not by name**, with the model answer's checkpoint steps on all test
@@ -37,17 +42,19 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.core.ra import ast
 from app.core.ra.compare import compare, equal, norm_row, same_columns
-from app.core.ra.conjunctive import NotConjunctive, prove, to_ucq
+from app.core.ra.equivalence import Proof, prove, valid
 from app.core.ra.errors import RAError
 from app.core.ra.evaluator import EvalOptions, Rel, evaluate
 from app.core.ra.generator import GenConfig, Generator, collect_hints
 from app.core.ra.parser import parse
-from app.core.ra.printer import expr_to_text
+from app.core.ra.printer import expr_to_text, program_to_text
 from app.core.ra.schema import Database
 from app.core.ra.shrink import describe, prettify, shrink
 from app.core.ra.suite import SuiteConfig, TestSuite, build_suite, question_seed
 
 EXTRA_DATABASES = 60          # made per submission when the student uses constants the model doesn't
+MAX_CACHED_PROOFS = 500
+CORRECT_MESSAGE = "Correct: your answer gives the same result as the model answer."
 MAX_CLOSE_CASES = 3           # "close" steps that get a small example database
 
 
@@ -76,7 +83,7 @@ class StepFeedback:
 class GradeResult:
     verdict: str                              # correct | wrong_columns | wrong_result | wrong_in_general | invalid_expression
     message: str
-    method: Optional[str] = None              # proof | tested | sample
+    method: Optional[str] = None              # proof | tested | sample (how the verdict was reached)
     expected_columns: List[str] = field(default_factory=list)
     student_columns: List[str] = field(default_factory=list)
     databases_checked: int = 0
@@ -87,6 +94,7 @@ class GradeResult:
     steps: List[StepFeedback] = field(default_factory=list)
     error: Optional[dict] = None
     elapsed_ms: float = 0.0
+    proof: Optional[str] = None               # how the proof went (equivalence.Proof.how), for staff
 
     @property
     def correct(self) -> bool:
@@ -138,13 +146,8 @@ class PreparedQuestion:
         self.suite = suite
         self.model_runs = [_run(self.model, db, options) for db in suite.databases]
         self.sample_run = _run(self.model, self.sample, options) if self.sample else None
-        self._model_ucq = None
-        if not bag:
-            try:
-                self._model_ucq = to_ucq(self.model, self.schema)
-            except (NotConjunctive, RAError):
-                self._model_ucq = None
         self._hint_constants = _constant_set([self.model])
+        self._proofs: Dict[str, Proof] = {}
 
     def _default_checkpoints(self) -> List[Checkpoint]:
         """Every named step of the model answer, then the final answer. Labels name the
@@ -169,13 +172,15 @@ class PreparedQuestion:
         return run.steps[self.checkpoint_index(cp)][2]
 
     # ── grading ───────────────────────────────────────────────────────────────
-    def grade(self, answer: str, *, with_steps: bool = True) -> GradeResult:
+    def grade(self, answer: str, *, with_steps: bool = True, prove: bool = True) -> GradeResult:
+        """``prove=False`` stops after the test databases (a quick check, e.g. Bagheera's
+        leak guard): an answer passing them is then reported correct, method "tested"."""
         started = time.perf_counter()
-        result = self._grade(answer, with_steps)
+        result = self._grade(answer, with_steps, prove)
         result.elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
         return result
 
-    def _grade(self, answer: str, with_steps: bool) -> GradeResult:
+    def _grade(self, answer: str, with_steps: bool, prove: bool = True) -> GradeResult:
         expected = list(self.columns)
         try:
             student = parse(answer, self.names)
@@ -221,23 +226,22 @@ class PreparedQuestion:
                                    missing_count=len(cmp.missing), extra_count=len(cmp.extra),
                                    extra_rows=[list(r) for r in cmp.extra[:20]], **base)
 
-        proof = self._try_proof(student)
-        if proof is not None and proof.equivalent:
-            return GradeResult("correct", "Correct: your answer is equivalent to the model answer on every "
-                               "possible database (proved, not just tested).", method="proof",
-                               databases_checked=len(dbs), **base)
-        if proof is not None:
-            case = self._counterexample(student, proof.counterexample, pretty=True)
-            return GradeResult("wrong_in_general", self._general_message(), method="proof",
-                               counterexample=case, databases_checked=len(dbs), **base)
-
         for db, m, s in zip(dbs, model_runs, student_runs):
             if not equal(m.columns, m.rows, s.columns, s.rows, bag=self.bag):
                 case = self._counterexample(student, db)
                 return GradeResult("wrong_in_general", self._general_message(), method="tested",
                                    counterexample=case, databases_checked=len(dbs), **base)
-        return GradeResult("correct", f"Correct: your answer gives the same result as the model answer on all "
-                           f"{len(dbs)} test databases.", method="tested", databases_checked=len(dbs), **base)
+
+        if not prove:
+            return GradeResult("correct", CORRECT_MESSAGE, method="tested", databases_checked=len(dbs), **base)
+        # Students see the same message either way; staff see how it was decided (method).
+        proof = self._proof(student)
+        if proof.status == "different":
+            case = self._counterexample(student, proof.counterexample, pretty=True)
+            return GradeResult("wrong_in_general", self._general_message(), method="proof",
+                               counterexample=case, databases_checked=len(dbs), proof=proof.how, **base)
+        return GradeResult("correct", CORRECT_MESSAGE, method="proof" if proof.equivalent else "tested",
+                           databases_checked=len(dbs), proof=proof.how, **base)
 
     def _general_message(self) -> str:
         if self.sample is not None:
@@ -245,13 +249,27 @@ class PreparedQuestion:
                     "Here is a small database where it gives a different result from the model answer.")
         return "Here is a small database where your answer gives a different result from the model answer."
 
-    def _try_proof(self, student: ast.Program):
-        if self._model_ucq is None:
-            return None
-        try:
-            return prove(self.model, student, self.schema, self.options)
-        except (NotConjunctive, RAError):
-            return None
+    def suite_summary(self) -> dict:
+        """The test suite's summary for staff, with the prover's view of every variant of
+        the model answer that the test databases didn't catch: proved equivalent (fine),
+        proved different (the suite missed a real mistake), or undecided."""
+        summary = self.suite.summary()
+        for m in summary["surviving_mutants"]:
+            try:
+                p = self._proof(parse(m["text"], self.names))
+            except RAError:
+                continue
+            m["equivalent"] = True if p.equivalent else False if p.status == "different" else None
+        return summary
+
+    def _proof(self, student: ast.Program) -> Proof:
+        """The proof for this answer; the same answer text is proved once per question."""
+        key = program_to_text(student)
+        if key not in self._proofs:
+            if len(self._proofs) >= MAX_CACHED_PROOFS:
+                self._proofs.pop(next(iter(self._proofs)))
+            self._proofs[key] = prove(self.model, student, self.schema, self.options, bag=self.bag)
+        return self._proofs[key]
 
     def _extra_databases(self, student: ast.Program) -> List[Database]:
         """Databases built around constants only the student used (e.g. a hard-coded GPA)."""
@@ -266,7 +284,11 @@ class PreparedQuestion:
             gen.close()
 
     def _differs(self, student: ast.Program):
+        """Do the answers differ on this database? Only valid databases count, so a
+        counterexample never loses a parent tuple a foreign key needs while it shrinks."""
         def check(db: Database) -> bool:
+            if not valid(db):
+                return False
             try:
                 m = _run(self.model, db, self.options)
                 s = _run(student, db, self.options)

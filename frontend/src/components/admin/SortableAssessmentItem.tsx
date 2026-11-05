@@ -7,6 +7,7 @@ import { IconGripVertical, IconTrash } from '@tabler/icons-react';
 import { AssessmentItemType } from '@/types/assessment.types';
 
 const TYPE_COLORS: Record<AssessmentItemType, string> = {
+  normalization_question: 'cyan',
   sql_question: 'blue',
   er_question: 'violet',
   sql_lab: 'teal',
@@ -15,6 +16,7 @@ const TYPE_COLORS: Record<AssessmentItemType, string> = {
 };
 
 const TYPE_LABELS: Record<AssessmentItemType, string> = {
+  normalization_question: 'Normalization',
   sql_question: 'SQL Question',
   er_question: 'ER Question',
   sql_lab: 'SQL Lab',

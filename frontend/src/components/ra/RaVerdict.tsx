@@ -1,6 +1,6 @@
 'use client';
 
-import { RaGradeResult, RaSuiteSummary } from '@/types/ra.types';
+import { RaGradeResult, RaShownResult, RaSuiteSummary } from '@/types/ra.types';
 import { RaCaseView } from './RaCaseView';
 import { RaTable } from './RaTable';
 
@@ -12,17 +12,35 @@ const TITLE: Record<RaGradeResult['verdict'], { text: string; tone: 'good' | 'ba
   invalid_expression: { text: 'The expression has an error', tone: 'bad' },
 };
 
-/** The verdict of one graded answer, with the evidence for it. */
-export function RaVerdict({ grade }: { grade: RaGradeResult }) {
+/**
+ * How the grader reached a verdict, for staff (students' grades come without a method,
+ * so they see only right or wrong). A wrong verdict is always backed by a database.
+ */
+export function gradeMethodLabel(verdict: RaGradeResult['verdict'], method: string | null | undefined,
+  databasesChecked: number): string | null {
+  const correct = verdict === 'correct';
+  if (method === 'proof') {
+    return correct ? 'Proved equivalent on every valid database'
+      : 'Wrong on a database the solver found (the test databases missed it)';
+  }
+  if (method === 'tested') {
+    return correct ? `Tested on ${databasesChecked} databases; the solver couldn’t prove it either way`
+      : `Wrong on one of ${databasesChecked} test databases`;
+  }
+  if (method === 'sample') return "Wrong on the question's data";
+  return null;
+}
+
+/**
+ * The verdict of one graded answer, with the evidence for it: first the student's result
+ * and the model answer's on the data shown with the question (``shown``), then the rest.
+ */
+export function RaVerdict({ grade, shown }: { grade: RaGradeResult; shown?: RaShownResult | null }) {
   const t = TITLE[grade.verdict];
-  const how = grade.method === 'proof'
-    ? 'Proved for every possible database'
-    : grade.method === 'tested'
-      ? `Checked on ${grade.databases_checked} test databases`
-      : grade.method === 'sample' ? "Checked on the question's data" : null;
+  const how = gradeMethodLabel(grade.verdict, grade.method, grade.databases_checked);
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div className={t.tone === 'good' ? 'alert-info' : 'alert-error'} style={{ display: 'grid', gap: 4 }}>
+      <div className={t.tone === 'good' ? 'alert-success' : 'alert-error'} style={{ display: 'grid', gap: 4 }}>
         <strong style={{ fontSize: 15 }}>{t.tone === 'good' ? '✓' : '✗'} {t.text}</strong>
         <span style={{ fontSize: 13 }}>{grade.message}</span>
         {grade.error?.hint && <span style={{ fontSize: 13 }}>{grade.error.hint}</span>}
@@ -30,6 +48,8 @@ export function RaVerdict({ grade }: { grade: RaGradeResult }) {
           {how}{how ? ' · ' : ''}{grade.elapsed_ms} ms
         </span>
       </div>
+
+      {shown && <RaShownComparison shown={shown} verdict={grade.verdict} />}
 
       {grade.verdict === 'wrong_columns' && (
         <div style={{ fontSize: 13 }}>
@@ -48,6 +68,45 @@ export function RaVerdict({ grade }: { grade: RaGradeResult }) {
           <RaCaseView example={grade.counterexample} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** The student's result, then the model answer's, on the data the student can see with the question. */
+function RaShownComparison({ shown, verdict }: { shown: RaShownResult; verdict: RaGradeResult['verdict'] }) {
+  const where = shown.source === 'example' ? 'the example data shown with the question' : "the question's data";
+  const extra = shown.student_extra.filter(Boolean).length;
+  const missing = shown.expected_missing.filter(Boolean).length;
+  const plural = (n: number) => (n === 1 ? 'tuple' : 'tuples');
+  let summary: string;
+  if (!shown.same_columns) {
+    summary = 'Your result has different attributes from the model answer’s.';
+  } else if (shown.equal) {
+    summary = verdict === 'correct'
+      ? 'Your answer gives the same result as the model answer on this data.'
+      : 'Your answer gives the right result on this data, but not on every database: the small database below shows where it goes wrong.';
+  } else {
+    const parts = [];
+    if (extra) parts.push(`${extra} ${plural(extra)} that shouldn’t be there (✗, red)`);
+    if (missing) parts.push(`${missing} ${plural(missing)} missing from yours (✓, green)`);
+    summary = `On this data your answer has ${parts.join(' and ')}.`;
+  }
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      <span style={{ fontSize: 13, fontWeight: 700 }}>On {where}</span>
+      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{summary}</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ minWidth: 160, flex: 1 }}>
+          <RaTable caption={`Your answer returns (${shown.student.rows.length} ${plural(shown.student.rows.length)})`}
+            columns={shown.student.columns} rows={shown.student.rows} emptyText="No tuples"
+            marked={shown.student_extra} markedTone="bad" />
+        </div>
+        <div style={{ minWidth: 160, flex: 1 }}>
+          <RaTable caption={`The model answer returns (${shown.expected.rows.length} ${plural(shown.expected.rows.length)})`}
+            columns={shown.expected.columns} rows={shown.expected.rows} emptyText="No tuples"
+            marked={shown.expected_missing} markedTone="good" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -71,10 +130,17 @@ export function RaSuiteReport({ suite }: { suite: RaSuiteSummary }) {
         {survivors.length > 0 && (
           <>
             <span>
-              Not caught, so either equivalent to the model answer (no data can tell them apart) or worth a look:
+              Not caught by the test databases. The prover checked each one against the model answer:
             </span>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {survivors.map((m, i) => <li key={i}><code>{m.description}</code></li>)}
+              {survivors.map((m, i) => (
+                <li key={i}>
+                  <code>{m.description}</code>{' — '}
+                  {m.equivalent === true && <span style={{ color: 'var(--success)' }}>proved equivalent, so no data can catch it (fine)</span>}
+                  {m.equivalent === false && <span style={{ color: 'var(--error)' }}>proved different: a real mistake the tests miss (students making it are still caught by the prover)</span>}
+                  {(m.equivalent === null || m.equivalent === undefined) && <span>undecided: worth a look</span>}
+                </li>
+              ))}
             </ul>
           </>
         )}

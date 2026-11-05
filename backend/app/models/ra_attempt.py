@@ -19,6 +19,9 @@ class RAAttempt(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(Integer, ForeignKey("ra_questions.id"), nullable=False, index=True)
+    # Which part of the question (ra_question_parts). Nullable only for rows written
+    # before parts existed; local_schema.py fills those in.
+    part_id = Column(Integer, ForeignKey("ra_question_parts.id"), nullable=True, index=True)
     answer = Column(Text, nullable=False)
 
     # correct | wrong_columns | wrong_result | wrong_in_general | invalid_expression
@@ -27,6 +30,11 @@ class RAAttempt(Base):
     method = Column(String(10), nullable=True)                     # proof | tested | sample
     result_json = Column(Text, nullable=False)                     # GradeResult.to_dict()
     elapsed_ms = Column(Integer, nullable=True)
+    # Multi-step questions: the student's boxes (a JSON list of strings; ``answer`` holds
+    # them joined as R1 := … lines) and the marks they earned (core/ra/step_marking.py).
+    # NULL elsewhere: there an attempt earns the part's marks when it is correct.
+    step_answers_json = Column(Text, nullable=True)
+    marks_earned = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     # Staff override (dispute review): the corrected outcome, why, who, when.

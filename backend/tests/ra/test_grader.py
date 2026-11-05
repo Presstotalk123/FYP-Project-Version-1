@@ -128,15 +128,18 @@ def test_every_mutant_of_every_model_answer_is_caught_or_reported():
             assert m["description"] and m["text"]
 
 
-def test_conjunctive_answers_are_proved_not_just_tested():
+def test_correct_answers_are_proved_not_just_tested():
     r = question(Q1, Q1_III).grade(
         "π Sname, Dname (STUDENT ⋈ MAJOR ⋈ π Sid (ENROLL ⋈ π Dname, Cno σ Cname = 'Database Systems' COURSE))")
     assert r.verdict == "correct" and r.method == "proof"
+    # Wrong answers are caught by the test databases first; the verdict is just as certain.
     wrong = question(Q1, Q1_III).grade(Q1_III.replace("π Dname, Cno (", "π Cno ("))
-    assert wrong.verdict == "wrong_in_general" and wrong.method == "proof"
-    # The proof's counterexample uses readable values, not ⟨v1⟩ placeholders.
-    values = [v for t in wrong.counterexample["tables"].values() for row in t["rows"] for v in row]
-    assert not any(isinstance(v, str) and v.startswith("⟨") for v in values)
+    assert wrong.verdict == "wrong_in_general" and wrong.method == "tested"
+    # The no-γ minimum (by difference) is right but beyond what the solver decides: tested.
+    lowest = question(Q1, Q1_II).grade(
+        "R1 := STUDENT\nR2 := π STUDENT.Sid (STUDENT ⋈ STUDENT.GPA > R1.GPA R1)\n"
+        "R3 := π Sid STUDENT − R2\nAnswer := π Sname (R3 ⋈ STUDENT)")
+    assert lowest.verdict == "correct" and lowest.method == "tested"
 
 
 def test_aggregation_differs_on_an_empty_relation():

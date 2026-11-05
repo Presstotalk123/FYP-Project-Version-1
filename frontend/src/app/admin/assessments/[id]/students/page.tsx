@@ -1,5 +1,7 @@
 'use client';
 
+import { NormalizationAnalytics } from '@/components/normalization/NormalizationAnalytics';
+
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -244,6 +246,7 @@ export default function AssessmentStudentsPage() {
   };
 
   const itemTypeBadgeColor: Record<string, string> = {
+    normalization_question: 'cyan',
     sql_question: 'blue',
     er_question: 'violet',
     sql_lab: 'orange',
@@ -251,6 +254,7 @@ export default function AssessmentStudentsPage() {
   };
 
   const itemTypeLabel: Record<string, string> = {
+    normalization_question: 'Normalization',
     sql_question: 'SQL Question',
     er_question: 'ER Question',
     sql_lab: 'SQL Lab',
@@ -288,7 +292,13 @@ export default function AssessmentStudentsPage() {
     return <Text size="xs" c="dimmed">{parts.join(' · ')}</Text>;
   };
 
+  const [normalizationDetail, setNormalizationDetail] = useState<{ questionId: number; studentId: number } | null>(null);
   const renderItemScore = (item: AssessmentItemComponentScore, studentId: number) => {
+    if (item.item_type === 'normalization_question') return <Group gap="xs">
+      <Badge color={item.has_correct_attempt ? 'green' : 'gray'}>{item.has_correct_attempt ? 'Accepted' : item.attempt_count ? 'Attempted' : 'Not attempted'}</Badge>
+      <Text size="sm">{Math.round((item.score_fraction ?? 0) * 100)}% · {item.attempt_count ?? 0} attempts</Text>
+      <Button size="xs" variant="light" onClick={() => setNormalizationDetail({ questionId: item.item_id, studentId })}>View Submissions</Button>
+    </Group>;
     if (item.item_type === 'ra_question') {  // Relational Algebra (FYP): binary like SQL
       const count = item.attempt_count ?? 0;
       return (
@@ -297,6 +307,10 @@ export default function AssessmentStudentsPage() {
             {item.has_correct_attempt ? 'Solved' : count > 0 ? 'Not Solved' : 'Not Attempted'}
           </Badge>
           {count > 0 && <Text size="sm" c="dimmed">{count} attempt{count !== 1 ? 's' : ''}</Text>}
+          <Button size="xs" variant="light" color="teal" leftSection={<IconEye size={12} />}
+            onClick={() => router.push(`/ra/analytics/${item.item_id}?student=${studentId}`)}>
+            View Submissions
+          </Button>
         </Group>
       );
     }
@@ -840,6 +854,13 @@ export default function AssessmentStudentsPage() {
             {...addTarget}
           />
         )}
+        <Modal opened={!!normalizationDetail} onClose={() => setNormalizationDetail(null)} title="Normalization submissions" size="90%">
+          {normalizationDetail && <NormalizationAnalytics questionId={normalizationDetail.questionId} studentId={normalizationDetail.studentId} onReviewed={() => {
+            void loadScores(normalizationDetail.studentId);
+            void fetchStudents();
+            setAnalyticsReloadKey(key => key + 1);
+          }} />}
+        </Modal>
       </DashboardLayout>
     </ProtectedRoute>
   );

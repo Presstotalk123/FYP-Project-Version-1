@@ -1,0 +1,24 @@
+.graphs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.graphs > article { min-width: 0; }
+.graphs h3 { margin: 0; }
+.subtitle, .note { color: var(--text-muted); font-size: 12px; }
+.subtitle { margin: 6px 0 18px; }
+.note { margin-top: 18px; }
+.chart { width: 100%; height: auto; display: block; }
+.tick { fill: var(--text-muted); font-size: 11px; }
+.bars { min-height: 240px; max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.barRow { display: grid; grid-template-columns: minmax(60px, 100px) minmax(0, 1fr) 50px; align-items: center; gap: 12px; font-size: 13px; }
+.courseLabel { overflow-wrap: anywhere; }
+.barRow strong { text-align: right; }
+.track { background: var(--surface-muted); border-radius: 4px; height: 18px; }
+.bar { background: var(--brand-lilac); border-radius: 4px; height: 100%; }
+.empty { color: var(--text-muted); min-height: 240px; display: flex; justify-content: center; align-items: center; text-align: center; }
+.details { font-size: 13px; margin-top: 12px; }
+.details summary { cursor: pointer; color: var(--brand-lilac); }
+.details table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.details th, .details td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+@media (max-width: 1000px) { .graphs { grid-template-columns: 1fr; } }
+
+.cardHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.cardHeader > :first-child { flex: 1; min-width: 150px; }
+.yearSelector { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; font-size: 13px; }

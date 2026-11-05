@@ -115,6 +115,11 @@ def execute_query(
             detail="Question not found"
         )
 
+    # Apply the same unpublished-master policy as question detail/database reads.
+    # An unpublished bank ID must not become an execution oracle by guessing it.
+    if user_role == "student" and not question.is_published and question.owner_assessment_id is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+
     # Snapshot the fields needed after the connection is released.
     q_owner_assessment_id = question.owner_assessment_id
     q_advanced = question.advanced_sql_testing

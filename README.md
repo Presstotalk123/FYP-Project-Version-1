@@ -7,6 +7,7 @@ Production: [ntuakela.net](https://ntuakela.net)
 ## Features
 
 - **SQL Questions** — author and solve SQL practice problems against per-question SQLite databases, with automatic correctness grading and an AI query-review assistant.
+- **Normalization Questions** — construct functional dependencies and 3NF/BCNF decompositions in Problems and Assessments, with deterministic grading, optional per-question semantic interpretation, and audited staff review. See [setup and verification](NORMALIZATION_README.md).
 - **SQL Labs** — multi-task, session-based lab environments where students run queries against a shared schema.
 - **ER Diagram exercises** — draw.io-based entity-relationship modelling questions, graded by a rubric-driven grader with an interactive AI ERD tutor (LangGraph engine).
 - **Assessments** — timed, optionally password-gated assessments with per-class scheduling windows and a timing gateway; scoring uses each student's best attempt.
@@ -109,7 +110,13 @@ Production: [ntuakela.net](https://ntuakela.net)
    npm install
    ```
 
-3. Run the development server:
+3. Configure the frontend environment:
+   ```bash
+   cp .env.example .env.local
+   ```
+   For Google sign-in, fill in `NEXT_PUBLIC_GOOGLE_CLIENT_ID` with your Google OAuth **Web Client ID**, and set the same value as `GOOGLE_CLIENT_ID` in `backend/.env`. Google Cloud must allow `http://localhost:3000` as an Authorized JavaScript origin. Your Gmail address is not the client ID.
+
+4. Run the development server:
    ```bash
    npm run dev
    ```

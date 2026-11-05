@@ -10,11 +10,14 @@ behaviour lives here. It follows the SQL-question rules exactly:
   * A clone is reachable only by a student with an active session in a live assessment
     that contains it, and staff.
   * The assessment timer is enforced on Submit, and AssessmentItem.max_queries caps the
-    number of Submits (Check never counts: it is not graded).
-  * Scoring is binary like sql_question: 1.0 once any submission is correct (or a staff
-    override says so), else 0.0.
+    number of Submits for each part (Check never counts: it is not graded).
+  * Scoring: each part earns its marks once any submission to it is correct (or a staff
+    override says so); the item's fraction is the marks earned over the question's total.
+    A one-part question is therefore binary, exactly like sql_question. A multi-step
+    part may also earn some of its marks (its steps', core/ra/step_marking.py): the
+    part then earns the best of its submissions.
 """
-from typing import Dict, Iterable, Optional, Set, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
@@ -25,6 +28,7 @@ from app.models.assessment_item import AssessmentItem
 from app.models.assessment_session import AssessmentSession
 from app.models.ra_attempt import RAAttempt
 from app.models.ra_question import RAQuestion
+from app.models.ra_question_part import RAQuestionPart
 from app.models.user import User
 
 ITEM_TYPE = "ra_question"
@@ -32,6 +36,17 @@ ITEM_TYPE = "ra_question"
 # An attempt counts as correct when staff overrode it to correct, or the grader said so
 # and nobody overrode it.
 _EFFECTIVE_CORRECT = func.coalesce(RAAttempt.override_is_correct, RAAttempt.is_correct)
+
+
+def effective_marks(override_is_correct, is_correct, marks_earned, part_marks: int) -> int:
+    """The marks one attempt earns: all or nothing by a staff override if there is one,
+    else the step marks it earned (multi-step), else all of them when it is correct."""
+    part_marks = part_marks or 0
+    if override_is_correct is not None:
+        return part_marks if override_is_correct else 0
+    if marks_earned is not None:
+        return max(0, min(int(marks_earned), part_marks))
+    return part_marks if is_correct else 0
 
 
 # ── publishing ───────────────────────────────────────────────────────────────
@@ -45,16 +60,26 @@ def clone_for_assessment(db: Session, question_id: int, assessment_id: int, hide
     clone = RAQuestion(
         title=master.title, description=master.description, difficulty=master.difficulty,
         schema_sql=master.schema_sql, data_sql=master.data_sql, model_answer=master.model_answer,
+        example_data_sql=master.example_data_sql,
         checkpoints_json=master.checkpoints_json,
         # In an exam the question's own "in assessments" choice decides, never practice's.
         show_step_direction=master.assessment_step_direction if not hide_correctness else 0,
         assessment_step_direction=master.assessment_step_direction,
-        compare_bags=master.compare_bags, hide_correctness=hide_correctness,
+        compare_bags=master.compare_bags, hide_correctness=hide_correctness, answer_format=master.answer_format,
         is_published=0, is_deleted=0,
         suite_json=master.suite_json, suite_summary_json=master.suite_summary_json,
         created_by=master.created_by, owner_assessment_id=assessment_id,
     )
     db.add(clone)
+    db.flush()
+    for part in (db.query(RAQuestionPart)
+                 .filter(RAQuestionPart.question_id == master.id, RAQuestionPart.is_deleted == 0)
+                 .order_by(RAQuestionPart.position, RAQuestionPart.id)):
+        db.add(RAQuestionPart(
+            question_id=clone.id, position=part.position, label=part.label, description=part.description,
+            marks=part.marks, model_answer=part.model_answer, checkpoints_json=part.checkpoints_json,
+            steps_json=part.steps_json,
+            suite_json=part.suite_json, suite_summary_json=part.suite_summary_json, is_deleted=0))
     db.flush()
     return clone.id
 
@@ -77,23 +102,42 @@ def reset_student(db: Session, student_id: int, question_id: int) -> int:
 
 
 # ── scoring ──────────────────────────────────────────────────────────────────
-def solved_and_attempts(db: Session, user_ids: Iterable[int], question_ids: Iterable[int]
-                        ) -> Tuple[Set[Tuple[int, int]], Dict[Tuple[int, int], int]]:
-    """{(user, question) with a correct attempt}, and {(user, question): attempts}."""
+def scores(db: Session, user_ids: Iterable[int], question_ids: Iterable[int]
+           ) -> Tuple[Dict[Tuple[int, int], float], Dict[Tuple[int, int], int]]:
+    """{(user, question): fraction of the question's marks earned}, and
+    {(user, question): attempts}. Pairs without attempts are left out (fraction 0)."""
     user_ids, question_ids = list(user_ids), list(question_ids)
     if not user_ids or not question_ids:
-        return set(), {}
-    rows = (db.query(RAAttempt.user_id, RAAttempt.question_id, func.count(RAAttempt.id), func.max(_EFFECTIVE_CORRECT))
-            .filter(RAAttempt.user_id.in_(user_ids), RAAttempt.question_id.in_(question_ids))
-            .group_by(RAAttempt.user_id, RAAttempt.question_id).all())
-    solved = {(uid, qid) for uid, qid, _cnt, best in rows if best}
-    return solved, {(uid, qid): cnt for uid, qid, cnt, _best in rows}
+        return {}, {}
+    marks: Dict[int, int] = {}
+    total: Dict[int, int] = {}
+    for pid, qid, m in (db.query(RAQuestionPart.id, RAQuestionPart.question_id, RAQuestionPart.marks)
+                        .filter(RAQuestionPart.question_id.in_(question_ids), RAQuestionPart.is_deleted == 0)):
+        marks[pid] = m or 0
+        total[qid] = total.get(qid, 0) + (m or 0)
+    attempts: Dict[Tuple[int, int], int] = {}
+    best: Dict[Tuple[int, int, int], int] = {}
+    rows = (db.query(RAAttempt.user_id, RAAttempt.question_id, RAAttempt.part_id, RAAttempt.override_is_correct,
+                     RAAttempt.is_correct, RAAttempt.marks_earned)
+            .filter(RAAttempt.user_id.in_(user_ids), RAAttempt.question_id.in_(question_ids)).all())
+    for uid, qid, pid, override, correct, marks_earned in rows:
+        attempts[(uid, qid)] = attempts.get((uid, qid), 0) + 1
+        if pid in marks:
+            got = effective_marks(override, correct, marks_earned, marks[pid])
+            best[(uid, qid, pid)] = max(best.get((uid, qid, pid), 0), got)
+    earned: Dict[Tuple[int, int], int] = {}
+    for (uid, qid, _pid), got in best.items():
+        if got:
+            earned[(uid, qid)] = earned.get((uid, qid), 0) + got
+    fractions = {key: (got / total[key[1]] if total.get(key[1]) else 0.0) for key, got in earned.items()}
+    return fractions, attempts
 
 
-def score_detail(db: Session, question_id: int, student_id: int) -> Tuple[bool, int]:
-    """(has a correct attempt, number of attempts) for one student and question."""
-    solved, attempts = solved_and_attempts(db, [student_id], [question_id])
-    return (student_id, question_id) in solved, attempts.get((student_id, question_id), 0)
+def score_detail(db: Session, question_id: int, student_id: int) -> Tuple[float, int]:
+    """(fraction of the marks earned, number of attempts) for one student and question."""
+    fractions, attempts = scores(db, [student_id], [question_id])
+    key = (student_id, question_id)
+    return fractions.get(key, 0.0), attempts.get(key, 0)
 
 
 def titles(db: Session, question_ids: Iterable[int]) -> Dict[int, str]:
@@ -132,13 +176,14 @@ def submission_limit(db: Session, q: RAQuestion) -> Optional[int]:
     return row[0] if row else None
 
 
-def submissions_used(db: Session, q: RAQuestion, user: User) -> int:
-    return db.query(RAAttempt).filter(RAAttempt.user_id == user.id, RAAttempt.question_id == q.id).count()
+def submissions_used(db: Session, part: RAQuestionPart, user: User) -> int:
+    return db.query(RAAttempt).filter(RAAttempt.user_id == user.id, RAAttempt.part_id == part.id).count()
 
 
-def guard_submit(db: Session, q: RAQuestion, user: User, is_staff: bool) -> None:
+def guard_submit(db: Session, q: RAQuestion, part: RAQuestionPart, user: User, is_staff: bool) -> None:
     """Before grading an assessment clone: the attempt must still be running and within
-    its time, and a student must have Submits left. Staff (preview) are never limited."""
+    its time, and a student must have Submits left for this part. Staff (preview) are
+    never limited."""
     from app.services.assessment_timer import enforce_not_expired, get_active_assessment_session
 
     if q.owner_assessment_id is None or is_staff:
@@ -148,6 +193,6 @@ def guard_submit(db: Session, q: RAQuestion, user: User, is_staff: bool) -> None
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Assessment has ended.")
     enforce_not_expired(db, session)               # 403 and finalize if past the deadline
     limit = submission_limit(db, q)
-    if limit is not None and submissions_used(db, q, user) >= limit:
+    if limit is not None and submissions_used(db, part, user) >= limit:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "You have reached the maximum number of submissions for this question.")
+                            "You have reached the maximum number of submissions for this part.")

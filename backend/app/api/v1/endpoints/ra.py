@@ -7,7 +7,13 @@
   POST /ra/playground/grade       grade an answer against a model answer, with the
                                   verdict, a counterexample, step-by-step feedback and
                                   how strong the generated test databases are
-  /ra/questions/…                 RA questions: see ra_questions.py
+  POST /ra/notation               an answer in textbook notation (LaTeX per statement) for the
+                                  editor's preview; not graded
+  /ra/questions/…                 RA questions: see ra_questions.py (the question type
+                                  switch and its preview: ra_formats.py; Bagheera, the
+                                  AI tutor: ra_bagheera.py)
+  /ra/analytics/…                 staff analytics: see ra_analytics.py (regrading past
+                                  attempts with the current grader: ra_regrade.py)
 
 The playground is a free practice space (like RelaX): nothing is saved. Any
 signed-in user may use it. The schema SQL runs in a private in-memory SQLite with file
@@ -22,14 +28,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.config import settings
 from app.core.ra import Database, EvalOptions, RAError, evaluate, parse
 from app.core.ra.grader import Checkpoint
+from app.core.ra.latex import program_to_latex
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, PlaygroundGradeIn, PlaygroundGradeOut,
-                            PlaygroundRunIn, PlaygroundRunOut, RAErrorOut, RAStatus, RelationOut,
-                            SuiteSummaryOut)
+from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, NotationIn, NotationLineOut, NotationOut,
+                            PlaygroundGradeIn, PlaygroundGradeOut, PlaygroundRunIn, PlaygroundRunOut,
+                            RAErrorOut, RAStatus, RelationOut, SuiteSummaryOut)
 from app.services.ra import grading
 from app.services.ra.examples import EXAMPLES
-from app.api.v1.endpoints import ra_questions
+from app.api.v1.endpoints import ra_analytics, ra_bagheera, ra_formats, ra_questions, ra_regrade
 
 router = APIRouter(prefix="/ra", tags=["relational-algebra"])
 
@@ -101,7 +108,7 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
 
     result = question.grade(body.answer)
     out = PlaygroundGradeOut(ok=True, grade=GradeOut(**result.to_dict()),
-                             suite=SuiteSummaryOut(**question.suite.summary()))
+                             suite=SuiteSummaryOut(**question.suite_summary()))
     if result.verdict != "invalid_expression":
         db, source = grading.structure_database(question)
         try:
@@ -116,7 +123,23 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
 
 
 # RA questions: /ra/questions/… (see ra_questions.py), all behind the RA_ENABLED switch.
+router.include_router(ra_formats.router, dependencies=[Depends(require_ra_enabled)])
+router.include_router(ra_bagheera.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_questions.router, dependencies=[Depends(require_ra_enabled)])
+router.include_router(ra_analytics.router, dependencies=[Depends(require_ra_enabled)])
+router.include_router(ra_regrade.router, dependencies=[Depends(require_ra_enabled)])
+
+
+@router.post("/notation", response_model=NotationOut, dependencies=[Depends(require_ra_enabled)])
+def notation(body: NotationIn, _user: User = Depends(get_current_user)) -> NotationOut:
+    """How the answer was read, in textbook notation: σ_{condition}(R), one line per statement."""
+    if not body.program.strip():
+        return NotationOut(ok=True)
+    try:
+        lines = program_to_latex(parse(body.program, names=body.names))
+    except RAError as e:
+        return NotationOut(ok=False, error=RAErrorOut.from_engine(e))
+    return NotationOut(ok=True, lines=[NotationLineOut(**line) for line in lines])
 
 
 def _ms(started: float) -> float:

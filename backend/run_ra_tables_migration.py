@@ -1,28 +1,29 @@
-"""Create the Relational Algebra tables (ra_questions, ra_attempts) on PostgreSQL.
-
-SQLite creates them automatically at startup (main.py create_all), so this is only
-needed against Postgres, once, before switching RA_ENABLED on there:
+"""Create or upgrade the Relational Algebra tables (ra_questions, ra_question_parts,
+ra_attempts) on PostgreSQL by hand:
     python run_ra_tables_migration.py
 
-Safe to re-run: create_all only creates tables that are missing. The tables are new and
-nothing else references them, so running this changes no existing table, and leaving
+Usually not needed: while RA_ENABLED is on, the backend does the same at startup
+(app/services/ra/local_schema.py). This runs it regardless of RA_ENABLED.
+
+Safe to re-run. It only adds: missing RA tables, missing RA columns, and one part for
+each question saved before questions had parts. No other table is touched, and leaving
 RA_ENABLED off afterwards leaves the app exactly as it was.
 """
 from sqlalchemy import inspect as sa_inspect
 
-from app.database import Base, engine
-from app.models.ra_attempt import RAAttempt
-from app.models.ra_question import RAQuestion
+from app.database import engine
+from app.services.ra.local_schema import add_missing_columns
 
-TABLES = [RAQuestion.__table__, RAAttempt.__table__]
+TABLES = ("ra_questions", "ra_question_parts", "ra_attempts")
 
 
 def main() -> None:
     before = set(sa_inspect(engine).get_table_names())
-    Base.metadata.create_all(bind=engine, tables=TABLES)
-    for table in TABLES:
-        state = "already existed" if table.name in before else "created"
-        print(f"{table.name}: {state}")
+    add_missing_columns(engine, force=True)
+    after = set(sa_inspect(engine).get_table_names())
+    for name in TABLES:
+        state = "already existed" if name in before else ("created" if name in after else "MISSING (see the log)")
+        print(f"{name}: {state}")
 
 
 if __name__ == "__main__":

@@ -94,6 +94,40 @@ QUESTIONS = [
      "model_answer": "Temp1 := (R × ρR1 (R) × ρR2 (R))\n"
                      "Temp2 := σ R1.a > R.a AND R2.a > R1.a (Temp1)  // the 3rd value and onwards\n"
                      "Answer := π a (R) – π R.a (Temp2)"},
+    # The same tutorial questions as one question per schema, with parts.
+    {"title": "Tutorial 5.5 Q1 — university (4 parts)", "difficulty": "medium",
+     "description": "Consider the university database below. Answer each part in relational algebra." + _SCHEMA_NOTE,
+     "schema_sql": UNIVERSITY,
+     "parts": [
+         {"label": "(i)", "marks": 2,
+          "description": "Find the names of professors who work in departments that have fewer than 50 PhD students.",
+          "model_answer": "R1 := σ Numphds < 50 (DEPT)\nAnswer := π Pname (PROF ⋈ R1)"},
+         {"label": "(ii)", "marks": 3, "description": "Find the name(s) of student(s) with the lowest GPA.",
+          "model_answer": "R1 := γ MIN(GPA)→MinGPA (STUDENT)\nR2 := STUDENT ⋈ STUDENT.GPA=R1.MinGPA R1\n"
+                          "Answer := π Sname (R2)"},
+         {"label": "(iii)", "marks": 3,
+          "description": "Find the names and majors of students who have taken the ‘Database System’ course.",
+          "model_answer": "R1 := π Dname, Cno (σ Cname=‘Database System’ COURSE)\nR2 := π Sid (R1 ⋈ ENROLL)\n"
+                          "Answer := π Sname, Dname (R2 ⋈ MAJOR ⋈ STUDENT)"},
+         {"label": "(iv)", "marks": 4,
+          "description": "Find the ids, names, and GPAs of the students who have taken all courses from the "
+                         "‘Civil Engineering’ department.",
+          "model_answer": "R1 := π Dname, Cno (σ Dname = ‘Civil Engineering’ COURSE)\nR2 := π Sid, Dname, Cno ENROLL\n"
+                          "R3 := R2 ÷ R1\nAnswer := π Sid, Sname, GPA (R3 ⋈ STUDENT)"},
+     ]},
+    {"title": "Tutorial 5.5 Q2 — railway (2 parts)", "difficulty": "easy",
+     "description": "Consider the railway database below. Foreign keys in one table refer to primary keys in other "
+                    "tables which have the same attribute names." + _SCHEMA_NOTE,
+     "schema_sql": RAILWAY,
+     "parts": [
+         {"label": "(i)", "marks": 1,
+          "description": "Find the cities that have direct (non-stop) trains to both Minneapolis and San Francisco.",
+          "model_answer": "π source_city ( σ destination_city = “Minneapolis” (TRAINS)) ∩ "
+                          "π source_city ( σ destination_city = “San Francisco” (TRAINS))"},
+         {"label": "(ii)", "marks": 1,
+          "description": "Find the train_num and date of all trains for which there are no reservations.",
+          "model_answer": "π train_num, date (DEPARTURES) - π train_num, date ( RESERVATIONS)"},
+     ]},
     {"title": "Lecture 2 — highest Quiz 1 score", "difficulty": "easy",
      "description": "Find the name(s) of the student(s) with the highest score in Quiz1 "
                     "(lecture 2, “student with the highest score”). This question has data: you can see it below.",

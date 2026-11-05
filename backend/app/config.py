@@ -5,6 +5,13 @@ from typing import Optional
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
+    # Database Rescue ships dark; staff can prepare content before cohort rollout.
+    COMPETITIONS_ENABLED: bool = False
+    COMPETITION_DB_PATH: str = "./competition_databases/"
+    COMPETITION_SQL_MAX_CHARS: int = 20000
+    COMPETITION_QUERY_SECONDS: float = 5.0
+    COMPETITION_JUDGE_SECONDS: float = 15.0
+
     # Database
     DATABASE_URL: str = "sqlite:///./sql_learning.db"
 
@@ -91,6 +98,9 @@ class Settings(BaseSettings):
     AI_ENABLE_TEMPERATURE: bool = True      # Set to False to disable passing temperature (e.g., for o1/o3/gpt-5 models)
     AI_AZURE_ENDPOINT: str = ""             # https://<resource>.openai.azure.com/
     AI_AZURE_API_VERSION: str = "2024-02-01"
+
+    # AskNarelle Flask API
+    ASKNARELLE_API_URL: str = ""
 
     # CORS
     CORS_ORIGINS: list[str] = [
@@ -212,6 +222,9 @@ class Settings(BaseSettings):
     # Developer test site only: RA is on here. Do NOT carry this into main.
     RA_ENABLED: bool = True
     RA_AGGREGATE_NULLS: str = "sql"
+
+    NORMALIZATION_SEMANTIC_API_KEY: str = ""
+    NORMALIZATION_SEMANTIC_MODEL: str = ""
 
     class Config:
         env_file = ".env"

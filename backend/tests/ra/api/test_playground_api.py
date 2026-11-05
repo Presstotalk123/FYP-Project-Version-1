@@ -92,3 +92,13 @@ def test_grade_reports_which_input_is_broken(client, student_headers, ra_on):
                              json={**body, "answer": "π Nope STUDENT"}).json()
     assert bad_answer["ok"] and bad_answer["grade"]["verdict"] == "invalid_expression"
     assert bad_answer["structure"] is None
+
+
+def test_notation_shows_each_statement(client, student_headers, ra_on):
+    r = client.post("/api/v1/ra/notation", json={"program": "R1 := σ A > 1 R\nπ A R1"}, headers=student_headers)
+    assert r.status_code == 200 and r.json()["ok"]
+    assert [l["line"] for l in r.json()["lines"]] == [1, 2] and r.json()["lines"][0]["name"] == "R1"
+    bad = client.post("/api/v1/ra/notation", json={"program": "σ A > R"}, headers=student_headers).json()
+    assert not bad["ok"] and bad["error"]["code"] == "RA001"
+    assert client.post("/api/v1/ra/notation", json={"program": ""}, headers=student_headers).json() == \
+        {"ok": True, "lines": [], "error": None}

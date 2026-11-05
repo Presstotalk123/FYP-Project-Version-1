@@ -25,6 +25,9 @@ class RAQuestion(Base):
 
     schema_sql = Column(Text, nullable=False)               # CREATE TABLE …; CHECK constraints = assumptions
     data_sql = Column(Text, nullable=False, default="")     # INSERT …; may be empty
+    # With data_sql empty: the example data students see instead (INSERT …, built by
+    # core/ra/example_data.py or chosen by staff with Regenerate). NULL = build it on demand.
+    example_data_sql = Column(Text, nullable=True)
     model_answer = Column(Text, nullable=False)             # RA, step by step; never shown to students
     # [{"statement": "R1" | null, "label": "the Civil Engineering courses"}]; NULL = every model step.
     checkpoints_json = Column(Text, nullable=True)
@@ -35,6 +38,10 @@ class RAQuestion(Base):
     # The same, inside an assessment (copied onto the clone at publish). Off by default:
     # the comparison is a strong hint, which practice wants and an exam usually doesn't.
     assessment_step_direction = Column(Integer, nullable=False, default=0)
+    # How students answer (core/ra/answer_format.py): mixed (steps or one expression, the
+    # original setup) | final_answer (one expression only) | multi_step (one box per step
+    # the professor set). Chosen by staff for the whole question; locked once answered.
+    answer_format = Column(String(20), nullable=False, default="mixed")
     # Compare results as bags (duplicates count) instead of sets.
     compare_bags = Column(Integer, nullable=False, default=0)
     # Students only learn "submitted", not whether it was correct (mirrors questions.hide_correctness).

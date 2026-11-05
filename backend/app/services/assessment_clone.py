@@ -225,6 +225,9 @@ def clone_item(db: Session, item, assessment_id: int) -> int:
     content, returning the new clone's id. Raises AssessmentCloneError for unknown types.
     """
     hide_correctness = 1 if getattr(item, "hide_correctness", 0) else 0
+    if item.item_type == "normalization_question":
+        from app.services.normalization import assessment as normalization
+        return normalization.clone_for_assessment(db, item.item_id, assessment_id, hide_correctness)
     if item.item_type == "sql_question":
         return clone_question_for_assessment(db, item.item_id, assessment_id, hide_correctness)
     if item.item_type in ("sql_lab", "graph_lab"):
@@ -249,6 +252,9 @@ def delete_cloned_content(db: Session, assessment_id: int) -> None:
     Does not commit; the caller owns the transaction. Note: terminating lab sessions
     commits internally (see terminate_all_lab_sessions), which flushes any pending work.
     """
+    from app.services.normalization import assessment as normalization
+    normalization.delete_clones(db, assessment_id)
+
     # SQL question clones: delete file, soft-delete row.
     q_clones = db.query(Question).filter(
         Question.owner_assessment_id == assessment_id,

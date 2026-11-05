@@ -1,40 +1,52 @@
 'use client';
 
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useEffect, useRef, useSyncExternalStore } from 'react';
 import dynamic from 'next/dynamic';
 import type { BeforeMount, OnMount } from '@monaco-editor/react';
 import { RaError } from '@/types/ra.types';
+import { RaNotation } from './RaNotation';
+import { raSymbolInfo } from './raSymbols';
+import { useRaSymbolTip } from './RaSymbolTip';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 type MonacoEditor = Parameters<OnMount>[0];
 type Monaco = Parameters<OnMount>[1];
 
-/** Operators as the course slides write them; clicking inserts the symbol at the cursor. */
-const PALETTE: { symbol: string; insert?: string; title: string }[] = [
-  { symbol: 'σ', title: 'Selection — σ condition R   e.g. σ School = \'SCSE\' Students' },
-  { symbol: 'Π', title: 'Projection — Π attributes R   e.g. Π ID, Name Students' },
-  { symbol: 'ρ', title: 'Rename — ρ NewName(a, b, …) R' },
-  { symbol: 'δ', title: 'Duplicate elimination — δ R' },
-  { symbol: 'γ', title: 'Grouping & aggregation — γ School, AVG(GPA) → AvgGPA R' },
-  { symbol: '⋈', title: 'Natural join — R ⋈ S;  theta join — R ⋈ condition S' },
-  { symbol: '⟕', title: 'Left outer join — R ⟕ S  or  R ⟕ condition S' },
-  { symbol: '⟖', title: 'Right outer join — R ⟖ S' },
-  { symbol: '⟗', title: 'Full outer join — R ⟗ S' },
-  { symbol: '×', title: 'Cartesian product — R × S' },
-  { symbol: '÷', title: 'Division — R ÷ S' },
-  { symbol: '∪', title: 'Union — R ∪ S (same attributes on both sides)' },
-  { symbol: '∩', title: 'Intersection — R ∩ S' },
-  { symbol: '−', title: 'Difference — R − S' },
-  { symbol: ':=', insert: ' := ', title: 'Assignment — R1 := expression' },
-  { symbol: '→', insert: ' → ', title: 'Name a new attribute — Quiz1 + Quiz2 → Total' },
-  { symbol: '≠', title: 'Not equal' },
-  { symbol: '≤', title: 'Less than or equal' },
-  { symbol: '≥', title: 'Greater than or equal' },
-  { symbol: 'AND', insert: ' AND ', title: 'Both conditions' },
-  { symbol: 'OR', insert: ' OR ', title: 'Either condition' },
-  { symbol: 'NOT', insert: 'NOT ', title: 'Negation' },
+/** Operators as the course slides write them; clicking inserts the symbol at the cursor.
+ * Hovering one shows what it means (raSymbols.ts). */
+const PALETTE: { symbol: string; insert?: string }[] = [
+  { symbol: 'σ' }, { symbol: 'Π' }, { symbol: 'ρ' }, { symbol: 'δ' }, { symbol: 'γ' },
+  { symbol: '⋈' }, { symbol: '⟕' }, { symbol: '⟖' }, { symbol: '⟗' }, { symbol: '×' }, { symbol: '÷' },
+  { symbol: '∪' }, { symbol: '∩' }, { symbol: '−' },
+  { symbol: ':=', insert: ' := ' }, { symbol: '→', insert: ' → ' },
+  { symbol: '≠' }, { symbol: '≤' }, { symbol: '≥' },
+  { symbol: 'AND', insert: ' AND ' }, { symbol: 'OR', insert: ' OR ' }, { symbol: 'NOT', insert: 'NOT ' },
 ];
+
+// Whether the notation preview is open, remembered per browser (a convenience: off if storage is blocked).
+const NOTATION_KEY = 'ra-show-notation';
+const notationListeners = new Set<() => void>();
+
+function readShowNotation(): boolean {
+  try {
+    return window.localStorage.getItem(NOTATION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeShowNotation(on: boolean) {
+  try {
+    window.localStorage.setItem(NOTATION_KEY, on ? '1' : '0');
+  } catch { /* storage unavailable: the preview just won't be remembered */ }
+  notationListeners.forEach((listener) => listener());
+}
+
+function subscribeShowNotation(listener: () => void) {
+  notationListeners.add(listener);
+  return () => { notationListeners.delete(listener); };
+}
 
 let languageRegistered = false;
 
@@ -58,6 +70,36 @@ const registerRelalg: BeforeMount = (monaco) => {
       ],
     },
   });
+  monaco.languages.registerHoverProvider('relalg', { provideHover: hoverSymbol });
+};
+
+// What may sit under the mouse on one line, longest spellings first: strings and comments
+// (never explained, so a σ inside a string isn't), \select-style commands, two-character
+// symbols, single symbols, and whole words (AND, COUNT, … but not the "OR" in ORDERS).
+const HOVER_TOKENS = /'(?:[^']|'')*'|‘[^’]*’|"[^"]*"|“[^”]*”|(?:--|\/\/).*$|\\[a-z]+|:=|->|<=|>=|<>|!=|[σπΠρδγ⋈⟕⟖⟗×÷∪∩−←→≠≤≥∧∨¬-]|[A-Za-z_]\w*/g;
+
+/** Monaco hover: what the symbol under the mouse means. */
+const hoverSymbol = (model: { getLineContent(line: number): string }, position: { lineNumber: number; column: number }) => {
+  const line = model.getLineContent(position.lineNumber);
+  const at = position.column - 1;
+  for (const m of line.matchAll(HOVER_TOKENS)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (at < start || at >= end) continue;
+    // A "-" between two letters or digits is part of a name such as teamid-one, not −.
+    if (m[0] === '-' && /\w/.test(line[start - 1] ?? '') && /\w/.test(line[end] ?? '')) return null;
+    const info = raSymbolInfo(m[0]);
+    if (!info) return null;
+    return {
+      range: { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: start + 1, endColumn: end + 1 },
+      contents: [
+        { value: `**${info.symbol}  ${info.name}**` },
+        { value: info.meaning },
+        { value: `Write: \`${info.write}\`  \nExample: \`${info.example}\`` },
+      ],
+    };
+  }
+  return null;
 };
 
 interface RaEditorProps {
@@ -70,9 +112,16 @@ interface RaEditorProps {
   /** Buttons shown above the palette — each page supplies its own. */
   toolbar?: ReactNode;
   height?: number | string;
+  /** The schema's relation and attribute names, so the notation preview reads names with "-" as one. */
+  names?: string[];
+  /** Replaces the how-to-write note under the editor (the question type asks for something
+   *  else, e.g. one expression); null hides it. */
+  hint?: ReactNode | null;
 }
 
-export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 }: RaEditorProps) {
+export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260, names, hint }: RaEditorProps) {
+  const showNotation = useSyncExternalStore(subscribeShowNotation, readShowNotation, () => false);
+  const symbolTip = useRaSymbolTip();
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   // Monaco keeps the Ctrl+Enter command it was given at mount, so it calls through a
@@ -142,12 +191,17 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 
           borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)',
         }}
       >
-        {PALETTE.map((op) => (
+        {PALETTE.map((op) => {
+          const info = raSymbolInfo(op.symbol)!;
+          return (
           <button
             key={op.symbol}
             type="button"
-            title={op.title}
-            aria-label={op.title}
+            aria-label={`${info.name}: ${info.write}`}
+            onMouseEnter={(e) => symbolTip.show(info, e.currentTarget)}
+            onMouseLeave={symbolTip.hide}
+            onFocus={(e) => symbolTip.show(info, e.currentTarget)}
+            onBlur={symbolTip.hide}
             onClick={() => insert(op.insert ?? `${op.symbol} `)}
             style={{
               minWidth: 32, height: 30, padding: '0 8px', borderRadius: 6, cursor: 'pointer',
@@ -157,7 +211,23 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 
           >
             {op.symbol}
           </button>
-        ))}
+          );
+        })}
+        {symbolTip.tip}
+        <button
+          type="button"
+          onClick={() => writeShowNotation(!showNotation)}
+          aria-pressed={showNotation}
+          title="Show each line in textbook notation, e.g. σ with its condition as a subscript"
+          style={{
+            marginLeft: 'auto', height: 30, padding: '0 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
+            fontWeight: 700, border: '1px solid var(--border-strong)',
+            background: showNotation ? 'var(--brand-charcoal)' : 'var(--surface)',
+            color: showNotation ? 'var(--surface)' : 'var(--brand-charcoal)',
+          }}
+        >
+          {showNotation ? 'Hide notation' : 'Preview notation'} σ<sub>x</sub>
+        </button>
       </div>
 
       <div style={{ height }}>
@@ -184,15 +254,23 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260 
         />
       </div>
 
-      <div style={{
-        padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 12,
-        color: 'var(--text-muted)', lineHeight: 1.6, background: 'var(--surface)',
-      }}>
-        Write as on the lecture slides, one step per line, e.g.{' '}
-        <code>R1 := σ School = &apos;SCSE&apos; CrsSch</code>, then <code>Π Name R1</code>.
-        The last line is the answer. σ, Π and ρ apply to the relation right after them; use brackets
-        for more: <code>Π Name (R ⋈ S)</code>. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> to run.
-      </div>
+      {showNotation && <RaNotation program={value} names={names} />}
+
+      {hint !== null && (
+        <div style={{
+          padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 12,
+          color: 'var(--text-muted)', lineHeight: 1.6, background: 'var(--surface)',
+        }}>
+          {hint ?? (
+            <>
+              Write as on the lecture slides, one step per line, e.g.{' '}
+              <code>R1 := σ School = &apos;SCSE&apos; CrsSch</code>, then <code>Π Name R1</code>.
+              The last line is the answer. σ, Π and ρ apply to the relation right after them; use brackets
+              for more: <code>Π Name (R ⋈ S)</code>. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> to run.
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

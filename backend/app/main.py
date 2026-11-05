@@ -40,6 +40,8 @@ from app.models.sql_tutor_conversation import SqlTutorConversation
 from app.models.sql_tutor_message import SqlTutorMessage
 from app.models.er_diagram_draft import ErDiagramDraft
 from app.models.er_diagram_image_draft import ErDiagramImageDraft
+from app.api.v1.endpoints import competitions
+from app.models import competition as _competition_models  # noqa: F401
 
 # Drop the broken non-partial unique index if it exists so create_all recreates it
 # correctly as a partial index (WHERE is_active = 1). This fixes SQLite ignoring
@@ -210,7 +212,10 @@ async def restrict_limited_users(request: Request, call_next):
     return await call_next(request)
 
 # Include routers
+from app.api.v1.endpoints import normalization
+app.include_router(normalization.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(competitions.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(execute.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
@@ -255,3 +260,7 @@ def read_root():
 def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+# AskNarelle management uses Akela authentication and staff permissions.
+from app.api.v1.endpoints import chatbot_management  # noqa: E402
+app.include_router(chatbot_management.router, prefix="/api/v1")

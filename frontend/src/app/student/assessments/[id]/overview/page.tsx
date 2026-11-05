@@ -39,6 +39,7 @@ import { useAssessmentTimer } from '@/contexts/AssessmentTimerContext';
 
 function itemTypeLabel(type: AssessmentItemType): string {
   switch (type) {
+    case 'normalization_question': return 'Normalization';
     case 'sql_question': return 'SQL';
     case 'er_question':  return 'ER Diagram';
     case 'sql_lab':      return 'SQL Lab';
@@ -49,6 +50,7 @@ function itemTypeLabel(type: AssessmentItemType): string {
 
 function itemTypeColor(type: AssessmentItemType): string {
   switch (type) {
+    case 'normalization_question': return 'cyan';
     case 'sql_question': return 'blue';
     case 'er_question':  return 'violet';
     case 'sql_lab':      return 'teal';
@@ -59,6 +61,7 @@ function itemTypeColor(type: AssessmentItemType): string {
 
 function itemTypeIcon(type: AssessmentItemType) {
   switch (type) {
+    case 'normalization_question': return <IconDatabase size={20} />;
     case 'sql_question': return <IconCode size={20} />;
     case 'er_question':  return <IconTopologyComplex size={20} />;
     case 'sql_lab':      return <IconDatabase size={20} />;

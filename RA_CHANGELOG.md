@@ -290,3 +290,370 @@ default) but still have *Show structure*. API tests also cover the cap, the scor
 2. As the student account: **Assessments**, join it, open an RA item: timer, weight, *N of M
    submissions used · Check is free*, no ✓/◐/○ unless enabled for assessments.
 3. As admin: the people icon on the assessment shows each student's RA items as Solved / Not Solved.
+
+## Step 6: Sub-questions (parts) on one schema (22 Oct 2026)
+
+Commit: "Let an RA question have parts on one schema, each with its own marks" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): a tutorial question such as Tutorial 5.5 Q1 has one schema and
+parts (i)–(iv); staff should not have to re-enter the schema for each part.
+
+**What was built.** New table `ra_question_parts` (`models/ra_question_part.py`): label, description,
+marks, model answer, checkpoints and test databases per part. `ra_attempts.part_id` says which part an
+attempt answers. Every question has at least one part; `services/ra/local_schema.py` gives each older
+question one part from its model answer and links its attempts to it, at startup (SQLite always;
+Postgres only while `RA_ENABLED`, under an advisory lock so gunicorn workers don't race).
+`run_ra_tables_migration.py` does the same by hand. The API takes `parts` instead of a top-level model
+answer and answers name a `part_id` (optional when there is one part). In assessments each part earns
+its own marks (score = marks earned / total marks) and the submission cap applies per part.
+Frontend: the staff form has **+ Add a sub-question** (label, marks, description, model answer and
+test bench per part, reorder, remove); the student page has a part selector (← Previous part /
+dropdown / Next part →) in the same frame, with a separate editor per part that starts blank and
+brings back the student's saved answer when they return to a part. Seed: "Tutorial 5.5 Q1 —
+university (4 parts)" and "Tutorial 5.5 Q2 — railway (2 parts)".
+
+**How to check it**
+1. As admin: **Relational Algebra → New question**, fill in the schema, **+ Add a sub-question**, give
+   each part a model answer and marks, **Check the model answer** on each, **Create question**.
+2. As a student: open it, answer part (i), **Submit**, choose part (ii) in the dropdown (blank
+   editor), go back to (i): the answer is still there. The card on the list shows *x of N solved*.
+3. In an assessment, a question worth 1 + 3 marks with only part (ii) solved scores 75%.
+
+## Step 7: Schema written as text (22 Oct 2026)
+
+Commit: "Turn a schema written as text into CREATE TABLE statements" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): staff should be able to write the schema as the tutorials
+print it and get SQL they can still correct.
+
+**What was built.** `backend/app/core/ra/text_schema.py` reads lines such as
+`STUDENT(*Sid, Sname, GPA)` (`*` marks a key attribute; bullets, backticks and sentences around
+them are ignored; a type may follow an attribute) and writes one CREATE TABLE per relation. Types
+are guessed from names (Sid → INTEGER, GPA → REAL, otherwise TEXT). Optionally, an attribute group
+matching another relation's whole key becomes a foreign key (the tutorials' "same attribute names"
+convention), except where the parent is unclear (two relations with the same key, or a relationship
+relation such as MAJOR(*Dname, *Sid)). Endpoint `POST /ra/questions/schema-from-text` (staff);
+on the form, **Schema as text → Convert to CREATE TABLE ↓** fills the CREATE TABLE box, which stays
+editable. Mistakes are reported with their line and column.
+
+**How to check it**
+1. As admin: **Relational Algebra → New question**; paste the Tutorial 5.5 Q1 relations, one per
+   line with `*` on the keys, into *Schema as text*, and click **Convert to CREATE TABLE ↓**.
+2. The CREATE TABLE box fills in (PRIMARY KEY, REFERENCES); edit it if a type is wrong, then carry on
+   with the parts as usual. With the link box unticked, no REFERENCES are added.
+
+## Step 8: Notation preview (22 Oct 2026)
+
+Commit: "Preview RA answers in textbook notation, with subscripts" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): students should see their answer as it would be written on
+paper, with subscripts (σ<sub>condition</sub>, Π<sub>attributes</sub>, ⋈<sub>condition</sub>).
+Decided with the user: students keep typing in the normal editor (not in LaTeX); a button shows a
+rendered preview of each line.
+
+**What was built.** `backend/app/core/ra/latex.py` prints a parsed answer as LaTeX, one entry per
+statement (`R1 := …` becomes `R1 ← …`). It prints from the parse tree, so brackets show exactly what
+each σ, Π, ρ, δ, γ applies to: `σ GPA > 3 STUDENT ⋈ ENROLL` previews as σ<sub>GPA>3</sub>(STUDENT) ⋈
+ENROLL, showing the σ does not cover the join. Endpoint `POST /ra/notation` (any signed-in user; not
+graded, nothing saved). Frontend: **Preview notation σₓ** at the right of the editor's operator bar
+(question pages, assessments, playground, staff model answers) opens a panel under the editor that
+updates as you type, rendered with KaTeX (`katex` 0.16.11 and `@types/katex` 0.16.7 added to
+`frontend/package.json`); the on/off choice is remembered in the browser. If the answer can't be read
+yet, the panel says why instead.
+
+**How to check it**
+1. Open any RA question (or the Playground) and click **Preview notation σₓ** above the editor.
+2. Type `R1 := σ Numphds < 50 (DEPT)` and `π Pname (PROF ⋈ R1)` on two lines: the panel shows
+   R1 ← σ<sub>Numphds<50</sub>(DEPT) and Π<sub>Pname</sub>(PROF ⋈ R1), labelled line 1 and line 2.
+3. Type `σ GPA > 3 STUDENT ⋈ ENROLL`: the brackets show σ applies to STUDENT only.
+
+## Step 9: Staff analytics for RA (22 Oct 2026)
+
+Commit: "Add staff analytics for RA questions" (`git log --oneline` shows its hash).
+
+**Why.** Professor's feedback (21 Oct): RA should be in staff analytics, like SQL and ER.
+
+**What was built.** `backend/app/services/ra/analytics.py` and `endpoints/ra_analytics.py`
+(`/ra/analytics/class`, `/class-groups`, `/questions/{id}`, `/questions/{id}/students/{sid}`; staff
+only; students only in every number; computed live, no shared cache namespace). Beyond solved and
+attempts, RA analytics uses what the grader stores with every attempt: the **verdict** (correct,
+wrong on some generated database, wrong on the data, wrong attributes, has an error) and, for answers
+with an error, the **error code**, so staff see *which kind* of mistake each part draws.
+A part is solved if any attempt counts as correct (graded correct or overridden to correct).
+Frontend: `/ra/analytics` (class: totals, verdict bar, commonest errors, questions, students, CSV
+export, class filter) and `/ra/analytics/[id]` (per part: solved, submissions to correct, verdicts,
+errors; per student: each part ✓/✗ and marks; click a student for every answer they submitted and
+the grader's verdict). Links: **Class analytics** on the RA page, **Analytics** next to *Edit
+question*, a **Relational Algebra** tab on the staff Dashboard (only while RA is on; shared file
+`app/admin/page.tsx`), and **View Submissions** on RA items in an assessment's student list (shared
+file `admin/assessments/[id]/students/page.tsx`, inside its existing RA branch).
+
+**How to check it**
+1. As a student, submit a few answers to a multi-part question (one wrong, one with a typo).
+2. As admin: **Relational Algebra → Class analytics**: the verdict bar and the errors table show those
+   attempts; click the question for its parts; click the student for their answers.
+3. **Dashboard → Relational Algebra** shows the same class view.
+
+## Step 10: Correct in green, wrong in red (1 Nov 2026)
+
+Commit: "Show correct RA answers in green and wrong ones in red" (`git log --oneline` shows its hash).
+
+**Why.** Every correct result should read as green and every wrong one as red. The **Correct** verdict
+box was blue (the app's info style), like an ordinary notice.
+
+**What was built.** A green `.alert-success` style (one new block in the shared `app/globals.css`), used
+for the **Correct** verdict (`RaVerdict.tsx`) and the staff **✓ The model answer runs** box
+(`RaPartEditor.tsx`). In analytics, a student's unsolved part (**✗**) is red, an override badge is
+green or red, and the verdict bar shows the four kinds of wrong in shades of red, light (wrong on
+some database) to dark (has an error), instead of amber, blue, lilac and red. Left as they were on
+purpose: **Submitted** stays blue (correctness is hidden, so colour would give it away), and the step
+panel's ◐ and ○ stay amber and grey (they are directions, not verdicts: ○ can be a different correct
+method).
+
+**How to check it**
+1. Submit a correct answer to any RA question: the verdict box is green; a wrong one is red.
+2. As staff, **Validate** a part on the question form: the "model answer runs" box is green.
+3. **Analytics** on a question: ✗ cells are red; the verdict bar is green and reds.
+
+## Step 11: Hover a symbol to see what it means (1 Nov 2026)
+
+Commit: "Explain each RA symbol when hovered" (`git log --oneline` shows its hash).
+
+**Why.** Students should be able to find out what each RA symbol stands for by hovering it.
+
+**What was built.** `components/ra/raSymbols.ts` lists every symbol once (σ Π ρ δ γ ⋈ ⟕ ⟖ ⟗ × ÷ ∪ ∩ −
+:= → ≠ ≤ ≥ AND OR NOT and COUNT SUM AVG MIN MAX), each with its name, what it does, how to write it
+and an example, plus the other spellings the grammar accepts (`\select`, `->`, `<>`, `π`, `←`, …).
+Hovering shows it in three places:
+- **Operator bar**: a pop-up straight away (`RaSymbolTip.tsx`), also on keyboard focus, instead of
+  the browser's slow plain tooltip.
+- **In the editor**: a Monaco hover over any symbol typed, in any accepted spelling. Strings and
+  comments are skipped, words only match whole (not the OR in ORDERS), and a `-` inside a name such
+  as `teamid-one` is not taken for difference.
+- **Notation preview**: over the rendered symbols (≠ included, which KaTeX draws as = with a slash).
+  A − inside a subscript is arithmetic, so it gets no pop-up.
+
+Known gap: in the editor, an arithmetic − inside Π (`Quiz1 − Quiz2 → Diff`) is still explained as
+difference.
+
+**How to check it**
+1. Open an RA question; hover σ on the operator bar: the pop-up shows name, meaning, Write and Example.
+2. Type `R1 := σ GPA >= 3 Students` and hover `σ`, `:=` and `>=` in the editor.
+3. Turn on **Preview notation σₓ** and hover σ and ← in the preview.
+
+## Step 12: Example data for questions without data (1 Nov 2026)
+
+Commit: "Show example data for RA questions that have none" (`git log --oneline` shows its hash).
+
+**Why.** Most course questions give only a schema. Students saw empty tables and only met data after
+pressing Check, with placeholder values (`Sname_2`). They should see realistic data up front, run
+their answers on it, and after Submit see where their answer went right or wrong on that same data.
+
+**What was built.**
+- `core/ra/example_data.py` builds one example database per question: the test-database generator
+  with realistic values (`core/ra/example_values.py`, guessed from attribute and relation names, e.g.
+  Sname → Alice, Dname → Computer Science, a student's Year → 1–4, GPA → 2.5–4.5), the model
+  answers' constants, 3–5 tuples per relation. Attributes named like another relation's key are
+  treated as a reference to it, so the data is consistent even when the schema declares no
+  REFERENCES (only here; the test databases keep only declared references). Of 300 seeded
+  candidates it keeps the one that best shows the model answers: non-empty results, each σ and −
+  keeping some tuples but not all, varied values. Same question → same data.
+- Stored in the new column `ra_questions.example_data_sql` (added at startup by `local_schema.py`;
+  copied into assessment clones). Kept until the schema no longer accepts it or staff Regenerate it;
+  questions saved earlier get it on the fly.
+- Students: the schema panel shows it; Check and Show structure run on it. After Submit (when
+  correctness is shown): the verdict, then **Your answer returns** (extra tuples ✗ red), then **The
+  model answer returns** (missing tuples ✓ green), then the usual feedback. This shows the expected
+  result on the data students see, which context.md §5.2 had ruled out; changed on the user's
+  decision. The verdict itself is unchanged: it still comes from the generated test databases.
+- Staff: `POST /ra/questions/example-data`; on the form, an **Example data shown to students** panel
+  under the empty INSERT box with **Regenerate** and **Copy into INSERT box**. Check the model
+  answer runs on it too.
+- `generator.py` gained optional realistic value pools and a minimum size; with the defaults it
+  generates exactly the same test databases as before.
+
+**How to check it**
+1. Open a question without INSERT data: click STUDENT in the schema panel to see its tuples.
+2. Check `π Sname STUDENT`: the result is the names you saw.
+3. Submit a wrong answer: your result (extras red), the model answer's (missing green), then the usual tables.
+4. As staff, edit the question: Regenerate, then Copy into INSERT box.
+
+## Step 13: RA under Problems and Questions, no tab of its own (1 Nov 2026)
+
+Commit: "Move RA into the Problems and Questions lists" (`git log --oneline` shows its hash).
+
+**Why.** RA had its own top-bar tab. It should sit with the other question types: staff find it on
+Problems, students on Questions, as a category in the left panel.
+
+**What was built.**
+- `components/ra/raProblems.tsx`: everything RA-specific the two shared lists need (the RA query,
+  rows/cards, badge, the Create Question entry, publish/delete helpers, `?category=ra`).
+- Staff **Problems** (`app/admin/problems/page.tsx`): a **Relational Algebra** category; RA rows in
+  All problems with publish/unpublish, edit, analytics (`/ra/analytics/{id}`) and delete; **Create
+  Question ▾ → Relational algebra question**.
+- Students' **Questions** (`app/student/page.tsx`): a **Relational Algebra** category; RA cards with
+  difficulty, parts, Completed / "n of m solved" / attempts, opening `/ra/questions/{id}`.
+- The top-bar link is gone: `HeaderNav.tsx` is back to its version at the branch point.
+- `/ra` forwards staff to Problems and students to Questions with the category selected.
+  The Playground is no longer linked (still at `/ra/playground`); class analytics stays on the
+  staff Dashboard's Relational Algebra tab.
+- Backend: `POST /ra/questions/{id}/publish` and `/unpublish`; the list gives `created_at` and
+  `created_by`. A teal `.badge-ra` (new block in `globals.css`), also on the RA question page.
+- With RA switched off nothing of this shows.
+
+**How to check it**
+1. As staff: the top bar has no Relational Algebra link; **Problems → Relational Algebra** lists the
+   RA questions; publish one, open its analytics, create one from **Create Question ▾**.
+2. As a student: **Questions → Relational Algebra** shows the published ones with progress.
+3. Open `/ra`: it lands on the list with Relational Algebra selected.
+
+## Step 14: Three question types: Mixed, Final answer, Multi-step (5 Nov 2026)
+
+Commit: "Let staff choose how an RA question is answered" (`git log --oneline` shows its hash).
+
+**Why.** In assessments the professor wants to design a question either as one direct answer or as
+a multi-step response, with a model answer for each step and marks for the steps. The choice is
+the professor's; students only see the question laid out that way.
+
+**What was built.**
+- A **Question type** for the whole question, picked when it is created (nothing preselected) and
+  locked once a student has submitted:
+  - **Mixed:** the original setup; every existing question is Mixed.
+  - **Final answer:** one expression only. Students are told so. An answer in steps shows a warning
+    and can't be submitted (it isn't counted). Show structure gives no ✓/◐/○.
+  - **Multi-step:** the professor lists 2–10 steps, each with a name (R1 …), a required prompt,
+    marks and a one-expression model answer; the part's marks are the steps' total. Students fill
+    in one box per step.
+- Marking a multi-step answer, deterministic (`core/ra/step_marking.py`):
+  1. A correct final answer earns every mark, whatever the steps look like.
+  2. Otherwise each model step earns its marks when any box computes it: same tuples on every test
+     database and the question's data, in any order.
+  3. Carry-forward: a box is re-run with the model's earlier steps in place of the student's; if it
+     then gives the step, it earns it. This is also how the final step earns its own share.
+  - Empty boxes are allowed; a box with an error is flagged at that box.
+- After Submit students see the marks, each box's ✓/✗ and marks, a "right, given your earlier
+  steps" note for carry-forward, and for a step that earned nothing their table and the model
+  step's on the shown data.
+- Switching the type converts every part's model answer (`core/ra/answer_format.py`):
+  - Mixed → Final answer: the steps are joined into one expression; ρ keeps any step name used as
+    a qualifier, and the meaning is unchanged.
+  - Mixed ↔ Multi-step: lines become steps and back; checkpoint labels become prompts.
+  - A single expression becomes one step; it is not split automatically.
+- Staff form: the type picker, the steps editor with **Check the steps**, and a live **Preview:
+  what students see** with **Grade this answer**.
+- Assessments and analytics count a multi-step attempt's earned marks, using a student's best
+  attempt; a staff override still decides. The analytics stay per part, with **Details: how far
+  students got, step by step** under a multi-step part.
+- New columns (added at startup): `ra_questions.answer_format`, `ra_question_parts.steps_json`,
+  `ra_attempts.step_answers_json` and `ra_attempts.marks_earned`.
+
+**How to check it**
+1. Create a question: choose **Multi-step**, write three steps with prompts and marks, then use
+   **Check the steps** and the preview's **Grade this answer**.
+2. As a student, answer it with a wrong first step and right later steps: the later steps earn
+   their marks by carry-forward.
+3. Make a **Final answer** question and type `R1 := …`: the warning shows and Submit is off.
+4. Edit a Mixed question with steps and switch it to Final answer: the model answer becomes one
+   expression.
+
+## Step 15: Grading by proof on every valid database (5 Nov 2026)
+
+Commit: "Prove RA answers equivalent on every valid database" (`git log --oneline` shows its hash).
+
+**Why.** The professor asked for a deterministic grading algorithm. Grading was already repeatable
+(seeded, stored test databases), but a "correct" verdict only meant "same result on the test
+databases". Now the grader tries to *prove* the answer equivalent to the model answer on every
+database the schema allows. The full write-up for the report is `RA_GRADING.md`.
+
+**What was built.**
+- A prover using the Z3 solver (`z3-solver==4.15.4.0`, pinned in `backend/requirements.txt`):
+  - `core/ra/logic.py` turns an answer into logic. It covers every operator: σ with any condition
+    (=, ≠, <, ≤, >, ≥, AND/OR/NOT, arithmetic), Π, ρ, ×, every join including outer joins, ∪, ∩, −, ÷,
+    δ and γ.
+  - `core/ra/equivalence.py` runs the proof:
+    1. Z3 proves the whole answer, or
+    2. it proves it piece by piece, or
+    3. `core/ra/bounded.py` searches every database with at most 1–3 tuples per table for a
+       counterexample.
+  - It works within a fixed amount of solver work (about 2 s), not a clock, so verdicts are the
+    same on any server.
+- **Valid databases:** these respect the schema's types, primary keys and foreign keys. Stored
+  tables hold no NULLs; NULLs come only from outer joins, with SQL's three-valued logic.
+  - This fixes a bug in the old proof (`conjunctive.py`, now removed). It ignored keys and foreign
+    keys, so `Π sid (Enrolled ⋈ Course)` was marked wrong with a counterexample the schema forbids.
+  - Shrinking a counterexample now also keeps it valid.
+- **Grading order** (`core/ra/grader.py`):
+  1. The tests run first; any difference makes the answer wrong.
+  2. An answer that passes every test then goes to the proof:
+     - Proved equivalent → correct (method `proof`).
+     - Counterexample found → wrong (method `proof`). Every counterexample is checked with SQLite and
+       the real evaluator first, with readable values.
+     - Undecided → correct (method `tested`).
+  - A wrong verdict therefore always comes with a real database.
+- **Who sees the method:** students see the same message whether an answer was proved or only
+  tested. Staff see **proved** or **tested on N** on each attempt (the try-out bench and the
+  student attempt list in analytics), and per part in analytics: "Correct answers: X proved · Y only
+  tested".
+- **Suite report:** each wrong version of the model answer that the test databases don't catch is
+  now labelled *proved equivalent*, *proved different* or *undecided*.
+- **Regrade past attempts** (analytics page of a question):
+  - It checks every attempt with the current grader and lists what would change.
+  - Nothing changes until staff press Save, and overrides are kept.
+  - It runs in batches, so a big class doesn't time out. Endpoints are in `ra_regrade.py`;
+    `services/ra/regrade.py` has the logic.
+
+**How to check it**
+1. Make a question with `Course`, `Student` and `Enrolled` (foreign keys from Enrolled) and the
+   model answer `Π sid (Enrolled)`. As a student submit `Π sid (Enrolled ⋈ Course)`: it is correct.
+   As staff the same Submit says "Proved equivalent on every valid database".
+2. Open the question's analytics: the attempt shows **proved**, and the part shows the
+   proved/tested counts.
+3. Press **Check past attempts** in "Regrade past attempts with the current grader": older
+   attempts graded by the previous grader show what would change. Save and the analytics update.
+4. In the staff form, open **Test strength**: any uncaught variant says whether it was proved
+   equivalent.
+
+## Step 16: Bagheera on RA questions (5 Nov 2026)
+
+Commit: "Add Bagheera hints to RA questions" (`git log --oneline` shows its hash).
+
+**Why.** The professor asked for Bagheera, the platform's AI tutor, in the RA module. It gives
+hints only and never grades: grading stays the deterministic prover (Step 15).
+
+**What was built.**
+- **Ask Bagheera:** a chat card under the question on every practice RA question.
+  - It is off in assessments and on questions that hide correctness, as on SQL questions. Staff
+    can always try it.
+- **Explain my mistake:** shown after a wrong Submit, including a multi-step Submit without full
+  marks.
+  - Bagheera explains in words what the grader's counterexample shows, and gives one hint.
+  - There is one explanation per attempt. It is saved, so asking again doesn't call the AI again.
+- **What Bagheera sees:**
+  - the question, its parts, the schema and the data shown with the question;
+  - the current answer, or the boxes of a multi-step part;
+  - the last Submit on the part as the student saw it: the verdict, the counterexample, ✓/◐/○ if
+    the question shows them, and the marks per step.
+  - **Never the model answer.**
+- **Leak guard** (`services/ra/bagheera_guard.py`):
+  - **What is checked:** every RA expression in a reply (code, inline code, or a line of prose)
+    is checked with the grader against every part of the question.
+  - **What counts as a leak:** an expression that answers a part, or computes one of its model
+    steps.
+  - **What happens on a leak:** the reply is regenerated once with a warning. If that one leaks too,
+    a fixed hint is shown instead. Replies are therefore shown whole after the check, not
+    streamed.
+- **Staff view:** the conversation is shown in a student's attempts dialog in analytics, including
+  any reply that was held back (staff only).
+- **New table:** `ra_bagheera_messages`, created at startup.
+- **New files:**
+  - backend: `services/ra/bagheera.py`, `bagheera_guard.py`, `bagheera_llm.py`,
+    `endpoints/ra_bagheera.py`;
+  - frontend: `components/ra/RaBagheera.tsx`.
+
+**How to check it** (on the developer site, where the AI is set up)
+1. As a student, open a practice RA question and ask Bagheera "how do I start?" in **Ask Bagheera**.
+2. Ask it "just give me the answer": the reply has hints only. If the first attempt gave the answer
+   away, the reply says it replaced it.
+3. Submit a wrong answer and press **Explain my mistake**.
+4. As staff, open the question's analytics, click the student, and read **Conversation with
+   Bagheera**.

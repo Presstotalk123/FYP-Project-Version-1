@@ -27,6 +27,7 @@ from app.models.ra_question import RAQuestion  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
 from app.models.whitelist import WhitelistEntry  # noqa: E402
 from app.services.ra import questions as svc  # noqa: E402
+from app.services.ra.local_schema import add_missing_columns  # noqa: E402
 from app.services.ra.tutorial_5_5 import QUESTIONS  # noqa: E402
 
 
@@ -53,14 +54,15 @@ def seed_questions(db, author: User) -> None:
             print(f"  exists   #{exists.id} {spec['title']}")
             continue
         q = RAQuestion(title=spec["title"], description=spec["description"], difficulty=spec["difficulty"],
-                       is_published=1, created_by=author.id)
-        prepared = svc.apply_content(q, schema_sql=spec["schema_sql"], data_sql=spec.get("data_sql", ""),
-                                     model_answer=spec["model_answer"], checkpoints=None, compare_bags=False)
+                       schema_sql="", data_sql="", model_answer="", is_published=1, created_by=author.id)
         db.add(q)
+        db.flush()
+        parts = spec.get("parts") or [{"model_answer": spec["model_answer"]}]
+        prepared = svc.save_content(db, q, schema_sql=spec["schema_sql"], data_sql=spec.get("data_sql", ""),
+                                    parts=parts, compare_bags=False)
         db.commit()
-        s = prepared.suite.summary()
-        print(f"  created  #{q.id} {spec['title']}  "
-              f"(test databases: {s['databases']}, caught {s['mutants_killed']}/{s['mutants']} wrong versions)")
+        caught = ", ".join(f"{p.suite.summary()['mutants_killed']}/{p.suite.summary()['mutants']}" for p in prepared)
+        print(f"  created  #{q.id} {spec['title']}  ({len(prepared)} part(s); wrong versions caught: {caught})")
 
 
 def main() -> None:
@@ -77,6 +79,7 @@ def main() -> None:
             sys.exit(f"{email!r} is not a valid email (the app needs a dot after the @).")
 
     Base.metadata.create_all(bind=engine)
+    add_missing_columns(engine)
     db = SessionLocal()
     try:
         print("Whitelist:")

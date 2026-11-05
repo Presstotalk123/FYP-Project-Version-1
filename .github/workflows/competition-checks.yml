@@ -1,0 +1,67 @@
+name: Competition checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [sqlite, postgresql]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rescue
+          POSTGRES_PASSWORD: rescue-ci-only
+          POSTGRES_DB: rescue_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r backend/requirements.txt
+      - run: python -m pytest backend/competition_tests -q
+        env:
+          SECRET_KEY: competition-ci-not-a-production-key
+          DATABASE_URL: sqlite://
+          COMPETITION_TEST_DATABASE_URL: ${{ matrix.database == 'postgresql' && 'postgresql://rescue:rescue-ci-only@localhost:5432/rescue_test' || '' }}
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r ../backend/requirements.txt
+      - run: npx tsc --noEmit
+      - run: npx eslint src/components/competition src/app/student/competitions src/app/admin/competitions src/services/competition.service.ts src/types/competition.types.ts
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_MICROSOFT_CLIENT_ID: '00000000-0000-0000-0000-000000000001'
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: competition-ci
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8017/api/v1
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+        env:
+          PLAYWRIGHT_CHANNEL: chromium

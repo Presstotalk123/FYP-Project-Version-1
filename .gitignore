@@ -39,6 +39,7 @@ Thumbs.db
 .understand-anything/
 backend/tests/*
 !backend/tests/ra/
+!backend/tests/normalization/
 frontend/.npm-cache/
 docs/ 
 

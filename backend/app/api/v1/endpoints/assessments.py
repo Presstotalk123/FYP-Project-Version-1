@@ -62,6 +62,9 @@ router = APIRouter(prefix="/assessments", tags=["assessments"])
 
 def _resolve_item_title(item: AssessmentItem, db: Session) -> str:
     """Look up the display title for a polymorphic assessment item."""
+    if item.item_type == "normalization_question":
+        from app.services.normalization import assessment as normalization
+        return normalization.title(db, item.item_id)
     if item.item_type == "sql_question":
         row = db.query(Question.title).filter(Question.id == item.item_id).first()
         return row[0] if row else f"Question #{item.item_id}"
@@ -321,7 +324,12 @@ def get_assessment_analytics_summary(
         .scalar() or 0
     )
 
+    from app.models.normalization import NormalizationQuestion, NormalizationSubmission
+    normalization_questions = db.query(NormalizationQuestion).filter_by(is_deleted=0, owner_assessment_id=None).count()
+    normalization_submissions = db.query(NormalizationSubmission).join(User, User.id == NormalizationSubmission.user_id).filter(User.role == "student").count()
     return AssessmentAnalyticsSummaryResponse(
+        total_normalization_questions=normalization_questions,
+        total_normalization_submissions=normalization_submissions,
         platform_registered=registered_for(None),
         platform_signed_in=assessment_registration.signed_in_student_count(db),
         total_sql_questions=int(total_sql_questions),

@@ -38,8 +38,8 @@ export function OverviewTab() {
   }
 
   const s = summaryQuery.data;
-  const totalQuestions = (s?.total_sql_questions ?? 0) + (s?.total_erd_questions ?? 0);
-  const totalAttempts = (s?.total_sql_attempts ?? 0) + (s?.total_erd_submissions ?? 0);
+  const totalQuestions = (s?.total_sql_questions ?? 0) + (s?.total_erd_questions ?? 0) + (s?.total_normalization_questions ?? 0);
+  const totalAttempts = (s?.total_sql_attempts ?? 0) + (s?.total_erd_submissions ?? 0) + (s?.total_normalization_submissions ?? 0);
   const registered = s?.platform_registered;
   const signedIn = s?.platform_signed_in;
 
@@ -53,7 +53,7 @@ export function OverviewTab() {
             <span style={METRIC_LABEL}>Total Questions</span>
             <strong>{totalQuestions}</strong>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {s?.total_sql_questions ?? 0} SQL · {s?.total_erd_questions ?? 0} ERD
+              {s?.total_sql_questions ?? 0} SQL · {s?.total_erd_questions ?? 0} ERD · {s?.total_normalization_questions ?? 0} Normalization
             </span>
           </div>
         </article>
@@ -79,7 +79,7 @@ export function OverviewTab() {
             <span style={METRIC_LABEL}>Total Attempts</span>
             <strong>{totalAttempts}</strong>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {s?.total_sql_attempts ?? 0} SQL · {s?.total_erd_submissions ?? 0} ERD
+              {s?.total_sql_attempts ?? 0} SQL · {s?.total_erd_submissions ?? 0} ERD · {s?.total_normalization_submissions ?? 0} Normalization
             </span>
           </div>
         </article>

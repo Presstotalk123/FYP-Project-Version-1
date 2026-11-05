@@ -8,6 +8,7 @@ export function itemWorkspaceUrl(assessmentId: number, item: StudentAssessmentIt
   const base = `/student/assessments/${assessmentId}/items/${item.id}`;
   const rid = `?resourceId=${item.item_id}&weight=${item.weight}`;
   switch (item.item_type) {
+    case 'normalization_question': return `${base}/normalization-question${rid}`;
     case 'sql_question': return `${base}/sql-question${rid}`;
     case 'sql_lab':      return `${base}/sql-lab${rid}`;
     case 'graph_lab':    return `${base}/graph-lab${rid}`;

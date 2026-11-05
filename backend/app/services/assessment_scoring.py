@@ -163,6 +163,10 @@ def item_score_detail(
     `session_id` (the student's AssessmentSession.id) is only used for the er_question
     "visited" flag; pass None when that detail isn't needed.
     """
+    if item.item_type == "normalization_question":
+        from app.services.normalization import assessment as normalization
+        fraction, count, accepted = normalization.score_detail(db, item.item_id, student_id)
+        return ItemScoreDetail(fraction=fraction, attempt_count=count, has_correct_attempt=accepted)
     if item.item_type == "sql_question":
         attempts = (
             db.query(Attempt)
@@ -382,6 +386,10 @@ def compute_roster_analytics(
         db, student_ids, [i.item_id for i in items if i.item_type == "ra_question"]
     )
 
+    from app.services.normalization import assessment as normalization
+    norm_fractions, norm_attempts, norm_accepted = normalization.scores(
+        db, student_ids, [i.item_id for i in items if i.item_type == "normalization_question"])
+
     # --- SQL questions: set of (user, question) with any correct attempt (binary) ---
     solved_sql: set = set()
     if student_ids and sql_q_ids:
@@ -590,6 +598,11 @@ def compute_roster_analytics(
                 if tries:
                     attempted_count += 1
                 total_attempts += tries
+        elif item.item_type == "normalization_question":
+            fractions = [norm_fractions.get((uid, item.item_id), 0.0) for uid in student_ids]
+            correct_count = sum((uid, item.item_id) in norm_accepted for uid in student_ids)
+            attempted_count = sum(norm_attempts.get((uid, item.item_id), 0) > 0 for uid in student_ids)
+            total_attempts = sum(norm_attempts.get((uid, item.item_id), 0) for uid in student_ids)
         elif item.item_type == "ra_question":  # Relational Algebra (FYP)
             fractions = [
                 ra_fractions.get((uid, item.item_id), 0.0)
@@ -617,6 +630,7 @@ def compute_roster_analytics(
             "sql_lab": lab_attempts,
             "graph_lab": lab_attempts,
             "er_question": er_attempts,
+            "normalization_question": norm_attempts,
             "ra_question": ra_attempts,
         }.get(item.item_type)
 
@@ -935,9 +949,14 @@ def resolve_item_titles(db: Session, items: list) -> dict:
     from app.services.ra import assessment as ra_assessment  # Relational Algebra (FYP)
     ra_titles = ra_assessment.titles(db, by_type.get("ra_question", set()))
 
+    from app.services.normalization import assessment as normalization
+    norm_titles = normalization.titles(db, by_type.get("normalization_question", set()))
+
     resolved: dict = {}
     for item in items:
-        if item.item_type == "ra_question":
+        if item.item_type == "normalization_question":
+            resolved[item.id] = norm_titles.get(item.item_id) or f"Normalization #{item.item_id}"
+        elif item.item_type == "ra_question":
             resolved[item.id] = ra_titles.get(item.item_id) or f"RA Question #{item.item_id}"
         elif item.item_type == "sql_question":
             resolved[item.id] = sql_titles.get(item.item_id) or f"Question #{item.item_id}"
@@ -965,6 +984,9 @@ def resolve_item_title(db: Session, item: AssessmentItem) -> str:
     if item.item_type in ("sql_lab", "graph_lab"):
         row = db.query(Lab.title).filter(Lab.id == item.item_id, Lab.is_deleted == 0).first()
         return row[0] if row else f"Lab #{item.item_id}"
+    if item.item_type == "normalization_question":
+        from app.services.normalization import assessment as normalization
+        return normalization.title(db, item.item_id)
     if item.item_type == "ra_question":  # Relational Algebra (FYP)
         from app.services.ra import assessment as ra_assessment
         return ra_assessment.title(db, item.item_id)

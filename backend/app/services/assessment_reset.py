@@ -108,7 +108,10 @@ def reset_student_attempt(db: Session, assessment: Assessment, student_id: int) 
 
     for item in items:
         content_id = item.item_id
-        if item.item_type == "sql_question":
+        if item.item_type == "normalization_question":
+            from app.services.normalization import assessment as normalization
+            summary["normalization_questions"] = summary.get("normalization_questions", 0) + normalization.reset_student(db, student_id, content_id, assessment.id)
+        elif item.item_type == "sql_question":
             if _owns(db, Question, content_id, assessment.id):
                 summary["sql_questions"] += _reset_sql_question(db, student_id, content_id)
         elif item.item_type in ("sql_lab", "graph_lab"):

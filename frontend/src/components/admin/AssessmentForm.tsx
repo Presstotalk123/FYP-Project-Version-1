@@ -63,6 +63,8 @@ import { Question } from '@/types/question.types';
 import { ERDiagramQuestionListItem } from '@/types/er-diagram.types';
 import { Lab } from '@/types/lab.types';
 import { assessmentService } from '@/services/assessment.service';
+import { normalizationService } from '@/services/normalization.service';
+import type { NormalizationQuestion } from '@/types/normalization.types';
 import { questionService } from '@/services/question.service';
 import { erDiagramService } from '@/services/er-diagram.service';
 import { labService } from '@/services/lab.service';
@@ -200,6 +202,7 @@ export function AssessmentForm({ mode, initial }: Props) {
   const [gatewayLoading, setGatewayLoading] = useState(true);
 
   // Pool data
+  const [normalizationQuestions, setNormalizationQuestions] = useState<NormalizationQuestion[]>([]);
   const [sqlQuestions, setSqlQuestions] = useState<Question[]>([]);
   const [erQuestions, setErQuestions] = useState<ERDiagramQuestionListItem[]>([]);
   const [sqlLabs, setSqlLabs] = useState<Lab[]>([]);
@@ -234,12 +237,14 @@ export function AssessmentForm({ mode, initial }: Props) {
       try {
         setPoolLoading(true);
         setPoolError(null);
-        const [qs, erqs, labs] = await Promise.all([
+        const [qs, erqs, labs, normalizationQuestions] = await Promise.all([
           questionService.getQuestions(),
           erDiagramService.getQuestions(),
           labService.getLabs(),
+          normalizationService.list(),
         ]);
         if (cancelled) return;
+        setNormalizationQuestions(normalizationQuestions);
         setSqlQuestions(qs);
         setErQuestions(erqs);
         setSqlLabs(labs.filter((l) => l.lab_type === 'sql'));
@@ -615,6 +620,7 @@ export function AssessmentForm({ mode, initial }: Props) {
           {!poolLoading && !poolError && (
             <Tabs defaultValue="sql_question">
               <Tabs.List grow>
+                <Tabs.Tab value="normalization_question">Normalization ({filtered(normalizationQuestions).length})</Tabs.Tab>
                 <Tabs.Tab value="sql_question">SQL Q ({filtered(sqlQuestions).length})</Tabs.Tab>
                 <Tabs.Tab value="er_question">ER Q ({filtered(erQuestions).length})</Tabs.Tab>
                 <Tabs.Tab value="sql_lab">SQL Lab ({filtered(sqlLabs).length})</Tabs.Tab>
@@ -622,6 +628,11 @@ export function AssessmentForm({ mode, initial }: Props) {
                 {raEnabled && <Tabs.Tab value="ra_question">RA Q ({filtered(raQuestions).length})</Tabs.Tab>}
               </Tabs.List>
 
+              <Tabs.Panel value="normalization_question" pt="xs">
+                <ScrollArea h={320}>{filtered(normalizationQuestions).map(q => renderPoolRow('normalization_question', q.id, q.title, { label: q.target_normal_form, color: 'cyan' }))}
+                  {!filtered(normalizationQuestions).length && <Text c="dimmed" size="sm">No normalization questions found.</Text>}
+                </ScrollArea>
+              </Tabs.Panel>
               <Tabs.Panel value="sql_question" pt="xs">
                 <ScrollArea h={320}>
                   {filtered(sqlQuestions).length === 0 && (

@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 // plain-HTML admin pages. Tabler's stroke and currentColor defaults match them,
 // so only the size needs stating — the siblings are 15px to suit .icon-btn.
 import { IconTrash, IconDatabase, IconHierarchy, IconChartDots3, IconChevronDown } from '@tabler/icons-react';
-import { Menu } from '@mantine/core';
+import { NormalizationAnalytics } from '@/components/normalization/NormalizationAnalytics';
+import { normalizationService } from '@/services/normalization.service';
+import { Menu, Modal } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
@@ -23,8 +25,8 @@ import {
   deleteRaQuestion, setRaPublished, useRaQuestions,
 } from '@/components/ra/raProblems';
 
-type ProblemType = 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question' | 'ra-question';
-type CategoryFilter = 'all' | 'sql' | 'erd' | 'graph' | typeof RA_CATEGORY;
+type ProblemType = 'normalization-question' | 'sql-question' | 'sql-lab' | 'graph-lab' | 'erd-question' | 'ra-question';
+type CategoryFilter = 'normalization' | 'all' | 'sql' | 'erd' | 'graph' | typeof RA_CATEGORY;
 
 interface Problem {
   uid: string;
@@ -45,7 +47,7 @@ interface Problem {
 // Publish only applies to SQL questions and staff-created ERD questions.
 // Student-created ERDs stay visible to students regardless, so they get no publish control.
 const isPublishable = (p: Problem): boolean => {
-  if (p.problemType === 'sql-question' || p.problemType === 'ra-question') return true;
+  if (p.problemType === 'normalization-question' || p.problemType === 'sql-question' || p.problemType === 'ra-question') return true;
   if (p.problemType === 'erd-question') {
     return p.createdByRole === 'staff' || p.createdByRole === 'admin';
   }
@@ -56,6 +58,7 @@ const isPublishable = (p: Problem): boolean => {
 // question carries the same colour here as on the student list. The label is
 // what separates a question from a lab — the colour was never doing that work.
 const typeBadge: Record<ProblemType, { label: string; className: string }> = {
+  'normalization-question': { label: 'Normalization', className: 'badge-info' },
   'sql-question': { label: 'SQL Question', className: 'badge-info' },
   'sql-lab': { label: 'SQL Lab', className: 'badge-info' },
   'graph-lab': { label: 'Graph Lab', className: 'badge-warn' },
@@ -108,6 +111,7 @@ const IconUnpublish = () => (
 // Question types offered from the "Create Question" dropdown, same 4 choices
 // (and destinations) the old /admin/problems/new chooser page offered as cards.
 const createQuestionTypes: { label: string; icon: React.ReactNode; destination: string }[] = [
+  { label: 'Normalization question', icon: <IconDatabase size={16} />, destination: '/normalization/add' },
   { label: 'SQL question', icon: <IconDatabase size={16} />, destination: '/admin/questions/new' },
   { label: 'ERD question', icon: <IconHierarchy size={16} />, destination: '/er-diagram/add' },
   { label: 'SQL lab question', icon: <IconDatabase size={16} />, destination: '/admin/labs/wizard' },
@@ -119,6 +123,8 @@ export default function ProblemsPage() {
   const { user } = useAuth();
 
   const queryClient = useQueryClient();
+  const [normalizationAnalytics, setNormalizationAnalytics] = useState<number | null>(null);
+  const normalization = useQuery({ queryKey: queryKeys.normalizationQuestions(user?.id ?? 0), queryFn: normalizationService.list, refetchOnMount: true });
   const [publishing, setPublishing] = useState<Record<string, boolean>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   // The whole Problem, not just an id: the confirmation names what is going and
@@ -141,13 +147,14 @@ export default function ProblemsPage() {
     if (raCategoryFromUrl()) setCategory(RA_CATEGORY);
   }, []);
 
-  const loading = questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading || ra.isLoading;
+  const loading = (category === 'normalization' && normalization.isLoading) || questionsQuery.isLoading || labsQuery.isLoading || erdQuery.isLoading || ra.isLoading;
   const loadFailed = !!(questionsQuery.error || labsQuery.error || erdQuery.error || ra.error);
   const error = actionError ?? (loadFailed ? 'Failed to load problems' : null);
   const refreshing = questionsQuery.isFetching || labsQuery.isFetching || erdQuery.isFetching || ra.isFetching;
 
   const refresh = () => {
     setActionError(null);
+    normalization.refetch();
     questionsQuery.refetch();
     labsQuery.refetch();
     erdQuery.refetch();
@@ -206,16 +213,23 @@ export default function ProblemsPage() {
           created_at: e.created_at,
           editUrl: `/er-diagram/${e.id}/edit`,
         })),
+        ...(normalization.data ?? []).map(q => ({ uid: `normalization-${q.id}`, id: q.id, title: q.title,
+          problemType: 'normalization-question' as ProblemType, difficulty: q.difficulty, created_by: q.created_by,
+          isPublished: q.is_published, created_at: q.created_at, editUrl: `/normalization/${q.id}/edit` })),
         ...raStaffRows(ra.questions),
       ].sort(byReadmeOrder);
-  }, [questionsQuery.data, labsQuery.data, erdQuery.data, ra.questions]);
+  }, [questionsQuery.data, labsQuery.data, erdQuery.data, ra.questions, normalization.data]);
 
   const togglePublish = async (problem: Problem) => {
     const nextPublished = !problem.isPublished;
     setPublishing((prev) => ({ ...prev, [problem.uid]: true }));
     setActionError(null);
     try {
-      if (problem.problemType === 'sql-question') {
+      if (problem.problemType === 'normalization-question') {
+        await normalizationService.publish(problem.id, nextPublished);
+        await queryClient.invalidateQueries({ queryKey: ['normalization'] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.assessmentAnalyticsSummary });
+      } else if (problem.problemType === 'sql-question') {
         if (nextPublished) {
           await questionService.publishQuestion(problem.id);
         } else {
@@ -256,7 +270,11 @@ export default function ProblemsPage() {
       // then the row is dropped from that source list. Editing the cache rather
       // than refetching matches togglePublish above, and keeps the other three
       // lists untouched.
-      if (target.problemType === 'sql-question') {
+      if (target.problemType === 'normalization-question') {
+        await normalizationService.remove(target.id);
+        await queryClient.invalidateQueries({ queryKey: ['normalization'] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.assessmentAnalyticsSummary });
+      } else if (target.problemType === 'sql-question') {
         await questionService.deleteQuestion(target.id);
         queryClient.setQueryData<typeof questionsQuery.data>(queryKeys.questions, (old) =>
           old?.filter((q) => q.id !== target.id)
@@ -291,11 +309,12 @@ export default function ProblemsPage() {
     const erd = problems.filter((p) => p.problemType === 'erd-question').length;
     const graph = problems.filter((p) => p.problemType === 'graph-lab').length;
     const raCount = problems.filter((p) => p.problemType === 'ra-question').length;
-    return { all: problems.length, sql, erd, graph, ra: raCount };
+    return { all: problems.length, sql, erd, graph, ra: raCount, normalization: problems.filter(p => p.problemType === 'normalization-question').length };
   }, [problems]);
 
   const filtered = useMemo(() => {
     return problems.filter((p) => {
+      if (category === 'normalization' && p.problemType !== 'normalization-question') return false;
       if (category === 'sql' && p.problemType !== 'sql-question' && p.problemType !== 'sql-lab')
         return false;
       if (category === 'erd' && p.problemType !== 'erd-question') return false;
@@ -319,6 +338,7 @@ export default function ProblemsPage() {
 
   const categories: { key: CategoryFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All problems', count: categoryCounts.all },
+    { key: 'normalization', label: 'Normalization', count: categoryCounts.normalization },
     { key: 'sql', label: 'SQL', count: categoryCounts.sql },
     { key: 'erd', label: 'ERD', count: categoryCounts.erd },
     { key: 'graph', label: 'Graph', count: categoryCounts.graph },
@@ -464,6 +484,7 @@ export default function ProblemsPage() {
                 delete the backend refuses, a publish that errors — reports in
                 the banner above and leaves the list alone. Only a failed load
                 means there is nothing to show. */}
+            {!!normalization.error && <div className="da-alert alert-info" role="alert">Normalization questions are temporarily unavailable. You can still use the other problem types.</div>}
             {!loading && !loadFailed && (
               <>
                 {filtered.length === 0 ? (
@@ -535,6 +556,7 @@ export default function ProblemsPage() {
                                   >
                                     <IconEdit />
                                   </button>
+                                  {problem.problemType === 'normalization-question' && <button className="icon-btn" title="Normalization analytics" onClick={() => setNormalizationAnalytics(problem.id)}><IconChart /></button>}
                                   {problem.problemType === 'erd-question' && (
                                     <button
                                       className="icon-btn"
@@ -627,6 +649,9 @@ export default function ProblemsPage() {
             </div>
           </div>
         )}
+        <Modal opened={normalizationAnalytics !== null} onClose={() => setNormalizationAnalytics(null)} title="Normalization analytics" size="90%">
+          {normalizationAnalytics !== null && <NormalizationAnalytics questionId={normalizationAnalytics} />}
+        </Modal>
       </DashboardLayout>
     </ProtectedRoute>
   );

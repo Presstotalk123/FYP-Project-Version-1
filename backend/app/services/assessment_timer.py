@@ -61,6 +61,13 @@ def finalize_session(db: Session, session: AssessmentSession) -> None:
     from app.services import assessment_scoring
     from app.utils.lab_cleanup import terminate_session
 
+    db.flush()
+    db.query(AssessmentSession).filter_by(id=session.id).update(
+        {AssessmentSession.is_active: AssessmentSession.is_active}, synchronize_session=False)
+    db.refresh(session)
+    if session.attempt_complete:
+        return
+
     session.is_active = 0
     session.attempt_complete = 1  # single-attempt: lock out any future retake
     session.submitted_at = _now()

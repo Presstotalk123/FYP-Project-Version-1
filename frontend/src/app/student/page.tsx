@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { normalizationService } from '@/services/normalization.service';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useDebouncedValue } from '@mantine/hooks';
 import { Popover } from '@mantine/core';
@@ -30,8 +32,8 @@ import { toERQuestionSubject } from '@/permissions/er-ability';
 // into one uid-namespaced row list, sorted in DATABASE_README_EN.md order (see
 // byReadmeOrder), and category / search / difficulty all filter client-side
 // across the pool. Labs and assessments deliberately stay on their own pages.
-type StudentProblemType = 'sql-question' | 'erd-question' | 'ra-question';
-type CategoryFilter = 'all' | 'sql' | 'erd' | typeof RA_CATEGORY;
+type StudentProblemType = 'normalization-question' | 'sql-question' | 'erd-question' | 'ra-question';
+type CategoryFilter = 'normalization' | 'all' | 'sql' | 'erd' | typeof RA_CATEGORY;
 
 interface PooledQuestion {
   uid: string;
@@ -52,6 +54,9 @@ interface PooledQuestion {
    *  the list can say is that something was graded but did not pass. */
   attempted?: boolean;
   /** RA only: sub-questions on one schema, and how many the student has solved. */
+  target?: string;
+  bestScore?: number | null;
+  feedbackHidden?: boolean;
   parts_total?: number;
   parts_solved?: number;
 }
@@ -111,6 +116,9 @@ const IconCalendar = () => (
 export default function StudentDashboard() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const normalization = useQuery({ queryKey: queryKeys.normalizationQuestions(user?.id ?? 0), queryFn: normalizationService.list, refetchOnMount: true });
+  const normalizationProgress = useQuery({ queryKey: queryKeys.normalizationProgress(user?.id ?? 0), queryFn: normalizationService.progress, refetchOnMount: true });
   const ability = useERAbility();
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [difficulty, setDifficulty] = useState<string>('all');
@@ -219,21 +227,28 @@ export default function StudentDashboard() {
           attempted: prog !== undefined,
         };
       }),
+      ...(normalization.data ?? []).map(q => {
+        const p = normalizationProgress.data?.find(p => p.question_id === q.id);
+        return { uid: `normalization-${q.id}`, id: q.id, title: q.title, problemType: 'normalization-question' as StudentProblemType,
+          difficulty: q.difficulty, created_by: q.created_by, created_at: q.created_at, target: q.target_normal_form,
+          completed: p?.completed, attempted: (p?.attempt_count ?? 0) > 0, bestScore: p?.best_score, feedbackHidden: p?.feedback_hidden };
+      }),
       ...raStudentItems(ra.questions),
     ].sort(byReadmeOrder);
-  }, [questionsQuery.data, erdQuery.data, progressQuery.data, erdProgressQuery.data, ra.questions]);
+  }, [questionsQuery.data, erdQuery.data, progressQuery.data, erdProgressQuery.data, ra.questions, normalization.data, normalizationProgress.data]);
 
   // Counts reflect the unfiltered pool, like the Problems sidebar.
   const categoryCounts = useMemo(() => {
     const sql = pool.filter((p) => p.problemType === 'sql-question').length;
     const erd = pool.filter((p) => p.problemType === 'erd-question').length;
     const raCount = pool.filter((p) => p.problemType === 'ra-question').length;
-    return { all: pool.length, sql, erd, ra: raCount };
+    return { all: pool.length, sql, erd, ra: raCount, normalization: pool.filter(p => p.problemType === 'normalization-question').length };
   }, [pool]);
 
   const filtered = useMemo(() => {
     const term = debouncedSearch.trim().toLowerCase();
     return pool.filter((p) => {
+      if (category === 'normalization' && p.problemType !== 'normalization-question') return false;
       if (category === 'sql' && p.problemType !== 'sql-question') return false;
       if (category === 'erd' && p.problemType !== 'erd-question') return false;
       if (category === RA_CATEGORY && p.problemType !== 'ra-question') return false;
@@ -243,13 +258,15 @@ export default function StudentDashboard() {
     });
   }, [pool, category, debouncedSearch, difficulty]);
 
-  const loading = questionsQuery.isLoading || progressQuery.isLoading || erdQuery.isLoading || ra.isLoading;
+  const loading = (category === 'normalization' && (normalization.isLoading || normalizationProgress.isLoading)) || questionsQuery.isLoading || progressQuery.isLoading || erdQuery.isLoading || ra.isLoading;
   const loadError = questionsQuery.error || progressQuery.error || erdQuery.error || ra.error;
   const error = loadError
     ? ((loadError as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed to load questions')
     : null;
   const refreshing = questionsQuery.isFetching || progressQuery.isFetching || erdQuery.isFetching;
   const refresh = () => {
+    normalization.refetch();
+    normalizationProgress.refetch();
     questionsQuery.refetch();
     progressQuery.refetch();
     erdQuery.refetch();
@@ -292,7 +309,7 @@ export default function StudentDashboard() {
       if (raw) {
         const saved = JSON.parse(raw);
         if (saved.category === 'all' || saved.category === 'sql' || saved.category === 'erd'
-          || saved.category === RA_CATEGORY) {
+          || saved.category === 'normalization' || saved.category === RA_CATEGORY) {
           setCategory(saved.category);
         }
         if (['all', 'easy', 'medium', 'hard'].includes(saved.difficulty)) {
@@ -331,7 +348,7 @@ export default function StudentDashboard() {
     } catch {
       // best-effort only — never block navigation on storage failures
     }
-    router.push(item.problemType === 'erd-question' ? `/er-diagram/${item.id}`
+    router.push(item.problemType === 'normalization-question' ? `/student/workspace/${item.id}?type=normalization` : item.problemType === 'erd-question' ? `/er-diagram/${item.id}`
       : item.problemType === 'ra-question' ? raQuestionUrl(item.id) : `/student/workspace/${item.id}`);
   };
 
@@ -358,6 +375,7 @@ export default function StudentDashboard() {
 
   const categories: { key: CategoryFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All questions', count: categoryCounts.all },
+    { key: 'normalization', label: 'Normalization', count: categoryCounts.normalization },
     { key: 'sql', label: 'SQL', count: categoryCounts.sql },
     { key: 'erd', label: 'ERD', count: categoryCounts.erd },
     ...(ra.enabled ? [{ key: RA_CATEGORY, label: RA_CATEGORY_LABEL, count: categoryCounts.ra }] : []),
@@ -510,6 +528,9 @@ export default function StudentDashboard() {
             )}
 
             {/* Pooled questions grid */}
+            {!!(normalization.error || normalizationProgress.error) && <div className="da-alert alert-info" role="alert">
+              {normalization.error ? 'Normalization questions are temporarily unavailable. You can still use the other question types.' : 'Normalization progress could not be loaded. You can still open questions.'}
+            </div>}
             {!loading && !error && (
               filtered.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: 40 }}>
@@ -599,6 +620,11 @@ export default function StudentDashboard() {
                         {item.problemType === 'sql-question' && (
                           <span className="badge badge-info">SQL</span>
                         )}
+                        {item.problemType === 'normalization-question' && <>
+                          <span className="badge badge-info">Normalization · {item.target}</span>
+                          {item.feedbackHidden ? item.attempted && <span className="badge neutral">Submitted</span>
+                            : <span className="badge neutral">{item.completed ? 'Completed' : item.attempted ? 'Attempted' : 'New'}{item.bestScore != null ? ` · ${item.bestScore}%` : ''}</span>}
+                        </>}
                         {item.problemType === 'ra-question' && (
                           <span className="badge badge-ra">RA</span>
                         )}

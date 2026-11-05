@@ -3,7 +3,7 @@ import {
   RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaExampleDataResponse, RaNotationResponse, RaPlaygroundGradeResponse,
   RaPlaygroundRunResponse, RaQuestion, RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff,
   RaSchemaTextResponse, RaStatus, RaSubmitResponse, RaValidateResponse, RaClassAnalytics, RaQuestionAnalytics,
-  RaStudentAttempts, RaAnswerFormat, RaFormatConvertResponse, RaStepSpecStaff, RaTryStepsResponse,
+  RaStudentAttempts, RaAnswerFormat, RaFormatConvertResponse, RaStepSpecStaff, RaTryStepsResponse, RaRegradePreview,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -123,6 +123,18 @@ export const raService = {
 
   async studentAttempts(id: number, studentId: number): Promise<RaStudentAttempts> {
     return (await api.get<RaStudentAttempts>(`${RA_ENDPOINTS.ANALYTICS}/questions/${id}/students/${studentId}`)).data;
+  },
+
+  /** The next batch of past attempts the current grader would change (nothing is saved). */
+  async regradePreview(id: number, afterId: number | null): Promise<RaRegradePreview> {
+    return (await api.post<RaRegradePreview>(`${RA_ENDPOINTS.ANALYTICS}/questions/${id}/regrade/preview`,
+      { after_id: afterId })).data;
+  },
+
+  /** Regrade and save these attempts; staff overrides are kept. */
+  async regradeApply(id: number, attemptIds: number[]): Promise<{ changed: number }> {
+    return (await api.post<{ changed: number }>(`${RA_ENDPOINTS.ANALYTICS}/questions/${id}/regrade/apply`,
+      { attempt_ids: attemptIds })).data;
   },
 
   /** Staff only: turn a schema written as text (``STUDENT(*Sid, Sname)``) into CREATE TABLE statements. */

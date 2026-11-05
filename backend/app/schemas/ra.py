@@ -121,12 +121,16 @@ class GradeOut(BaseModel):
     steps: List[StepFeedbackOut] = []
     error: Optional[RAErrorOut] = None
     elapsed_ms: float = 0
+    proof: Optional[str] = None          # staff only: how the proof went (whole | by_parts | search | why not)
 
 
 class SurvivingMutantOut(BaseModel):
     description: str
     line: Optional[int] = None
     text: str
+    # The prover's view of a variant the test databases didn't catch: True = proved
+    # equivalent (fine), False = proved different (the tests are too weak), None = undecided.
+    equivalent: Optional[bool] = None
 
 
 class SuiteSummaryOut(BaseModel):

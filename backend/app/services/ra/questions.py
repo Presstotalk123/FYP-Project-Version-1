@@ -200,7 +200,7 @@ def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, 
         row.steps_json = json.dumps(spec["steps"]) if spec.get("steps") else None
         if not reuse:
             row.suite_json = json.dumps(prepared.suite.to_json())
-            row.suite_summary_json = json.dumps(prepared.suite.summary())
+            row.suite_summary_json = json.dumps(prepared.suite_summary())
         if row.id is not None:
             kept.add(row.id)
     for part_id, row in existing.items():
@@ -378,6 +378,8 @@ def for_student(q: RAQuestion, result: GradeResult) -> Optional[dict]:
     if q.hide_correctness:
         return None
     data = result.to_dict()
+    # Students see right or wrong; whether it was proved or tested is for staff.
+    data.update(method=None, proof=None, databases_checked=0)
     if not q.show_step_direction or (q.answer_format or MIXED) == FINAL_ANSWER:
         for step in data["steps"]:
             step.update(status="none", checkpoint=None, renamed=False, case=None)

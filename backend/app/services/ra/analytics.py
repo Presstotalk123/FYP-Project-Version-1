@@ -47,6 +47,7 @@ class _Attempt:
     graded_correct: bool = False
     marks_earned: Optional[int] = None
     step_marks: Optional[List[dict]] = None
+    method: Optional[str] = None             # proof | tested | sample: how the grader decided
 
 
 def class_groups(db: Session) -> List[str]:
@@ -67,11 +68,11 @@ def _attempts(db: Session, question_ids: List[int], user_ids: List[int]) -> List
         return []
     rows = (db.query(RAAttempt.id, RAAttempt.user_id, RAAttempt.question_id, RAAttempt.part_id, RAAttempt.verdict,
                      _EFFECTIVE_CORRECT, RAAttempt.created_at, RAAttempt.result_json, RAAttempt.override_is_correct,
-                     RAAttempt.is_correct, RAAttempt.marks_earned)
+                     RAAttempt.is_correct, RAAttempt.marks_earned, RAAttempt.method)
             .filter(RAAttempt.question_id.in_(question_ids), RAAttempt.user_id.in_(user_ids))
             .order_by(RAAttempt.created_at.asc(), RAAttempt.id.asc()).all())
-    return [_Attempt(i, u, q, p, v, bool(c), t, _error(v, rj), o, bool(g), m, step_analytics.step_marks(rj, m))
-            for i, u, q, p, v, c, t, rj, o, g, m in rows]
+    return [_Attempt(i, u, q, p, v, bool(c), t, _error(v, rj), o, bool(g), m, step_analytics.step_marks(rj, m), how)
+            for i, u, q, p, v, c, t, rj, o, g, m, how in rows]
 
 
 def _error(verdict: str, result_json: Optional[str]) -> Optional[dict]:
@@ -89,6 +90,14 @@ def _parts(db: Session, question_ids: List[int]) -> List[RAQuestionPart]:
     return (db.query(RAQuestionPart)
             .filter(RAQuestionPart.question_id.in_(question_ids), RAQuestionPart.is_deleted == 0)
             .order_by(RAQuestionPart.question_id, RAQuestionPart.position, RAQuestionPart.id).all())
+
+
+def _correct_by(attempts) -> Dict[str, int]:
+    """Of the answers the grader marked correct: how many it proved equivalent to the
+    model answer, and how many it only tested (the solver couldn't decide)."""
+    graded = [a for a in attempts if a.verdict == "correct"]
+    return {"proved": sum(1 for a in graded if a.method == "proof"),
+            "tested": sum(1 for a in graded if a.method != "proof")}
 
 
 def _verdicts(attempts) -> Dict[str, int]:
@@ -225,6 +234,7 @@ def question_analytics(db: Session, question_id: int, class_group: Optional[str]
             "students": len(users), "students_solved": len(to_correct), "attempts": len(p_attempts),
             "avg_submits_to_correct": _mean(to_correct),
             "verdicts": _verdicts(p_attempts), "top_errors": _top_errors(p_attempts),
+            "correct_by": _correct_by(p_attempts),
             "steps": step_analytics.part_steps(p, by_user_part, users),
         })
 
@@ -274,6 +284,7 @@ def student_attempts(db: Session, question_id: int, student_id: int) -> dict:
             "created_at": _iso(a.created_at), "answer": a.answer, "verdict": a.verdict,
             "correct": bool(a.override_is_correct if a.override_is_correct is not None else a.is_correct),
             "overridden": a.override_is_correct is not None, "method": a.method,
+            "databases_checked": result.get("databases_checked") or 0,
             "message": result.get("message") or "", "error": result.get("error"),
         })
     user = db.query(User.email, User.name).filter(User.id == student_id).first()

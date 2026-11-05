@@ -555,3 +555,60 @@ the professor's; students only see the question laid out that way.
 3. Make a **Final answer** question and type `R1 := …`: the warning shows and Submit is off.
 4. Edit a Mixed question with steps and switch it to Final answer: the model answer becomes one
    expression.
+
+## Step 15: Grading by proof on every valid database (5 Nov 2026)
+
+Commit: "Prove RA answers equivalent on every valid database" (`git log --oneline` shows its hash).
+
+**Why.** The professor asked for a deterministic grading algorithm. Grading was already repeatable
+(seeded, stored test databases), but a "correct" verdict only meant "same result on the test
+databases". Now the grader tries to *prove* the answer equivalent to the model answer on every
+database the schema allows. The full write-up for the report is `RA_GRADING.md`.
+
+**What was built.**
+- A prover using the Z3 solver (`z3-solver==4.15.4.0`, pinned in `backend/requirements.txt`):
+  - `core/ra/logic.py` turns an answer into logic. It covers every operator: σ with any condition
+    (=, ≠, <, ≤, >, ≥, AND/OR/NOT, arithmetic), Π, ρ, ×, every join including outer joins, ∪, ∩, −, ÷,
+    δ and γ.
+  - `core/ra/equivalence.py` runs the proof:
+    1. Z3 proves the whole answer, or
+    2. it proves it piece by piece, or
+    3. `core/ra/bounded.py` searches every database with at most 1–3 tuples per table for a
+       counterexample.
+  - It works within a fixed amount of solver work (about 2 s), not a clock, so verdicts are the
+    same on any server.
+- **Valid databases:** these respect the schema's types, primary keys and foreign keys. Stored
+  tables hold no NULLs; NULLs come only from outer joins, with SQL's three-valued logic.
+  - This fixes a bug in the old proof (`conjunctive.py`, now removed). It ignored keys and foreign
+    keys, so `Π sid (Enrolled ⋈ Course)` was marked wrong with a counterexample the schema forbids.
+  - Shrinking a counterexample now also keeps it valid.
+- **Grading order** (`core/ra/grader.py`):
+  1. The tests run first; any difference makes the answer wrong.
+  2. An answer that passes every test then goes to the proof:
+     - Proved equivalent → correct (method `proof`).
+     - Counterexample found → wrong (method `proof`). Every counterexample is checked with SQLite and
+       the real evaluator first, with readable values.
+     - Undecided → correct (method `tested`).
+  - A wrong verdict therefore always comes with a real database.
+- **Who sees the method:** students see the same message whether an answer was proved or only
+  tested. Staff see **proved** or **tested on N** on each attempt (the try-out bench and the
+  student attempt list in analytics), and per part in analytics: "Correct answers: X proved · Y only
+  tested".
+- **Suite report:** each wrong version of the model answer that the test databases don't catch is
+  now labelled *proved equivalent*, *proved different* or *undecided*.
+- **Regrade past attempts** (analytics page of a question):
+  - It checks every attempt with the current grader and lists what would change.
+  - Nothing changes until staff press Save, and overrides are kept.
+  - It runs in batches, so a big class doesn't time out. Endpoints are in `ra_regrade.py`;
+    `services/ra/regrade.py` has the logic.
+
+**How to check it**
+1. Make a question with `Course`, `Student` and `Enrolled` (foreign keys from Enrolled) and the
+   model answer `Π sid (Enrolled)`. As a student submit `Π sid (Enrolled ⋈ Course)`: it is correct.
+   As staff the same Submit says "Proved equivalent on every valid database".
+2. Open the question's analytics: the attempt shows **proved**, and the part shows the
+   proved/tested counts.
+3. Press **Check past attempts** in "Regrade past attempts with the current grader": older
+   attempts graded by the previous grader show what would change. Save and the analytics update.
+4. In the staff form, open **Test strength**: any uncaught variant says whether it was proved
+   equivalent.

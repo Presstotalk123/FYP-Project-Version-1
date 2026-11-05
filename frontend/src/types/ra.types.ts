@@ -111,6 +111,8 @@ export interface RaGradeResult {
   steps: RaStepFeedback[];
   error: RaError | null;
   elapsed_ms: number;
+  /** Staff only: how the proof went (whole | by_parts | search, or why it couldn't decide). */
+  proof?: string | null;
 }
 
 /** How strong a question's generated test databases are. */
@@ -120,7 +122,8 @@ export interface RaSuiteSummary {
   mutants_killed: number;
   candidates_tried: number;
   build_ms: number;
-  surviving_mutants: { description: string; line: number | null; text: string }[];
+  /** ``equivalent``: the prover's view — true proved equivalent, false proved different, null undecided. */
+  surviving_mutants: { description: string; line: number | null; text: string; equivalent?: boolean | null }[];
 }
 
 export interface RaPlaygroundGradeResponse {
@@ -454,6 +457,8 @@ export interface RaQuestionAnalytics {
     avg_submits_to_correct: number | null;
     verdicts: RaVerdictCounts;
     top_errors: RaTopError[];
+    /** Of the answers marked correct: proved equivalent to the model answer, or only tested. */
+    correct_by: { proved: number; tested: number };
     /** Multi-step parts: how far students got (their best Submit). */
     steps: RaStepProgress[] | null;
   }[];
@@ -502,7 +507,33 @@ export interface RaStudentAttempts {
     correct: boolean;
     overridden: boolean;
     method: string | null;
+    databases_checked: number;
     message: string;
     error: RaError | null;
   }[];
+}
+
+/** One past attempt whose result the current grader would change. */
+export interface RaRegradeChange {
+  attempt_id: number;
+  part_id: number;
+  user_id: number;
+  student: string;
+  email: string;
+  answer: string;
+  created_at: string | null;
+  old: { verdict: RaVerdict; correct: boolean; method: string | null; marks_earned: number | null };
+  new: { verdict: RaVerdict; correct: boolean; method: string | null; marks_earned: number | null };
+  /** False when only the method changed (e.g. now proved instead of tested). */
+  verdict_changed: boolean;
+  /** A staff override decides this attempt's marks whatever the grader says. */
+  overridden: boolean;
+}
+
+export interface RaRegradePreview {
+  total: number;
+  checked: number;
+  after_id: number | null;
+  done: boolean;
+  changes: RaRegradeChange[];
 }

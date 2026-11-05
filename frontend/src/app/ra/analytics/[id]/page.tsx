@@ -8,6 +8,7 @@ import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { ClassGroupSelect, TopErrors, VERDICT_INFO, VerdictBar, when } from '@/components/ra/RaAnalyticsParts';
 import { RaStepProgressDetails } from '@/components/ra/RaStepProgress';
+import { RaCorrectBy, RaMethodTag, RaRegradePanel } from '@/components/ra/RaGradingMethod';
 import { RaOff } from '@/components/ra/RaOff';
 import { useRaStatus } from '@/hooks/use-ra-status';
 import { raQueryKeys, raService } from '@/services/ra.service';
@@ -87,6 +88,7 @@ function QuestionAnalytics() {
                   </span>
                 </div>
                 <VerdictBar verdicts={p.verdicts} />
+                <RaCorrectBy counts={p.correct_by} />
                 {p.top_errors.length > 0 && <TopErrors errors={p.top_errors} />}
                 {p.steps && p.steps.length > 0 && <RaStepProgressDetails steps={p.steps} />}
               </article>
@@ -137,6 +139,8 @@ function QuestionAnalytics() {
               </table>
             </div>
           </section>
+
+          <RaRegradePanel questionId={questionId} />
         </div>
       )}
 
@@ -181,6 +185,7 @@ function StudentAttempts({ questionId, studentId, onClose }: { questionId: numbe
                       <strong style={{ color: a.correct ? 'var(--success)' : 'var(--error)' }}>
                         {VERDICT_INFO[a.verdict]?.label ?? a.verdict}
                       </strong>
+                      <RaMethodTag verdict={a.verdict} method={a.method} databasesChecked={a.databases_checked} />
                       {a.overridden && <span className={`badge ${a.correct ? 'badge-success' : 'badge-danger'}`} style={{ marginLeft: 6 }}>overridden: {a.correct ? 'correct' : 'wrong'}</span>}
                       {a.error ? (
                         <div style={{ color: 'var(--text-muted)' }}>

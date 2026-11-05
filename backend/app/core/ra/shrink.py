@@ -5,7 +5,7 @@ keeping each removal only if the answers still differ, until no single tuple can
 (a simple form of delta debugging, Zeller 2002). The student then sees, say, three
 tuples instead of thirty, which usually makes the mistake obvious.
 
-``prettify`` replaces the made-up values of a proof's canonical database (⟨v1⟩, ⟨v2⟩ …)
+``prettify`` replaces the made-up values of a solver's counterexample ("!0!", -31714 …)
 with readable ones (Sid_1, 7 …), keeping equal values equal, and keeps the result only
 if the answers still differ on it.
 """
@@ -37,32 +37,67 @@ def shrink(db: Database, differs: Callable[[Database], bool], max_checks: int = 
 
 
 def prettify(db: Database, differs: Callable[[Database], bool], avoid: set = frozenset()) -> Database:
-    """Swap ⟨vN⟩ placeholders for readable values of the right type."""
-    mapping: Dict[str, object] = {}
-    next_number = 1
+    """Swap a solver's made-up values for readable ones, keeping the counterexample.
+
+    The solver picks whatever satisfies the logic: strings such as "" or "!0!", numbers
+    such as -31714. Strings become ``Attribute_1``, ``Attribute_2`` … and numbers small
+    whole numbers, keeping equal values equal and numbers in the same order relative to
+    each other and to the answers' constants (``avoid``), which are never changed. Each
+    of the two swaps is kept only if the answers still differ on the result."""
+    for swap in (_readable_strings, _readable_numbers):
+        mapping = swap(db, avoid)
+        if not mapping:
+            continue
+        trial = db.with_rows({t.name: [tuple(mapping.get(_key(v), v) for v in r) for r in t.rows]
+                              for t in db.tables})
+        if differs(trial):
+            db = trial
+    return db
+
+
+def _key(v):
+    return (type(v) is str, v)
+
+
+def _readable_strings(db: Database, avoid: set) -> Dict[tuple, object]:
+    mapping: Dict[tuple, object] = {}
+    taken = {v for v in avoid if isinstance(v, str)}
     counters: Dict[str, int] = {}
     for t in db.tables:
         for row in t.rows:
-            for (col, affinity), v in zip(t.columns, row):
-                if not (isinstance(v, str) and v.startswith("⟨v")) or v in mapping:
+            for col, v in zip(t.column_names, row):
+                if not isinstance(v, str) or v in avoid or _key(v) in mapping:
                     continue
-                if affinity in ("INTEGER", "REAL", "NUMERIC"):
-                    while next_number in avoid:
-                        next_number += 1
-                    mapping[v] = next_number
-                    next_number += 1
-                else:
-                    counters[col] = counters.get(col, 0) + 1
-                    candidate = f"{col}_{counters[col]}"
-                    while candidate in avoid:
-                        counters[col] += 1
-                        candidate = f"{col}_{counters[col]}"
-                    mapping[v] = candidate
-    if not mapping:
-        return db
-    pretty = db.with_rows({t.name: [tuple(mapping.get(v, v) if isinstance(v, str) else v for v in r)
-                                    for r in t.rows] for t in db.tables})
-    return pretty if differs(pretty) else db
+                n = counters.get(col, 0)
+                while True:
+                    n += 1
+                    candidate = f"{col}_{n}"
+                    if candidate not in taken:
+                        break
+                counters[col] = n
+                taken.add(candidate)
+                mapping[_key(v)] = candidate
+    return mapping
+
+
+def _readable_numbers(db: Database, avoid: set) -> Dict[tuple, object]:
+    """Renumber 1, 2, 3 … in order, jumping over the constants so order is kept."""
+    fixed = sorted(v for v in avoid if isinstance(v, (int, float)) and not isinstance(v, bool))
+    values = sorted({v for t in db.tables for r in t.rows for v in r
+                     if isinstance(v, (int, float)) and not isinstance(v, bool) and v not in fixed})
+    if not values:
+        return {}
+    mapping: Dict[tuple, object] = {}
+    last = 0
+    for v in values:
+        below = [c for c in fixed if c < v]
+        above = [c for c in fixed if c > v]
+        new = max(last + 1, (int(below[-1]) + 1) if below else 1)
+        if above and new >= above[0]:
+            return {}                                 # no whole number fits in between: keep them all
+        mapping[_key(v)] = new
+        last = new
+    return mapping
 
 
 def describe(db: Database) -> Dict[str, dict]:

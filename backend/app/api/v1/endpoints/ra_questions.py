@@ -130,7 +130,7 @@ def validate_question(body: RAQuestionValidateIn, _staff: User = Depends(require
     relations = Database.from_sql(body.schema_sql, body.data_sql).to_dict()
     return RAQuestionValidateOut(
         ok=True, relations=[RelationOut(**r) for r in relations],
-        suite=SuiteSummaryOut(**prepared.suite.summary()),
+        suite=SuiteSummaryOut(**prepared.suite_summary()),
         model_result=EvalOut(columns=model.columns, rows=[list(r) for r in model.rows], row_count=len(model.rows),
                              steps=model.statements, warnings=[RAErrorOut.from_engine(w) for w in model.warnings]),
         model_result_source=source,

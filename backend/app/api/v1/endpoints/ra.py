@@ -11,7 +11,8 @@
                                   editor's preview; not graded
   /ra/questions/…                 RA questions: see ra_questions.py (the question type
                                   switch and its preview: ra_formats.py)
-  /ra/analytics/…                 staff analytics: see ra_analytics.py
+  /ra/analytics/…                 staff analytics: see ra_analytics.py (regrading past
+                                  attempts with the current grader: ra_regrade.py)
 
 The playground is a free practice space (like RelaX): nothing is saved. Any
 signed-in user may use it. The schema SQL runs in a private in-memory SQLite with file
@@ -34,7 +35,7 @@ from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, NotationIn, NotationL
                             RAErrorOut, RAStatus, RelationOut, SuiteSummaryOut)
 from app.services.ra import grading
 from app.services.ra.examples import EXAMPLES
-from app.api.v1.endpoints import ra_analytics, ra_formats, ra_questions
+from app.api.v1.endpoints import ra_analytics, ra_formats, ra_questions, ra_regrade
 
 router = APIRouter(prefix="/ra", tags=["relational-algebra"])
 
@@ -106,7 +107,7 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
 
     result = question.grade(body.answer)
     out = PlaygroundGradeOut(ok=True, grade=GradeOut(**result.to_dict()),
-                             suite=SuiteSummaryOut(**question.suite.summary()))
+                             suite=SuiteSummaryOut(**question.suite_summary()))
     if result.verdict != "invalid_expression":
         db, source = grading.structure_database(question)
         try:
@@ -124,6 +125,7 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
 router.include_router(ra_formats.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_questions.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_analytics.router, dependencies=[Depends(require_ra_enabled)])
+router.include_router(ra_regrade.router, dependencies=[Depends(require_ra_enabled)])
 
 
 @router.post("/notation", response_model=NotationOut, dependencies=[Depends(require_ra_enabled)])

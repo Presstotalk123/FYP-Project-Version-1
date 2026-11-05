@@ -13,16 +13,31 @@ const TITLE: Record<RaGradeResult['verdict'], { text: string; tone: 'good' | 'ba
 };
 
 /**
+ * How the grader reached a verdict, for staff (students' grades come without a method,
+ * so they see only right or wrong). A wrong verdict is always backed by a database.
+ */
+export function gradeMethodLabel(verdict: RaGradeResult['verdict'], method: string | null | undefined,
+  databasesChecked: number): string | null {
+  const correct = verdict === 'correct';
+  if (method === 'proof') {
+    return correct ? 'Proved equivalent on every valid database'
+      : 'Wrong on a database the solver found (the test databases missed it)';
+  }
+  if (method === 'tested') {
+    return correct ? `Tested on ${databasesChecked} databases; the solver couldn’t prove it either way`
+      : `Wrong on one of ${databasesChecked} test databases`;
+  }
+  if (method === 'sample') return "Wrong on the question's data";
+  return null;
+}
+
+/**
  * The verdict of one graded answer, with the evidence for it: first the student's result
  * and the model answer's on the data shown with the question (``shown``), then the rest.
  */
 export function RaVerdict({ grade, shown }: { grade: RaGradeResult; shown?: RaShownResult | null }) {
   const t = TITLE[grade.verdict];
-  const how = grade.method === 'proof'
-    ? 'Proved for every possible database'
-    : grade.method === 'tested'
-      ? `Checked on ${grade.databases_checked} test databases`
-      : grade.method === 'sample' ? "Checked on the question's data" : null;
+  const how = gradeMethodLabel(grade.verdict, grade.method, grade.databases_checked);
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div className={t.tone === 'good' ? 'alert-success' : 'alert-error'} style={{ display: 'grid', gap: 4 }}>
@@ -115,10 +130,17 @@ export function RaSuiteReport({ suite }: { suite: RaSuiteSummary }) {
         {survivors.length > 0 && (
           <>
             <span>
-              Not caught, so either equivalent to the model answer (no data can tell them apart) or worth a look:
+              Not caught by the test databases. The prover checked each one against the model answer:
             </span>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {survivors.map((m, i) => <li key={i}><code>{m.description}</code></li>)}
+              {survivors.map((m, i) => (
+                <li key={i}>
+                  <code>{m.description}</code>{' — '}
+                  {m.equivalent === true && <span style={{ color: 'var(--success)' }}>proved equivalent, so no data can catch it (fine)</span>}
+                  {m.equivalent === false && <span style={{ color: 'var(--error)' }}>proved different: a real mistake the tests miss (students making it are still caught by the prover)</span>}
+                  {(m.equivalent === null || m.equivalent === undefined) && <span>undecided: worth a look</span>}
+                </li>
+              ))}
             </ul>
           </>
         )}

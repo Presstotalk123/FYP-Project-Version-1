@@ -9,6 +9,7 @@ import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { ClassGroupSelect, TopErrors, VERDICT_INFO, VerdictBar, when } from '@/components/ra/RaAnalyticsParts';
 import { RaStepProgressDetails } from '@/components/ra/RaStepProgress';
 import { RaCorrectBy, RaMethodTag, RaRegradePanel } from '@/components/ra/RaGradingMethod';
+import { RaBagheeraTranscript } from '@/components/ra/RaBagheera';
 import { RaOff } from '@/components/ra/RaOff';
 import { useRaStatus } from '@/hooks/use-ra-status';
 import { raQueryKeys, raService } from '@/services/ra.service';
@@ -198,6 +199,12 @@ function StudentAttempts({ questionId, studentId, onClose }: { questionId: numbe
               </tbody>
             </table>
           </div>
+        )}
+        {data && (
+          <details style={{ marginTop: 14 }} open={data.bagheera.length > 0}>
+            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Conversation with Bagheera ({data.bagheera.length})</summary>
+            <div style={{ marginTop: 10 }}><RaBagheeraTranscript messages={data.bagheera ?? []} /></div>
+          </details>
         )}
       </div>
     </div>

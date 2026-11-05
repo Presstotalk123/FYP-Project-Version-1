@@ -511,6 +511,31 @@ export interface RaStudentAttempts {
     message: string;
     error: RaError | null;
   }[];
+  /** The student's conversation with Bagheera on this question (staff see held-back replies). */
+  bagheera: RaBagheeraMessage[];
+}
+
+/** One message between a student and Bagheera, the AI tutor (hints only; it never grades). */
+export interface RaBagheeraMessage {
+  id: number;
+  part_id: number | null;
+  kind: 'chat' | 'explain';
+  role: 'user' | 'assistant';
+  content: string;
+  /** "Explain my mistake": the attempt explained. */
+  attempt_id: number | null;
+  /** The first reply gave the answer away, so this one replaced it. */
+  guarded: boolean;
+  /** Staff only: what was held back. */
+  blocked_content?: string | null;
+  created_at: string | null;
+}
+
+export interface RaBagheeraState {
+  available: boolean;
+  /** Why Bagheera is off here (assessment, hidden correctness, not set up). */
+  reason: string | null;
+  messages: RaBagheeraMessage[];
 }
 
 /** One past attempt whose result the current grader would change. */

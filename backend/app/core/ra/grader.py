@@ -172,13 +172,15 @@ class PreparedQuestion:
         return run.steps[self.checkpoint_index(cp)][2]
 
     # ── grading ───────────────────────────────────────────────────────────────
-    def grade(self, answer: str, *, with_steps: bool = True) -> GradeResult:
+    def grade(self, answer: str, *, with_steps: bool = True, prove: bool = True) -> GradeResult:
+        """``prove=False`` stops after the test databases (a quick check, e.g. Bagheera's
+        leak guard): an answer passing them is then reported correct, method "tested"."""
         started = time.perf_counter()
-        result = self._grade(answer, with_steps)
+        result = self._grade(answer, with_steps, prove)
         result.elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
         return result
 
-    def _grade(self, answer: str, with_steps: bool) -> GradeResult:
+    def _grade(self, answer: str, with_steps: bool, prove: bool = True) -> GradeResult:
         expected = list(self.columns)
         try:
             student = parse(answer, self.names)
@@ -230,6 +232,8 @@ class PreparedQuestion:
                 return GradeResult("wrong_in_general", self._general_message(), method="tested",
                                    counterexample=case, databases_checked=len(dbs), **base)
 
+        if not prove:
+            return GradeResult("correct", CORRECT_MESSAGE, method="tested", databases_checked=len(dbs), **base)
         # Students see the same message either way; staff see how it was decided (method).
         proof = self._proof(student)
         if proof.status == "different":

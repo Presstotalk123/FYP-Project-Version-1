@@ -10,7 +10,8 @@
   POST /ra/notation               an answer in textbook notation (LaTeX per statement) for the
                                   editor's preview; not graded
   /ra/questions/…                 RA questions: see ra_questions.py (the question type
-                                  switch and its preview: ra_formats.py)
+                                  switch and its preview: ra_formats.py; Bagheera, the
+                                  AI tutor: ra_bagheera.py)
   /ra/analytics/…                 staff analytics: see ra_analytics.py (regrading past
                                   attempts with the current grader: ra_regrade.py)
 
@@ -35,7 +36,7 @@ from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, NotationIn, NotationL
                             RAErrorOut, RAStatus, RelationOut, SuiteSummaryOut)
 from app.services.ra import grading
 from app.services.ra.examples import EXAMPLES
-from app.api.v1.endpoints import ra_analytics, ra_formats, ra_questions, ra_regrade
+from app.api.v1.endpoints import ra_analytics, ra_bagheera, ra_formats, ra_questions, ra_regrade
 
 router = APIRouter(prefix="/ra", tags=["relational-algebra"])
 
@@ -123,6 +124,7 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
 
 # RA questions: /ra/questions/… (see ra_questions.py), all behind the RA_ENABLED switch.
 router.include_router(ra_formats.router, dependencies=[Depends(require_ra_enabled)])
+router.include_router(ra_bagheera.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_questions.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_analytics.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_regrade.router, dependencies=[Depends(require_ra_enabled)])

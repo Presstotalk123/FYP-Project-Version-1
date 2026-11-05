@@ -5,6 +5,7 @@ import { raService } from '@/services/ra.service';
 import { RaAttempt, RaCheckResponse, RaPart, RaQuestion, RaSubmitResponse } from '@/types/ra.types';
 import { RaStepBoxes } from './RaStepBoxes';
 import { RaStepMarkingSummary } from './RaStepMarking';
+import { RaExplainMistake } from './RaBagheera';
 
 function draftKey(questionId: number, partId: number) {
   return `ra-steps-draft-${questionId}-${partId}`;
@@ -30,13 +31,15 @@ function fit(values: string[], n: number) {
  * the earlier attempts. Each part keeps its own boxes: an unsent draft per browser,
  * otherwise the student's last submitted ones.
  */
-export function RaStepsAnswer({ question, part, attempts, attemptsLoaded, multiPart, onSubmitted }: {
+export function RaStepsAnswer({ question, part, attempts, attemptsLoaded, multiPart, onSubmitted, onValuesChange }: {
   question: RaQuestion;
   part: RaPart;
   attempts: RaAttempt[];
   attemptsLoaded: boolean;
   multiPart: boolean;
   onSubmitted: () => void;
+  /** The boxes as they are now (Bagheera reads them when the student asks). */
+  onValuesChange?: (values: string[]) => void;
 }) {
   const steps = part.steps ?? [];
   const [valuesBy, setValuesBy] = useState<Record<number, string[]>>({});
@@ -60,12 +63,13 @@ export function RaStepsAnswer({ question, part, attempts, attemptsLoaded, multiP
   }, [part.id, valuesBy, attempts, attemptsLoaded, question.id, steps.length]);
   useEffect(() => {
     if (!(part.id in valuesBy)) return;
+    onValuesChange?.(valuesBy[part.id]);
     try {
       window.localStorage.setItem(draftKey(question.id, part.id), JSON.stringify(valuesBy[part.id]));
     } catch {
       // storage unavailable: drafts just aren't kept
     }
-  }, [question.id, part.id, valuesBy]);
+  }, [question.id, part.id, valuesBy, onValuesChange]);
 
   const setValue = (index: number, value: string) => {
     setValuesBy((m) => {
@@ -149,7 +153,12 @@ export function RaStepsAnswer({ question, part, attempts, attemptsLoaded, multiP
       {submitted && (
         <div className="card" style={{ padding: 16, display: 'grid', gap: 12, minWidth: 0 }}>
           {submitted.grade && submitted.marking ? (
-            <RaStepMarkingSummary marking={submitted.marking} grade={submitted.grade} />
+            <>
+              <RaStepMarkingSummary marking={submitted.marking} grade={submitted.grade} />
+              {submitted.marking.earned < submitted.marking.total && (
+                <RaExplainMistake questionId={question.id} attemptId={submitted.attempt_id} />
+              )}
+            </>
           ) : (
             <div className="alert-info"><strong>Submitted.</strong> Your answer has been recorded.</div>
           )}

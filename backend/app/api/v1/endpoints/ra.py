@@ -9,7 +9,8 @@
                                   how strong the generated test databases are
   POST /ra/notation               an answer in textbook notation (LaTeX per statement) for the
                                   editor's preview; not graded
-  /ra/questions/…                 RA questions: see ra_questions.py
+  /ra/questions/…                 RA questions: see ra_questions.py (the question type
+                                  switch and its preview: ra_formats.py)
   /ra/analytics/…                 staff analytics: see ra_analytics.py
 
 The playground is a free practice space (like RelaX): nothing is saved. Any
@@ -33,7 +34,7 @@ from app.schemas.ra import (EvalOut, ExampleOut, GradeOut, NotationIn, NotationL
                             RAErrorOut, RAStatus, RelationOut, SuiteSummaryOut)
 from app.services.ra import grading
 from app.services.ra.examples import EXAMPLES
-from app.api.v1.endpoints import ra_analytics, ra_questions
+from app.api.v1.endpoints import ra_analytics, ra_formats, ra_questions
 
 router = APIRouter(prefix="/ra", tags=["relational-algebra"])
 
@@ -120,6 +121,7 @@ def grade_playground(body: PlaygroundGradeIn, _user: User = Depends(get_current_
 
 
 # RA questions: /ra/questions/… (see ra_questions.py), all behind the RA_ENABLED switch.
+router.include_router(ra_formats.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_questions.router, dependencies=[Depends(require_ra_enabled)])
 router.include_router(ra_analytics.router, dependencies=[Depends(require_ra_enabled)])
 

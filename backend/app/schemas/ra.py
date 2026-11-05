@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.ra import RAError as EngineError
 from app.core.ra.parser import MAX_PROGRAM_CHARS
@@ -171,15 +171,39 @@ class CheckpointIn(BaseModel):
 
 MAX_PARTS = 20
 
+# How students answer (core/ra/answer_format.py), chosen by staff for the whole question.
+AnswerFormat = Literal["mixed", "final_answer", "multi_step"]
+
+
+class RAStepIn(BaseModel):
+    """One step of a multi-step part; the last one is the final answer (its name is ignored)."""
+    name: Optional[str] = Field(None, max_length=32)       # R1, R2 … (later steps use it)
+    prompt: str = Field("", max_length=300)                # shown to students above the box
+    marks: int = Field(0, ge=0, le=100)
+    model_answer: str = Field("", max_length=MAX_PROGRAM_CHARS)
+
+
+class RAStepOut(BaseModel):
+    """A step as students see it (never its model answer)."""
+    name: Optional[str] = None
+    prompt: str
+    marks: int
+
+
+class RAStepStaffOut(RAStepOut):
+    model_answer: str
+
 
 class RAPartIn(BaseModel):
     """One part of a question: (i), (ii), … A question with one part needs no label or text."""
     id: Optional[int] = None                               # an existing part (keeps its attempts)
     label: str = Field("", max_length=50)                  # e.g. "(i)"
     description: str = Field("", max_length=20_000)       # markdown, shown to students
-    marks: int = Field(1, ge=1, le=100)                    # what the part earns in an assessment
-    model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    marks: int = Field(1, ge=1, le=100)                    # what the part earns (multi-step: the steps' total)
+    # Multi-step parts send ``steps`` instead; their model answer is built from them.
+    model_answer: str = Field("", max_length=MAX_PROGRAM_CHARS)
     checkpoints: Optional[List[CheckpointIn]] = None       # None = every step of the model answer
+    steps: Optional[List[RAStepIn]] = Field(None, max_length=20)
 
 
 class RAQuestionIn(BaseModel):
@@ -191,6 +215,7 @@ class RAQuestionIn(BaseModel):
     # With data_sql empty: the example data shown in the form (None = keep or build it).
     example_data_sql: Optional[str] = Field(None, max_length=MAX_SQL_CHARS)
     parts: List[RAPartIn] = Field(..., min_length=1, max_length=MAX_PARTS)
+    answer_format: AnswerFormat = "mixed"
     show_step_direction: bool = True
     assessment_step_direction: bool = False    # the same, when the question is in an assessment
     compare_bags: bool = False
@@ -201,7 +226,10 @@ class RAQuestionIn(BaseModel):
 class RAQuestionValidateIn(BaseModel):
     schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
     data_sql: str = Field("", max_length=MAX_SQL_CHARS)
-    model_answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    model_answer: str = Field("", max_length=MAX_PROGRAM_CHARS)
+    # The question's type; a multi-step part sends its steps instead of a model answer.
+    answer_format: AnswerFormat = "mixed"
+    steps: Optional[List[RAStepIn]] = Field(None, max_length=20)
     checkpoints: Optional[List[CheckpointIn]] = None
     compare_bags: bool = False
     # With data_sql empty: the example data shown in the form, to run the model answer on.
@@ -211,8 +239,9 @@ class RAQuestionValidateIn(BaseModel):
 class RAQuestionValidateOut(BaseModel):
     """Is the question valid, and how strong are its generated test databases?"""
     ok: bool
-    error_source: Optional[Literal["schema", "data", "model_answer", "checkpoints"]] = None
+    error_source: Optional[Literal["schema", "data", "model_answer", "checkpoints", "steps"]] = None
     error: Optional[RAErrorOut] = None
+    error_step: Optional[int] = None                        # which step, for a multi-step part
     relations: List[RelationOut] = []
     suite: Optional[SuiteSummaryOut] = None
     # The model answer's steps on the question's data, its example data, or else a generated test database.
@@ -274,12 +303,14 @@ class RAPartOut(BaseModel):
     attempts: int = 0
     solved: bool = False
     submissions_used: int = 0                # Submits to this part (capped in assessments)
+    steps: Optional[List[RAStepOut]] = None  # multi-step questions: one box per step
 
 
 class RAPartStaffOut(RAPartOut):
     model_answer: str
     checkpoints: Optional[List[CheckpointIn]] = None
     suite: Optional[SuiteSummaryOut] = None
+    steps: Optional[List[RAStepStaffOut]] = None
 
 
 class RAQuestionOut(BaseModel):
@@ -292,6 +323,7 @@ class RAQuestionOut(BaseModel):
     has_data: bool                           # the question has data of its own
     # Where the tuples in ``relations`` come from: the question's data, or its example data.
     data_source: Optional[Literal["sample", "example"]] = None
+    answer_format: AnswerFormat = "mixed"     # how the question asks for its answer
     show_step_direction: bool
     hide_correctness: bool
     attempts: int = 0
@@ -310,11 +342,31 @@ class RAQuestionStaffOut(RAQuestionOut):
     compare_bags: bool
     is_published: bool
     assessment_step_direction: bool = False
+    has_attempts: bool = False               # answered already: the type can't change any more
 
 
 class RAAnswerIn(BaseModel):
-    answer: str = Field(..., min_length=1, max_length=MAX_PROGRAM_CHARS)
+    """One answer to one part: ``answer``, or for a multi-step question ``step_answers``
+    (one per step, in order; empty ones allowed)."""
+    answer: Optional[str] = Field(None, max_length=MAX_PROGRAM_CHARS)
+    step_answers: Optional[List[str]] = Field(None, max_length=20)
     part_id: Optional[int] = None            # may be left out when the question has one part
+
+    @model_validator(mode="after")
+    def _one_answer(self):
+        if self.step_answers is not None:
+            if any(len(a) > MAX_PROGRAM_CHARS for a in self.step_answers):
+                raise ValueError(f"A step is too long (max {MAX_PROGRAM_CHARS} characters).")
+        elif not (self.answer or "").strip():
+            raise ValueError("Write an answer first.")
+        return self
+
+
+class RABoxCheckOut(BaseModel):
+    """One box of a multi-step answer, run on the shown data."""
+    status: Literal["empty", "error", "ok"]
+    error: Optional[RAErrorOut] = None
+    step: Optional[Dict[str, Any]] = None    # {name, tree}, as in EvalOut.steps
 
 
 class RACheckOut(BaseModel):
@@ -324,6 +376,7 @@ class RACheckOut(BaseModel):
     result: Optional[EvalOut] = None
     source: Optional[Literal["sample", "example", "generated"]] = None
     relations: List[RelationOut] = []
+    boxes: Optional[List[RABoxCheckOut]] = None   # multi-step questions, instead of ``result``
 
 
 class ShownResultOut(BaseModel):
@@ -339,6 +392,33 @@ class ShownResultOut(BaseModel):
     expected_missing: List[bool] = []
 
 
+class StepResultOut(BaseModel):
+    """One step of a multi-step answer after Submit (services/ra/multi_step.py)."""
+    index: int
+    name: Optional[str] = None
+    prompt: str
+    marks: int
+    earned: int
+    # full: the final answer is correct · reached: a box computes this step ·
+    # carried: a box computes it given the model's earlier steps · missed
+    status: Literal["full", "reached", "carried", "missed"]
+    credited_by: Optional[int] = None        # the box that earned it (0-based)
+    box_status: Literal["empty", "error", "ok"]
+    box_error: Optional[RAErrorOut] = None
+    feedback: Optional[StepFeedbackOut] = None    # ✓/◐/○ for this box (status "none" when hidden)
+    structure: Optional[Dict[str, Any]] = None    # the box evaluated on the shown data: {name, tree}
+    student: Optional[Dict[str, Any]] = None      # for a missed step: the box's table on the shown data…
+    expected: Optional[Dict[str, Any]] = None     # …and the model step's
+
+
+class StepMarkingOut(BaseModel):
+    earned: int
+    total: int
+    final_correct: bool
+    source: Optional[Literal["sample", "example", "generated"]] = None   # where the tables come from
+    steps: List[StepResultOut]
+
+
 class RASubmitOut(BaseModel):
     attempt_id: int
     part_id: int
@@ -350,6 +430,8 @@ class RASubmitOut(BaseModel):
     structure_source: Optional[Literal["sample", "example", "generated"]] = None
     # Only with ``grade`` (it shows the model answer's result on the data the student sees).
     shown: Optional[ShownResultOut] = None
+    # Multi-step questions, only with ``grade``: the marks of each step.
+    marking: Optional[StepMarkingOut] = None
 
 
 class RAAttemptOut(BaseModel):
@@ -359,6 +441,56 @@ class RAAttemptOut(BaseModel):
     verdict: Optional[str] = None        # None when the question hides correctness
     is_correct: Optional[bool] = None
     created_at: Any
+    step_answers: Optional[List[str]] = None   # multi-step questions: the boxes
+    marks_earned: Optional[int] = None         # multi-step questions (None when correctness is hidden)
+
+
+class RAConvertPartIn(BaseModel):
+    model_answer: str = Field("", max_length=MAX_PROGRAM_CHARS)
+    checkpoints: Optional[List[CheckpointIn]] = None
+    steps: Optional[List[RAStepIn]] = Field(None, max_length=20)
+    marks: int = Field(1, ge=0, le=1000)
+
+
+class RAFormatConvertIn(BaseModel):
+    """The staff form's type switch: rewrite every part for the new type (nothing saved)."""
+    schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
+    from_format: AnswerFormat
+    to_format: AnswerFormat
+    parts: List[RAConvertPartIn] = Field(..., max_length=MAX_PARTS)
+
+
+class RAConvertPartOut(BaseModel):
+    model_answer: str
+    checkpoints: Optional[List[CheckpointIn]] = None
+    steps: Optional[List[RAStepStaffOut]] = None
+    marks: int
+    error: Optional[str] = None              # couldn't convert: rewrite it by hand
+
+
+class RAFormatConvertOut(BaseModel):
+    ok: bool
+    error: Optional[RAErrorOut] = None       # the schema can't be read
+    parts: List[RAConvertPartOut] = []
+
+
+class RATryStepsIn(BaseModel):
+    """The staff form's preview: mark a multi-step answer against draft steps (nothing saved)."""
+    schema_sql: str = Field(..., min_length=1, max_length=MAX_SQL_CHARS)
+    data_sql: str = Field("", max_length=MAX_SQL_CHARS)
+    example_data_sql: Optional[str] = Field(None, max_length=MAX_SQL_CHARS)
+    compare_bags: bool = False
+    steps: List[RAStepIn] = Field(..., max_length=20)
+    step_answers: List[str] = Field(..., max_length=20)
+
+
+class RATryStepsOut(BaseModel):
+    ok: bool
+    error_source: Optional[Literal["schema", "data", "steps"]] = None
+    error: Optional[RAErrorOut] = None
+    error_step: Optional[int] = None
+    grade: Optional[GradeOut] = None
+    marking: Optional[StepMarkingOut] = None
 
 
 PlaygroundGradeIn.model_rebuild()

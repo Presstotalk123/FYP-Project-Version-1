@@ -13,6 +13,8 @@ import { RaStepStructure } from './RaStepStructure';
 import { RaSteps } from './RaSteps';
 import { RaTable } from './RaTable';
 import { RaVerdict } from './RaVerdict';
+import { FINAL_ANSWER_HINT, hasSteps, RaFinalAnswerNote, RaWrongFormatWarning } from './raAnswerFormat';
+import { RaStepsAnswer } from './RaStepsAnswer';
 
 const VERDICT_BADGE: Record<Verdict, { text: string; cls: string }> = {
   correct: { text: 'Correct', cls: 'badge-success' },
@@ -44,6 +46,10 @@ function partName(label: string, index: number) {
  * step, not graded) and Submit (graded and recorded), the verdict with its evidence,
  * every step with "Show structure", and earlier attempts. Each part keeps its own
  * answer: an unsent one per browser, otherwise the student's last submitted one.
+ *
+ * The question's type (chosen by staff, raAnswerFormat.tsx) decides the layout: one
+ * editor (Mixed), one editor for one expression only (Final answer: an answer in steps
+ * can't be submitted), or one box per step (Multi-step, RaStepsAnswer.tsx).
  */
 export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
   const queryClient = useQueryClient();
@@ -146,6 +152,9 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
   const limitReached = limit != null && used >= limit;
   const solvedCount = parts.filter((p) => p.solved).length;
   const totalMarks = parts.reduce((sum, p) => sum + p.marks, 0);
+  const stepsLayout = question.answer_format === 'multi_step' && !!part.steps?.length;
+  const finalOnly = question.answer_format === 'final_answer';
+  const wrongFormat = finalOnly && hasSteps(answer);
 
   return (
     <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
@@ -210,13 +219,24 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
             </div>
           </div>
         )}
+        {stepsLayout ? (
+          <RaStepsAnswer question={question} part={part} attempts={attemptsQuery.data ?? []}
+            attemptsLoaded={attemptsLoaded} multiPart={multi} onSubmitted={() => {
+              void queryClient.invalidateQueries({ queryKey: raQueryKeys.attempts(questionId) });
+              void queryClient.invalidateQueries({ queryKey: raQueryKeys.question(questionId) });
+              void queryClient.invalidateQueries({ queryKey: raQueryKeys.questions });
+            }} />
+        ) : (
+        <>
+        {finalOnly && <RaFinalAnswerNote />}
         <RaEditor
           value={answer}
           onChange={setAnswer}
           onRun={() => void run('check')}
           error={editorError}
-          height={240}
+          height={finalOnly ? 160 : 240}
           names={question.relations.flatMap((r) => [r.name, ...r.columns])}
+          hint={finalOnly ? FINAL_ANSWER_HINT : undefined}
           toolbar={(
             <>
               <button className="btn btn-secondary" style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
@@ -225,8 +245,9 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
                 {busy === 'check' ? 'Checking…' : 'Check (not graded)'}
               </button>
               <button className="btn btn-brand" style={{ minHeight: 32, padding: '0 14px', fontSize: 13 }}
-                onClick={() => void run('submit')} disabled={!!busy || !answer.trim() || limitReached}
-                title={limitReached ? 'You have used all your submissions for this question.' : undefined}>
+                onClick={() => void run('submit')} disabled={!!busy || !answer.trim() || limitReached || wrongFormat}
+                title={limitReached ? 'You have used all your submissions for this question.'
+                  : wrongFormat ? 'This question asks for one expression, without steps.' : undefined}>
                 {busy === 'submit' ? 'Grading…' : 'Submit'}
               </button>
               <button className="btn btn-secondary" style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
@@ -246,6 +267,7 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
           )}
         />
 
+        {wrongFormat && <RaWrongFormatWarning />}
         {requestError && <div className="alert-error">{requestError}</div>}
 
         {checked && !checked.ok && checked.error && (
@@ -286,15 +308,15 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
             )}
             {submitted.grade && submitted.grade.steps.length > 0 && (
               <div style={{ display: 'grid', gap: 8 }}>
-                <h3 style={{ margin: 0, fontSize: 15 }}>Your steps</h3>
-                {question.show_step_direction && (
+                <h3 style={{ margin: 0, fontSize: 15 }}>{finalOnly ? 'Your expression' : 'Your steps'}</h3>
+                {question.show_step_direction && !finalOnly && (
                   <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
                     Each step is compared with the model solution&apos;s steps by what it computes, not by its name.
                     ✓ matches a step · ◐ same kind of step but different tuples · ○ no matching step (fine for a different method).
                   </p>
                 )}
                 <RaStepStructure feedback={submitted.grade.steps} steps={submitted.structure?.steps ?? null}
-                  source={submitted.structure_source} showDirection={question.show_step_direction} />
+                  source={submitted.structure_source} showDirection={question.show_step_direction && !finalOnly} />
               </div>
             )}
           </div>
@@ -323,6 +345,8 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
               ))}
             </div>
           </details>
+        )}
+        </>
         )}
       </section>
     </SimpleGrid>

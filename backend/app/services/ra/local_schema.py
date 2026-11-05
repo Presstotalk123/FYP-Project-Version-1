@@ -27,6 +27,10 @@ _COLUMNS = (
     ("ra_questions", "assessment_step_direction", "INTEGER NOT NULL DEFAULT 0"),
     ("ra_questions", "example_data_sql", "TEXT"),
     ("ra_attempts", "part_id", "INTEGER REFERENCES ra_question_parts(id)"),
+    ("ra_questions", "answer_format", "VARCHAR(20) NOT NULL DEFAULT 'mixed'"),
+    ("ra_question_parts", "steps_json", "TEXT"),
+    ("ra_attempts", "step_answers_json", "TEXT"),
+    ("ra_attempts", "marks_earned", "INTEGER"),
 )
 _LOCK_KEY = 727_001          # pg_advisory_lock key, private to this upgrade
 

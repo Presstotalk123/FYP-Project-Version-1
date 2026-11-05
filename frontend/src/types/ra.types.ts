@@ -157,6 +157,24 @@ export interface RaQuestionListItem {
   created_at: string | null;
 }
 
+/**
+ * How a question asks for its answer, chosen by staff for the whole question (students
+ * never choose): mixed = steps or one expression, as before; final_answer = one expression
+ * only; multi_step = one box per step the professor set.
+ */
+export type RaAnswerFormat = 'mixed' | 'final_answer' | 'multi_step';
+
+/** One step of a multi-step part as students see it; the last one is the final answer (no name). */
+export interface RaStepSpec {
+  name: string | null;
+  prompt: string;
+  marks: number;
+}
+
+export interface RaStepSpecStaff extends RaStepSpec {
+  model_answer: string;
+}
+
 /** One part of a question, (i), (ii), …, as students see it (never its model answer). */
 export interface RaPart {
   id: number;
@@ -166,12 +184,14 @@ export interface RaPart {
   attempts: number;
   solved: boolean;
   submissions_used: number;
+  steps: RaStepSpec[] | null; // multi-step questions
 }
 
 export interface RaPartStaff extends RaPart {
   model_answer: string;
   checkpoints: RaCheckpoint[] | null;
   suite: RaSuiteSummary | null;
+  steps: RaStepSpecStaff[] | null;
 }
 
 /** A question as students see it (never the model answer). */
@@ -184,6 +204,7 @@ export interface RaQuestion {
   has_data: boolean; // the question has data of its own
   /** Where the tuples in ``relations`` come from: the question's data, or example data built for it. */
   data_source: 'sample' | 'example' | null;
+  answer_format: RaAnswerFormat;
   show_step_direction: boolean;
   hide_correctness: boolean;
   attempts: number;
@@ -202,6 +223,7 @@ export interface RaQuestionStaff extends Omit<RaQuestion, 'parts'> {
   compare_bags: boolean;
   is_published: boolean;
   assessment_step_direction: boolean;
+  has_attempts: boolean; // answered already: the type can't change any more
 }
 
 export interface RaPartInput {
@@ -211,6 +233,7 @@ export interface RaPartInput {
   marks: number;
   model_answer: string;
   checkpoints: RaCheckpoint[] | null;
+  steps: RaStepSpecStaff[] | null; // multi-step questions (the model answer is built from them)
 }
 
 export interface RaQuestionInput {
@@ -222,6 +245,8 @@ export interface RaQuestionInput {
   /** With data_sql empty: the example data shown in the form (null = keep or build it). */
   example_data_sql: string | null;
   parts: RaPartInput[];
+  /** null until the professor picks one for a new question (nothing is preselected). */
+  answer_format: RaAnswerFormat | null;
   show_step_direction: boolean;
   assessment_step_direction: boolean;
   compare_bags: boolean;
@@ -229,12 +254,13 @@ export interface RaQuestionInput {
   is_published: boolean;
 }
 
-export type RaInputField = 'schema' | 'data' | 'model_answer' | 'checkpoints';
+export type RaInputField = 'schema' | 'data' | 'model_answer' | 'checkpoints' | 'steps' | 'answer_format';
 
 export interface RaValidateResponse {
   ok: boolean;
   error_source: RaInputField | null;
   error: RaError | null;
+  error_step: number | null; // which step, for a multi-step part
   relations: RaRelation[];
   suite: RaSuiteSummary | null;
   model_result: RaEvalResult | null;
@@ -269,6 +295,64 @@ export interface RaCheckResponse {
   result: RaEvalResult | null;
   source: 'sample' | 'example' | 'generated' | null;
   relations: RaRelation[];
+  boxes?: RaBoxCheck[] | null; // multi-step questions, instead of result
+}
+
+/** One box of a multi-step answer, run on the shown data. */
+export interface RaBoxCheck {
+  status: 'empty' | 'error' | 'ok';
+  error: RaError | null;
+  step: RaStep | null;
+}
+
+/** One step of a multi-step answer after Submit. */
+export interface RaStepResult {
+  index: number;
+  name: string | null;
+  prompt: string;
+  marks: number;
+  earned: number;
+  /** full: the final answer is correct · reached: a box computes it · carried: a box
+   *  computes it given the model's earlier steps · missed */
+  status: 'full' | 'reached' | 'carried' | 'missed';
+  credited_by: number | null; // the box that earned it (0-based)
+  box_status: 'empty' | 'error' | 'ok';
+  box_error: RaError | null;
+  feedback: RaStepFeedback | null; // ✓/◐/○ for this box ('none' when hidden)
+  structure: RaStep | null; // the box on the shown data
+  student: { columns: string[]; rows: unknown[][] } | null; // a missed step: the box's table…
+  expected: { columns: string[]; rows: unknown[][] } | null; // …and the model step's
+}
+
+export interface RaStepMarking {
+  earned: number;
+  total: number;
+  final_correct: boolean;
+  source: 'sample' | 'example' | 'generated' | null;
+  steps: RaStepResult[];
+}
+
+export interface RaConvertedPart {
+  model_answer: string;
+  checkpoints: RaCheckpoint[] | null;
+  steps: RaStepSpecStaff[] | null;
+  marks: number;
+  error: string | null; // couldn't convert: rewrite it by hand
+}
+
+export interface RaFormatConvertResponse {
+  ok: boolean;
+  error: RaError | null;
+  parts: RaConvertedPart[];
+}
+
+export interface RaTryStepsResponse {
+  ok: boolean;
+  error_source: 'schema' | 'data' | 'steps' | null;
+  error: RaError | null;
+  error_step: number | null;
+  grade: RaGradeResult | null;
+  marking: RaStepMarking | null;
 }
 
 /** After Submit: the student's result and the model answer's on the data shown with the question. */
@@ -291,6 +375,7 @@ export interface RaSubmitResponse {
   structure: RaEvalResult | null;
   structure_source: 'sample' | 'example' | 'generated' | null;
   shown: RaShownResult | null; // only with grade
+  marking?: RaStepMarking | null; // multi-step questions, only with grade
 }
 
 export interface RaAttempt {
@@ -300,6 +385,8 @@ export interface RaAttempt {
   verdict: RaVerdict | null;
   is_correct: boolean | null;
   created_at: string;
+  step_answers: string[] | null; // multi-step questions: the boxes
+  marks_earned: number | null; // multi-step questions (null when correctness is hidden)
 }
 
 // ── staff analytics ─────────────────────────────────────────────────────────
@@ -367,6 +454,8 @@ export interface RaQuestionAnalytics {
     avg_submits_to_correct: number | null;
     verdicts: RaVerdictCounts;
     top_errors: RaTopError[];
+    /** Multi-step parts: how far students got (their best Submit). */
+    steps: RaStepProgress[] | null;
   }[];
   students: {
     user_id: number;
@@ -382,10 +471,21 @@ export interface RaQuestionAnalytics {
       part_id: number;
       attempts: number;
       solved: boolean;
+      marks_earned: number;
       submits_to_correct: number | null;
       last_verdict: RaVerdict | null;
     }[];
   }[];
+}
+
+export interface RaStepProgress {
+  index: number;
+  name: string | null;
+  prompt: string;
+  marks: number;
+  reached: number; // students whose best Submit earned this step
+  carried: number; // …of them, through carry-forward
+  missed: number;
 }
 
 export interface RaStudentAttempts {

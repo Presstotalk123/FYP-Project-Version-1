@@ -114,9 +114,12 @@ interface RaEditorProps {
   height?: number | string;
   /** The schema's relation and attribute names, so the notation preview reads names with "-" as one. */
   names?: string[];
+  /** Replaces the how-to-write note under the editor (the question type asks for something
+   *  else, e.g. one expression); null hides it. */
+  hint?: ReactNode | null;
 }
 
-export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260, names }: RaEditorProps) {
+export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260, names, hint }: RaEditorProps) {
   const showNotation = useSyncExternalStore(subscribeShowNotation, readShowNotation, () => false);
   const symbolTip = useRaSymbolTip();
   const editorRef = useRef<MonacoEditor | null>(null);
@@ -253,15 +256,21 @@ export function RaEditor({ value, onChange, onRun, error, toolbar, height = 260,
 
       {showNotation && <RaNotation program={value} names={names} />}
 
-      <div style={{
-        padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 12,
-        color: 'var(--text-muted)', lineHeight: 1.6, background: 'var(--surface)',
-      }}>
-        Write as on the lecture slides, one step per line, e.g.{' '}
-        <code>R1 := σ School = &apos;SCSE&apos; CrsSch</code>, then <code>Π Name R1</code>.
-        The last line is the answer. σ, Π and ρ apply to the relation right after them; use brackets
-        for more: <code>Π Name (R ⋈ S)</code>. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> to run.
-      </div>
+      {hint !== null && (
+        <div style={{
+          padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 12,
+          color: 'var(--text-muted)', lineHeight: 1.6, background: 'var(--surface)',
+        }}>
+          {hint ?? (
+            <>
+              Write as on the lecture slides, one step per line, e.g.{' '}
+              <code>R1 := σ School = &apos;SCSE&apos; CrsSch</code>, then <code>Π Name R1</code>.
+              The last line is the answer. σ, Π and ρ apply to the relation right after them; use brackets
+              for more: <code>Π Name (R ⋈ S)</code>. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> to run.
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -506,3 +506,52 @@ Problems, students on Questions, as a category in the left panel.
    RA questions; publish one, open its analytics, create one from **Create Question ▾**.
 2. As a student: **Questions → Relational Algebra** shows the published ones with progress.
 3. Open `/ra`: it lands on the list with Relational Algebra selected.
+
+## Step 14: Three question types: Mixed, Final answer, Multi-step (5 Nov 2026)
+
+Commit: "Let staff choose how an RA question is answered" (`git log --oneline` shows its hash).
+
+**Why.** In assessments the professor wants to design a question either as one direct answer or as
+a multi-step response, with a model answer for each step and marks for the steps. The choice is
+the professor's; students only see the question laid out that way.
+
+**What was built.**
+- A **Question type** for the whole question, picked when it is created (nothing preselected) and
+  locked once a student has submitted:
+  - **Mixed:** the original setup; every existing question is Mixed.
+  - **Final answer:** one expression only. Students are told so. An answer in steps shows a warning
+    and can't be submitted (it isn't counted). Show structure gives no ✓/◐/○.
+  - **Multi-step:** the professor lists 2–10 steps, each with a name (R1 …), a required prompt,
+    marks and a one-expression model answer; the part's marks are the steps' total. Students fill
+    in one box per step.
+- Marking a multi-step answer, deterministic (`core/ra/step_marking.py`):
+  1. A correct final answer earns every mark, whatever the steps look like.
+  2. Otherwise each model step earns its marks when any box computes it: same tuples on every test
+     database and the question's data, in any order.
+  3. Carry-forward: a box is re-run with the model's earlier steps in place of the student's; if it
+     then gives the step, it earns it. This is also how the final step earns its own share.
+  - Empty boxes are allowed; a box with an error is flagged at that box.
+- After Submit students see the marks, each box's ✓/✗ and marks, a "right, given your earlier
+  steps" note for carry-forward, and for a step that earned nothing their table and the model
+  step's on the shown data.
+- Switching the type converts every part's model answer (`core/ra/answer_format.py`):
+  - Mixed → Final answer: the steps are joined into one expression; ρ keeps any step name used as
+    a qualifier, and the meaning is unchanged.
+  - Mixed ↔ Multi-step: lines become steps and back; checkpoint labels become prompts.
+  - A single expression becomes one step; it is not split automatically.
+- Staff form: the type picker, the steps editor with **Check the steps**, and a live **Preview:
+  what students see** with **Grade this answer**.
+- Assessments and analytics count a multi-step attempt's earned marks, using a student's best
+  attempt; a staff override still decides. The analytics stay per part, with **Details: how far
+  students got, step by step** under a multi-step part.
+- New columns (added at startup): `ra_questions.answer_format`, `ra_question_parts.steps_json`,
+  `ra_attempts.step_answers_json` and `ra_attempts.marks_earned`.
+
+**How to check it**
+1. Create a question: choose **Multi-step**, write three steps with prompts and marks, then use
+   **Check the steps** and the preview's **Grade this answer**.
+2. As a student, answer it with a wrong first step and right later steps: the later steps earn
+   their marks by carry-forward.
+3. Make a **Final answer** question and type `R1 := …`: the warning shows and Submit is off.
+4. Edit a Mixed question with steps and switch it to Final answer: the model answer becomes one
+   expression.

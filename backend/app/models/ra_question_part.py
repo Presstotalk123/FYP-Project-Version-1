@@ -29,6 +29,10 @@ class RAQuestionPart(Base):
     model_answer = Column(Text, nullable=False)                 # never shown to students
     # [{"statement": "R1" | null, "label": "…"}]; NULL = every model step (see ra_question.py).
     checkpoints_json = Column(Text, nullable=True)
+    # Multi-step questions only: [{"name": "R1" | null, "prompt", "marks", "model_answer"}],
+    # the last being the final answer. ``model_answer`` and ``checkpoints_json`` are then
+    # built from it (answer_format.steps_program), and ``marks`` is the steps' total.
+    steps_json = Column(Text, nullable=True)
     suite_json = Column(Text, nullable=True)
     suite_summary_json = Column(Text, nullable=True)
 

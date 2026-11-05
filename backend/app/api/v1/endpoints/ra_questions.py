@@ -18,7 +18,8 @@ Everyone signed in (students see published bank questions only)
   GET    /ra/questions/{id}/attempts   this user's own attempts (every part)
 
 A question has one or more parts sharing its schema and data; answers name their part
-(``part_id``, optional when there is only one).
+(``part_id``, optional when there is only one). A multi-step question's answers are its
+boxes (``step_answers``); the type switch and its preview are in ra_formats.py.
 
 Every route 404s while RA_ENABLED is off (the dependency on the parent router).
 """
@@ -41,7 +42,9 @@ from app.schemas.ra import (CheckpointIn, EvalOut, GradeOut, RAAnswerIn, RAAttem
                             RAQuestionValidateIn, RAQuestionValidateOut, RASchemaTextIn, RASchemaTextOut,
                             RASubmitOut, RelationOut, ShownResultOut,
                             SuiteSummaryOut)
-from app.services.ra import assessment as ra_assessment, grading, questions as svc
+from app.core.ra.answer_format import MIXED, MULTI_STEP
+from app.schemas.ra import RABoxCheckOut, StepMarkingOut
+from app.services.ra import assessment as ra_assessment, formats, grading, multi_step, questions as svc
 
 router = APIRouter(prefix="/questions")
 
@@ -62,7 +65,8 @@ def _part(db: Session, q: RAQuestion, part_id) -> RAQuestionPart:
 
 def _input_error(e: svc.QuestionInputError) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                         {"source": e.source, "part": e.part, "error": e.error.to_dict(), "message": e.error.message})
+                         {"source": e.source, "part": e.part, "step": e.step, "error": e.error.to_dict(),
+                          "message": e.error.message})
 
 
 def _student_out(db: Session, q: RAQuestion, user: User) -> dict:
@@ -73,11 +77,12 @@ def _student_out(db: Session, q: RAQuestion, user: User) -> dict:
         attempts, solved = progress.get(part.id, (0, False))
         parts.append(dict(id=part.id, label=part.label, description=part.description, marks=part.marks,
                           attempts=attempts, solved=solved and not hide,
-                          submissions_used=ra_assessment.submissions_used(db, part, user)))
+                          submissions_used=ra_assessment.submissions_used(db, part, user),
+                          steps=multi_step.public_steps(part) if part.steps_json else None))
     shown, source = svc.shown_database(q)
     return dict(id=q.id, title=q.title, description=q.description, difficulty=q.difficulty,
                 relations=(shown or Database.from_sql(q.schema_sql)).to_dict(), data_source=source,
-                has_data=bool((q.data_sql or "").strip()),
+                has_data=bool((q.data_sql or "").strip()), answer_format=q.answer_format or MIXED,
                 show_step_direction=bool(q.show_step_direction), hide_correctness=hide,
                 attempts=sum(p["attempts"] for p in parts),
                 solved=bool(parts) and all(p["solved"] for p in parts),
@@ -87,7 +92,8 @@ def _student_out(db: Session, q: RAQuestion, user: User) -> dict:
 
 def _parts_in(body: RAQuestionIn) -> List[dict]:
     return [dict(id=p.id, label=p.label, description=p.description, marks=p.marks, model_answer=p.model_answer,
-                 checkpoints=[c.model_dump() for c in p.checkpoints] if p.checkpoints else None)
+                 checkpoints=[c.model_dump() for c in p.checkpoints] if p.checkpoints else None,
+                 steps=[s.model_dump() for s in p.steps] if p.steps is not None else None)
             for p in body.parts]
 
 
@@ -98,10 +104,20 @@ def _eval_out(result: dict) -> EvalOut:
 # ── staff ────────────────────────────────────────────────────────────────────
 @router.post("/validate", response_model=RAQuestionValidateOut)
 def validate_question(body: RAQuestionValidateIn, _staff: User = Depends(require_staff_role)):
-    """Check one part's model answer on the question's schema and data."""
-    checkpoints = [Checkpoint(c.statement, c.label) for c in body.checkpoints] if body.checkpoints else None
+    """Check one part's model answer (a multi-step part: its steps) on the question's schema and data."""
+    spec = dict(model_answer=body.model_answer, marks=1,
+                checkpoints=[c.model_dump() for c in body.checkpoints] if body.checkpoints else None,
+                steps=[s.model_dump() for s in body.steps] if body.steps is not None else None)
     try:
-        prepared = svc.prepare(body.schema_sql, body.data_sql, body.model_answer,
+        spec = formats.part_spec(body.answer_format, spec, 0, Database.from_sql(body.schema_sql), svc.eval_options())
+    except RAError as e:
+        return RAQuestionValidateOut(ok=False, error_source="schema", error=RAErrorOut.from_engine(e))
+    except formats.FormatError as e:
+        return RAQuestionValidateOut(ok=False, error_source="steps" if e.source == "steps" else "model_answer",
+                                     error=RAErrorOut.from_engine(e.error), error_step=e.step)
+    checkpoints = [Checkpoint(c["statement"], c["label"]) for c in spec["checkpoints"]] if spec.get("checkpoints") else None
+    try:
+        prepared = svc.prepare(body.schema_sql, body.data_sql, spec["model_answer"],
                                checkpoints=checkpoints, bag=body.compare_bags)
     except svc.QuestionInputError as e:
         return RAQuestionValidateOut(ok=False, error_source=e.source, error=RAErrorOut.from_engine(e.error))
@@ -156,7 +172,8 @@ def _apply(db: Session, q: RAQuestion, body: RAQuestionIn) -> None:
     q.is_published = int(body.is_published)
     try:
         svc.save_content(db, q, schema_sql=body.schema_sql, data_sql=body.data_sql, parts=_parts_in(body),
-                         compare_bags=body.compare_bags, example_data_sql=body.example_data_sql)
+                         compare_bags=body.compare_bags, example_data_sql=body.example_data_sql,
+                         answer_format=body.answer_format)
     except svc.QuestionInputError as e:
         db.rollback()
         raise _input_error(e)
@@ -202,10 +219,12 @@ def _staff_out(db: Session, q: RAQuestion, staff: User) -> dict:
         row = rows[part["id"]]
         part.update(model_answer=row.model_answer,
                     checkpoints=json.loads(row.checkpoints_json) if row.checkpoints_json else None,
-                    suite=json.loads(row.suite_summary_json) if row.suite_summary_json else None)
+                    suite=json.loads(row.suite_summary_json) if row.suite_summary_json else None,
+                    steps=json.loads(row.steps_json) if row.steps_json else None)
     out.update(schema_sql=q.schema_sql, data_sql=q.data_sql or "", example_data_sql=svc.example_sql_for(q),
                compare_bags=bool(q.compare_bags),
-               is_published=bool(q.is_published), assessment_step_direction=bool(q.assessment_step_direction))
+               is_published=bool(q.is_published), assessment_step_direction=bool(q.assessment_step_direction),
+               has_attempts=formats.locked(db, q))
     return out
 
 
@@ -253,6 +272,11 @@ def check_answer(question_id: int, body: RAAnswerIn, db: Session = Depends(get_d
                  user: User = Depends(get_current_user)):
     q = _get(db, question_id, user)
     part = _part(db, q, body.part_id)
+    if (q.answer_format or MIXED) == MULTI_STEP and part.steps_json:
+        out = multi_step.check(q, part, body.step_answers or [])
+        return RACheckOut(ok=True, source=out["source"], boxes=[RABoxCheckOut(**b) for b in out["boxes"]])
+    if not (body.answer or "").strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Write an answer first.")
     try:
         result, source, relations = svc.check(q, part, body.answer)
     except RAError as e:
@@ -266,7 +290,14 @@ def submit_answer(question_id: int, body: RAAnswerIn, db: Session = Depends(get_
                   user: User = Depends(get_current_user)):
     q = _get(db, question_id, user)
     part = _part(db, q, body.part_id)
-    submission = svc.submit(db, user, q, part, body.answer)
+    if (q.answer_format or MIXED) == MULTI_STEP and part.steps_json:
+        return _submit_steps(db, user, q, part, body.step_answers or [])
+    if not (body.answer or "").strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Write an answer first.")
+    try:
+        submission = svc.submit(db, user, q, part, body.answer)
+    except svc.WrongFormat as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     limit, used = svc.submission_counts(db, user, q, part)
     out = RASubmitOut(attempt_id=submission.attempt.id, part_id=part.id, max_submissions=limit, submissions_used=used)
     shown = svc.for_student(q, submission.result) if not svc.is_staff(user) else submission.result.to_dict()
@@ -285,10 +316,27 @@ def submit_answer(question_id: int, body: RAAnswerIn, db: Session = Depends(get_
     return out
 
 
+def _submit_steps(db: Session, user: User, q: RAQuestion, part: RAQuestionPart, answers: List[str]) -> RASubmitOut:
+    """Submit a multi-step answer: marked per step (services/ra/multi_step.py)."""
+    attempt, marking = multi_step.submit(db, user, q, part, answers)
+    limit, used = svc.submission_counts(db, user, q, part)
+    out = RASubmitOut(attempt_id=attempt.id, part_id=part.id, max_submissions=limit, submissions_used=used)
+    staff = svc.is_staff(user)
+    shown = svc.for_student(q, marking.grade) if not staff else marking.grade.to_dict()
+    if shown is not None:
+        out.grade = GradeOut(**shown)
+        rows, source = multi_step.results_for(q, part, json.loads(attempt.step_answers_json), marking, staff)
+        out.marking = StepMarkingOut(earned=marking.earned, total=marking.total, final_correct=marking.grade.correct,
+                                     source=source, steps=rows)
+    return out
+
+
 @router.get("/{question_id}/attempts", response_model=List[RAAttemptOut])
 def my_attempts(question_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     q = _get(db, question_id, user)
     hide = bool(q.hide_correctness) and not svc.is_staff(user)
     return [RAAttemptOut(id=a.id, part_id=a.part_id, answer=a.answer, created_at=a.created_at,
-                         verdict=None if hide else a.verdict, is_correct=None if hide else bool(a.is_correct))
+                         verdict=None if hide else a.verdict, is_correct=None if hide else bool(a.is_correct),
+                         step_answers=json.loads(a.step_answers_json) if a.step_answers_json else None,
+                         marks_earned=None if hide else a.marks_earned)
             for a in svc.history(db, user, q)]

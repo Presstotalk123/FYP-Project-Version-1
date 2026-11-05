@@ -5,19 +5,24 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 import { raQueryKeys, raService } from '@/services/ra.service';
-import { RaDifficulty, RaError, RaInputField, RaPartInput, RaQuestionInput, RaQuestionStaff } from '@/types/ra.types';
+import {
+  RaAnswerFormat, RaDifficulty, RaError, RaInputField, RaPartInput, RaQuestionInput, RaQuestionStaff,
+} from '@/types/ra.types';
 import { emptyPart, FieldError, partInput, RaPartEditor, RaPartField, romanLabel } from './RaPartEditor';
 import { RaSchemaText } from './RaSchemaText';
 import { RaExampleDataPanel, useRaExampleData } from './RaExampleData';
+import { convertParts, RaFormatPicker } from './RaFormatPicker';
+import { emptySteps, stepsProgram } from './raAnswerFormat';
 
 const EMPTY: RaQuestionInput = {
   title: '', description: '', difficulty: 'medium', schema_sql: '', data_sql: '', example_data_sql: null, parts: [emptyPart()],
-  show_step_direction: true, assessment_step_direction: false, compare_bags: false,
+  answer_format: null, show_step_direction: true, assessment_step_direction: false, compare_bags: false,
   hide_correctness: false, is_published: false,
 };
 
-/** A field the server rejected; ``part`` is the part's index for a model answer or checkpoints. */
-type SaveError = { field: RaInputField; error: RaError; part: number | null };
+/** A field the server rejected; ``part`` is the part's index for a model answer, checkpoints
+ *  or steps, ``step`` the step's index in a multi-step part. */
+type SaveError = { field: RaInputField; error: RaError; part: number | null; step: number | null };
 
 /**
  * Create or edit an RA question: one schema (and optional data) with one or more parts,
@@ -32,7 +37,7 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
     title: initial.title, description: initial.description, difficulty: initial.difficulty,
     schema_sql: initial.schema_sql, data_sql: initial.data_sql, example_data_sql: initial.example_data_sql,
     parts: initial.parts.length ? initial.parts.map(partInput) : [emptyPart()],
-    show_step_direction: initial.show_step_direction, assessment_step_direction: initial.assessment_step_direction,
+    answer_format: initial.answer_format, show_step_direction: initial.show_step_direction, assessment_step_direction: initial.assessment_step_direction,
     compare_bags: initial.compare_bags, hide_correctness: initial.hide_correctness, is_published: initial.is_published,
   } : EMPTY);
   const set = <K extends keyof RaQuestionInput>(key: K, value: RaQuestionInput[K]) =>
@@ -43,8 +48,9 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
 
   // With the INSERT box empty, students see example data instead (RaExampleData.tsx).
   const noData = !form.data_sql.trim();
-  const example = useRaExampleData(form.schema_sql, form.parts.map((p) => p.model_answer), form.example_data_sql,
-    noData, (sql) => set('example_data_sql', sql));
+  const example = useRaExampleData(form.schema_sql,
+    form.parts.map((p) => (form.answer_format === 'multi_step' && p.steps ? stepsProgram(p.steps) : p.model_answer)),
+    form.example_data_sql, noData, (sql) => set('example_data_sql', sql));
 
   const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,12 +59,35 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
   const setPart = (index: number, part: RaPartInput) =>
     setForm((f) => ({ ...f, parts: f.parts.map((p, i) => (i === index ? part : p)) }));
 
+  // The question type: switching rewrites every part's model answer for the new type.
+  const [switching, setSwitching] = useState(false);
+  const [formatNotes, setFormatNotes] = useState<string[]>([]);
+  const [formatError, setFormatError] = useState<RaError | null>(null);
+  const chooseFormat = async (to: RaAnswerFormat) => {
+    setSwitching(true);
+    setFormatError(null);
+    setFormatNotes([]);
+    try {
+      const { parts, notes } = await convertParts(form.schema_sql, form.answer_format, to, form.parts,
+        (i) => form.parts[i]?.label.trim() || romanLabel(i));
+      setForm((f) => ({ ...f, answer_format: to, parts }));
+      setFormatNotes(notes);
+      setSaveError(null);
+    } catch (err) {
+      setFormatError({ code: 'RA012', message: err instanceof Error ? err.message : 'Could not convert the model answers.',
+        line: null, col: null, hint: null });
+    } finally {
+      setSwitching(false);
+    }
+  };
+
   const addPart = () => {
     setForm((f) => {
       // Going from one part to several: label the first part too.
       const parts = f.parts.length === 1 && !f.parts[0].label.trim()
         ? [{ ...f.parts[0], label: romanLabel(0) }] : f.parts;
-      return { ...f, parts: [...parts, { ...emptyPart(), label: romanLabel(parts.length) }] };
+      const fresh = f.answer_format === 'multi_step' ? { ...emptyPart(), marks: 2, steps: emptySteps(2) } : emptyPart();
+      return { ...f, parts: [...parts, { ...fresh, label: romanLabel(parts.length) }] };
     });
     setKeys((k) => [...k, nextKey]);
     setNextKey((n) => n + 1);
@@ -83,6 +112,10 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
   };
 
   const save = async () => {
+    if (!form.answer_format) {
+      setMessage('Not saved: choose the question type first.');
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -97,11 +130,14 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
       const response = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response;
       const detail = response?.data?.detail;
       if (detail && typeof detail === 'object' && 'source' in detail) {
-        const d = detail as { source: RaInputField; error: RaError; part: number | null };
-        setSaveError({ field: d.source, error: d.error, part: d.part ?? null });
-        setMessage(d.part != null && form.parts.length > 1
-          ? `Not saved: fix part ${form.parts[d.part]?.label.trim() || romanLabel(d.part)}.`
-          : 'Not saved: fix the highlighted field.');
+        const d = detail as { source: RaInputField; error: RaError; part: number | null; step?: number | null };
+        setSaveError({ field: d.source, error: d.error, part: d.part ?? null, step: d.step ?? null });
+        const where = [
+          d.part != null && form.parts.length > 1 ? `part ${form.parts[d.part]?.label.trim() || romanLabel(d.part)}` : null,
+          d.step != null ? `step ${d.step + 1}` : null,
+        ].filter(Boolean).join(', ');
+        setMessage(d.source === 'answer_format' ? `Not saved: ${d.error.message}`
+          : where ? `Not saved: fix ${where}.` : 'Not saved: fix the highlighted field.');
       } else if (Array.isArray(detail)) {
         setMessage('Not saved: fill in the title, the question, the schema and every part’s model answer.');
       } else if (typeof detail === 'string') {
@@ -116,9 +152,10 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
   };
 
   const errorFor = (field: RaInputField) => (saveError?.field === field ? saveError.error : null);
-  const partError = (index: number): { field: RaPartField; error: RaError } | null =>
-    saveError && saveError.part === index && (saveError.field === 'model_answer' || saveError.field === 'checkpoints')
-      ? { field: saveError.field, error: saveError.error } : null;
+  const partError = (index: number): { field: RaPartField; error: RaError; step: number | null } | null =>
+    saveError && saveError.part === index
+      && (saveError.field === 'model_answer' || saveError.field === 'checkpoints' || saveError.field === 'steps')
+      ? { field: saveError.field, error: saveError.error, step: saveError.step } : null;
   const multi = form.parts.length > 1;
   const totalMarks = form.parts.reduce((sum, p) => sum + (p.marks || 0), 0);
 
@@ -165,6 +202,14 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
         )}
       </section>
 
+      <section className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Question type</h3>
+        <RaFormatPicker value={form.answer_format} onChange={(f) => void chooseFormat(f)}
+          locked={!!initial?.has_attempts} busy={busy || switching} notes={formatNotes}
+          error={formatError ?? errorFor('answer_format')} />
+      </section>
+
+      {form.answer_format && (
       <section className="card" style={{ padding: 16, display: 'grid', gap: 14 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, fontSize: 16 }}>{multi ? `Parts (${form.parts.length})` : 'Answer'}</h3>
@@ -179,8 +224,8 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
           <RaPartEditor key={keys[index]} part={part} index={index} count={form.parts.length}
             onChange={(p) => setPart(index, p)} onRemove={() => removePart(index)} onMove={(d) => movePart(index, d)}
             schemaSql={form.schema_sql} dataSql={form.data_sql} exampleDataSql={example.preview?.sql ?? null}
-            compareBags={form.compare_bags}
-            error={partError(index)} busy={busy} />
+            compareBags={form.compare_bags} answerFormat={form.answer_format}
+            error={partError(index)} busy={busy || switching} />
         ))}
         <div>
           <button type="button" className="btn btn-secondary" onClick={addPart} disabled={busy || form.parts.length >= 20}>
@@ -193,11 +238,14 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
           )}
         </div>
       </section>
+      )}
 
       <section className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Feedback and visibility</h3>
         <Toggle checked={form.show_step_direction} onChange={(v) => set('show_step_direction', v)}
-          label="Show students how each of their steps compares with the model's (✓ / ◐ / ○)" />
+          label={form.answer_format === 'final_answer'
+            ? "Show students how each of their steps compares with the model's (✓ / ◐ / ○) — not used by Final answer questions, which have no steps"
+            : "Show students how each of their steps compares with the model's (✓ / ◐ / ○)"} />
         <Toggle checked={form.assessment_step_direction} onChange={(v) => set('assessment_step_direction', v)}
           label="…also when this question is in an assessment (off by default: it is a strong hint)" />
         <Toggle checked={form.hide_correctness} onChange={(v) => set('hide_correctness', v)}
@@ -209,7 +257,8 @@ export function RaQuestionForm({ initial }: { initial?: RaQuestionStaff }) {
       </section>
 
       <div className="button-row">
-        <button className="btn btn-brand" onClick={() => void save()} disabled={busy}>
+        <button className="btn btn-brand" onClick={() => void save()} disabled={busy || switching || !form.answer_format}
+          title={form.answer_format ? undefined : 'Choose the question type first'}>
           {busy ? 'Saving… (building test databases)' : initial ? 'Save changes' : 'Create question'}
         </button>
         <button className="btn btn-secondary" onClick={() => router.back()} disabled={busy}>Cancel</button>

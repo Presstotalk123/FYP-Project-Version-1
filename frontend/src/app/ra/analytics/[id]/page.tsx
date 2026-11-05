@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { DashboardLayout } from '@/components/common/DashboardLayout';
 import { ClassGroupSelect, TopErrors, VERDICT_INFO, VerdictBar, when } from '@/components/ra/RaAnalyticsParts';
+import { RaStepProgressDetails } from '@/components/ra/RaStepProgress';
 import { RaOff } from '@/components/ra/RaOff';
 import { useRaStatus } from '@/hooks/use-ra-status';
 import { raQueryKeys, raService } from '@/services/ra.service';
@@ -87,6 +88,7 @@ function QuestionAnalytics() {
                 </div>
                 <VerdictBar verdicts={p.verdicts} />
                 {p.top_errors.length > 0 && <TopErrors errors={p.top_errors} />}
+                {p.steps && p.steps.length > 0 && <RaStepProgressDetails steps={p.steps} />}
               </article>
             ))}
           </section>

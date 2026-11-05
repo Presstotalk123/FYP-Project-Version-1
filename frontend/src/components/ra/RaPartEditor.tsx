@@ -4,28 +4,31 @@ import { useMemo, useState } from 'react';
 import { MarkdownDescriptionField } from '@/components/common/MarkdownDescriptionField';
 import { raService } from '@/services/ra.service';
 import {
-  RaCheckpoint, RaError, RaPartInput, RaPartStaff, RaPlaygroundGradeResponse, RaValidateResponse,
+  RaAnswerFormat, RaCheckpoint, RaError, RaPartInput, RaPartStaff, RaPlaygroundGradeResponse, RaValidateResponse,
 } from '@/types/ra.types';
+import { FINAL_ANSWER_HINT, hasSteps, stepsTotal } from './raAnswerFormat';
+import { RaStepsEditor } from './RaStepsEditor';
+import { RaStepsPreview } from './RaStepsPreview';
 import { RaEditor } from './RaEditor';
 import { RaRelations } from './RaRelations';
 import { RaStepStructure } from './RaStepStructure';
 import { RaSteps } from './RaSteps';
 import { RaSuiteReport, RaVerdict } from './RaVerdict';
 
-export type RaPartField = 'model_answer' | 'checkpoints';
+export type RaPartField = 'model_answer' | 'checkpoints' | 'steps';
 
 function defaultLabel(statement: string | null) {
   return statement ? `step ${statement} of the model solution` : 'the final answer';
 }
 
 export function emptyPart(): RaPartInput {
-  return { id: null, label: '', description: '', marks: 1, model_answer: '', checkpoints: null };
+  return { id: null, label: '', description: '', marks: 1, model_answer: '', checkpoints: null, steps: null };
 }
 
 export function partInput(p: RaPartStaff): RaPartInput {
   return {
     id: p.id, label: p.label, description: p.description, marks: p.marks,
-    model_answer: p.model_answer, checkpoints: p.checkpoints,
+    model_answer: p.model_answer, checkpoints: p.checkpoints, steps: p.steps,
   };
 }
 
@@ -47,9 +50,14 @@ export function romanLabel(n: number) {
  * One part of an RA question in the staff form: (with several parts) its label, marks and
  * text; its model answer with "Check the model answer" and the checkpoints; and a test
  * bench that grades any answer exactly as a student's would be.
+ *
+ * The question's type changes the middle: a Final answer part's model answer must be one
+ * expression (and has no checkpoints); a Multi-step part has its steps instead
+ * (RaStepsEditor), with a preview of what students see (RaStepsPreview).
  */
 export function RaPartEditor({
   part, index, count, onChange, onRemove, onMove, schemaSql, dataSql, exampleDataSql, compareBags, error, busy,
+  answerFormat,
 }: {
   part: RaPartInput;
   index: number;
@@ -62,8 +70,9 @@ export function RaPartEditor({
   /** The example data shown to students while dataSql is empty (the model answer runs on it). */
   exampleDataSql: string | null;
   compareBags: boolean;
-  error: { field: RaPartField; error: RaError } | null;
+  error: { field: RaPartField; error: RaError; step?: number | null } | null;
   busy: boolean;
+  answerFormat: RaAnswerFormat | null;
 }) {
   const set = <K extends keyof RaPartInput>(key: K, value: RaPartInput[K]) => onChange({ ...part, [key]: value });
   const multi = count > 1;
@@ -98,6 +107,7 @@ export function RaPartEditor({
         schema_sql: schemaSql, data_sql: dataSql, compare_bags: compareBags,
         example_data_sql: dataSql.trim() ? null : exampleDataSql,
         model_answer: part.model_answer, checkpoints: part.checkpoints,
+        answer_format: answerFormat ?? 'mixed',
       });
       setValidation(v);
       if (v.ok || !v.error) {
@@ -133,6 +143,8 @@ export function RaPartEditor({
   const canCheck = schemaSql.trim() && part.model_answer.trim();
   const disabled = busy || !!working;
   const name = part.label.trim() || romanLabel(index);
+  const stepsMode = answerFormat === 'multi_step';
+  const finalOnly = answerFormat === 'final_answer';
 
   return (
     <div className={multi ? 'card' : undefined}
@@ -157,8 +169,13 @@ export function RaPartEditor({
             </label>
             <label style={{ ...labelStyle, width: 140 }}>
               Marks
-              <input className="da-input" type="number" min={1} max={100} value={part.marks}
-                onChange={(e) => set('marks', Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
+              {stepsMode ? (
+                <input className="da-input" value={stepsTotal(part.steps)} readOnly aria-readonly
+                  title="The steps' marks added up" style={{ background: 'var(--surface-muted)' }} />
+              ) : (
+                <input className="da-input" type="number" min={1} max={100} value={part.marks}
+                  onChange={(e) => set('marks', Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
+              )}
             </label>
           </div>
           <MarkdownDescriptionField id={`ra-part-${index}-description`} label={`Part ${name} (shown to students)`}
@@ -166,13 +183,27 @@ export function RaPartEditor({
         </>
       )}
 
+      {stepsMode ? (
+        <>
+          <RaStepsEditor steps={part.steps ?? []} schemaSql={schemaSql} dataSql={dataSql} exampleDataSql={exampleDataSql}
+            compareBags={compareBags} names={[]} busy={busy}
+            error={error?.field === 'steps' ? { step: error.step ?? null, error: error.error } : null}
+            onChange={(steps) => onChange({ ...part, steps, marks: Math.max(1, stepsTotal(steps)) })} />
+          <RaStepsPreview steps={part.steps ?? []} schemaSql={schemaSql} dataSql={dataSql} exampleDataSql={exampleDataSql}
+            compareBags={compareBags} names={[]} busy={busy} />
+        </>
+      ) : (
+      <>
       <div style={{ display: 'grid', gap: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 700 }}>{multi ? `Model answer for part ${name}` : 'Model answer'}</span>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          Never shown to students. Write it step by step (R1 := …); its steps can be checkpoints that students&apos;
-          steps are compared with.
+          {finalOnly
+            ? 'Never shown to students. This is a Final answer question: write the model answer as one expression, without steps.'
+            : <>Never shown to students. Write it step by step (R1 := …); its steps can be checkpoints that students&apos;
+              steps are compared with.</>}
         </span>
         <RaEditor value={part.model_answer} onChange={(v) => set('model_answer', v)} error={errorFor('model_answer')}
+          hint={finalOnly ? FINAL_ANSWER_HINT : undefined}
           onRun={() => void validate()} height={multi ? 140 : 180} toolbar={(
             <button type="button" className="btn btn-brand" style={{ minHeight: 32, padding: '0 14px', fontSize: 13 }}
               onClick={() => void validate()} disabled={disabled || !canCheck}>
@@ -180,6 +211,12 @@ export function RaPartEditor({
             </button>
           )} />
         {errorFor('model_answer') && <FieldError error={errorFor('model_answer')!} />}
+        {finalOnly && hasSteps(part.model_answer) && (
+          <div className="alert-warn" style={{ fontSize: 13 }}>
+            This is written in steps. A Final answer question needs one expression: put the steps into one
+            (brackets let one expression hold everything), or switch the question to Mixed.
+          </div>
+        )}
         {message && <div className="alert-error" style={{ fontSize: 13 }}>{message}</div>}
       </div>
 
@@ -204,7 +241,7 @@ export function RaPartEditor({
               </div>
             </details>
           )}
-          {modelSteps.length > 0 && (
+          {modelSteps.length > 0 && !finalOnly && (
             <div style={{ display: 'grid', gap: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>Checkpoints</span>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -250,11 +287,13 @@ export function RaPartEditor({
             <div style={{ display: 'grid', gap: 12 }}>
               <RaVerdict grade={tried.grade} />
               <RaStepStructure feedback={tried.grade.steps} steps={tried.structure?.steps ?? null}
-                source={tried.structure_source} showDirection />
+                source={tried.structure_source} showDirection={!finalOnly} />
             </div>
           )}
         </div>
       </details>
+      </>
+      )}
     </div>
   );
 }

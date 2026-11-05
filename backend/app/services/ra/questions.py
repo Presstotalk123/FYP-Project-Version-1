@@ -19,6 +19,11 @@ from the test databases.
 Students never receive the model answer, its steps or the test databases. Two per-
 question switches limit feedback further: ``show_step_direction`` (the ✓/◐/○ comparison
 of each step with the model's) and ``hide_correctness`` (only "submitted").
+
+Every question has a type, chosen by staff (core/ra/answer_format.py, services/ra/
+formats.py): mixed (as above), final_answer (one expression only: an answer written in
+steps can't be submitted, and Show structure gives no ✓/◐/○, as there are no steps to
+compare) or multi_step (one box per step, services/ra/multi_step.py).
 """
 import json
 from collections import Counter
@@ -38,18 +43,25 @@ from app.models.ra_attempt import RAAttempt
 from app.models.ra_question import RAQuestion
 from app.models.ra_question_part import RAQuestionPart
 from app.models.user import User, UserRole
-from app.services.ra import assessment as ra_assessment, grading
+from app.core.ra import errors as E
+from app.core.ra.answer_format import FINAL_ANSWER, MIXED, single_expression
+from app.services.ra import assessment as ra_assessment, formats, grading
 
 
 class QuestionInputError(Exception):
     """A staff input that cannot be saved; ``source`` says which field, ``part`` which
     part (its index in the form) for a model answer or checkpoints."""
 
-    def __init__(self, source: str, error: RAError, part: Optional[int] = None):
+    def __init__(self, source: str, error: RAError, part: Optional[int] = None, step: Optional[int] = None):
         super().__init__(error.message)
         self.source = source
         self.error = error
         self.part = part
+        self.step = step                 # a multi-step part's step (its index)
+
+
+class WrongFormat(Exception):
+    """A Final answer question answered in steps: not graded, not counted as a Submit."""
 
 
 class PartNotFound(Exception):
@@ -116,7 +128,8 @@ def prepare(schema_sql: str, data_sql: str, model_answer: str, *, checkpoints=No
 
 
 def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, parts: List[dict],
-                 compare_bags: bool, example_data_sql: Optional[str] = None) -> List[PreparedQuestion]:
+                 compare_bags: bool, example_data_sql: Optional[str] = None,
+                 answer_format: str = MIXED) -> List[PreparedQuestion]:
     """Set a question's graded content: its schema, data and parts. ``parts`` are dicts
     with label, description, marks, model_answer, checkpoints and, for a part that
     already exists, its id. Every part is validated before anything changes; a part's
@@ -125,9 +138,21 @@ def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, 
 
     With no data, the example data is ``example_data_sql`` (what the staff form shows),
     else the question's current one, as long as the schema accepts it; otherwise it is
-    built afresh from the schema and the model answers."""
+    built afresh from the schema and the model answers.
+
+    Each part must fit ``answer_format`` (formats.part_spec: for a multi-step part its
+    model answer, checkpoints and marks are built from its steps), and the type can't
+    change once the question has been answered."""
     if not parts:
         raise QuestionInputError("model_answer", RAError("RA012", "A question needs at least one part."), 0)
+    try:
+        formats.check_change(db, q, answer_format)
+        schema = Database.from_sql(schema_sql)
+        parts = [formats.part_spec(answer_format, spec, i, schema, eval_options()) for i, spec in enumerate(parts)]
+    except formats.FormatError as e:
+        raise QuestionInputError(e.source, e.error, e.part, e.step)
+    except RAError as e:
+        raise QuestionInputError("schema", e)
     existing = {p.id: p for p in parts_of(db, q)} if q.id is not None else {}
     same_tables = (q.schema_sql == schema_sql and (q.data_sql or "") == (data_sql or "")
                    and bool(q.compare_bags) == compare_bags)
@@ -154,6 +179,7 @@ def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, 
             example_sql(schema_sql, [spec["model_answer"] for spec in parts])
     q.schema_sql, q.data_sql = schema_sql, data_sql or ""
     q.compare_bags = int(compare_bags)
+    q.answer_format = answer_format
     # The question's own model-answer columns predate parts; keep them equal to part 1.
     first = parts[0]
     q.model_answer = first["model_answer"]
@@ -171,6 +197,7 @@ def save_content(db: Session, q: RAQuestion, *, schema_sql: str, data_sql: str, 
         row.marks = int(spec.get("marks") or 1)
         row.model_answer = spec["model_answer"]
         row.checkpoints_json = json.dumps(spec["checkpoints"]) if spec.get("checkpoints") else None
+        row.steps_json = json.dumps(spec["steps"]) if spec.get("steps") else None
         if not reuse:
             row.suite_json = json.dumps(prepared.suite.to_json())
             row.suite_summary_json = json.dumps(prepared.suite.summary())
@@ -317,7 +344,9 @@ class Submission:
 
 def submit(db: Session, user: User, q: RAQuestion, part: RAQuestionPart, answer: str) -> Submission:
     """Grade an answer to one part and record the attempt (always, correct or not). In an
-    assessment, the attempt must still be running and have Submits left (403 otherwise)."""
+    assessment, the attempt must still be running and have Submits left (403 otherwise).
+    A Final answer question answered in steps raises WrongFormat (nothing recorded)."""
+    check_format(q, answer)
     ra_assessment.guard_submit(db, q, part, user, is_staff(user))
     result = prepared_for(q, part).grade(answer)
     attempt = RAAttempt(user_id=user.id, question_id=q.id, part_id=part.id, answer=answer, verdict=result.verdict,
@@ -330,12 +359,26 @@ def submit(db: Session, user: User, q: RAQuestion, part: RAQuestionPart, answer:
     return Submission(attempt, result)
 
 
+def check_format(q: RAQuestion, answer: str) -> None:
+    """A Final answer question takes one expression: raise WrongFormat for steps. An
+    answer that can't be read at all is left to the grader (it reports where)."""
+    if (q.answer_format or MIXED) != FINAL_ANSWER:
+        return
+    try:
+        single_expression(answer, Database.from_sql(q.schema_sql).names())
+    except RAError as e:
+        if e.code == E.INVALID_ASSIGNMENT:
+            raise WrongFormat("This question asks for the final answer only: write it as one expression, "
+                              "without steps (R1 := …). Your answer was not submitted.")
+
+
 def for_student(q: RAQuestion, result: GradeResult) -> Optional[dict]:
-    """The grade a student may see, given the question's feedback switches."""
+    """The grade a student may see, given the question's feedback switches (and type:
+    a Final answer question has no steps to compare, so no ✓/◐/○)."""
     if q.hide_correctness:
         return None
     data = result.to_dict()
-    if not q.show_step_direction:
+    if not q.show_step_direction or (q.answer_format or MIXED) == FINAL_ANSWER:
         for step in data["steps"]:
             step.update(status="none", checkpoint=None, renamed=False, case=None)
     return data

@@ -24,7 +24,8 @@ from app.models.ra_attempt import RAAttempt
 from app.models.ra_question import RAQuestion
 from app.models.ra_question_part import RAQuestionPart
 from app.models.user import User, UserRole
-from app.services.ra.assessment import _EFFECTIVE_CORRECT
+from app.services.ra import step_analytics
+from app.services.ra.assessment import _EFFECTIVE_CORRECT, effective_marks
 
 VERDICTS = ["correct", "wrong_columns", "wrong_result", "wrong_in_general", "invalid_expression"]
 _TOP_ERRORS = 8
@@ -40,6 +41,12 @@ class _Attempt:
     correct: bool
     created_at: object
     error: Optional[dict]
+    # The marks it earns (assessment.effective_marks needs the part's marks) and, for a
+    # multi-step part, how each step was marked (step_analytics.py).
+    override: Optional[int] = None
+    graded_correct: bool = False
+    marks_earned: Optional[int] = None
+    step_marks: Optional[List[dict]] = None
 
 
 def class_groups(db: Session) -> List[str]:
@@ -59,10 +66,12 @@ def _attempts(db: Session, question_ids: List[int], user_ids: List[int]) -> List
     if not question_ids or not user_ids:
         return []
     rows = (db.query(RAAttempt.id, RAAttempt.user_id, RAAttempt.question_id, RAAttempt.part_id, RAAttempt.verdict,
-                     _EFFECTIVE_CORRECT, RAAttempt.created_at, RAAttempt.result_json)
+                     _EFFECTIVE_CORRECT, RAAttempt.created_at, RAAttempt.result_json, RAAttempt.override_is_correct,
+                     RAAttempt.is_correct, RAAttempt.marks_earned)
             .filter(RAAttempt.question_id.in_(question_ids), RAAttempt.user_id.in_(user_ids))
             .order_by(RAAttempt.created_at.asc(), RAAttempt.id.asc()).all())
-    return [_Attempt(i, u, q, p, v, bool(c), t, _error(v, rj)) for i, u, q, p, v, c, t, rj in rows]
+    return [_Attempt(i, u, q, p, v, bool(c), t, _error(v, rj), o, bool(g), m, step_analytics.step_marks(rj, m))
+            for i, u, q, p, v, c, t, rj, o, g, m in rows]
 
 
 def _error(verdict: str, result_json: Optional[str]) -> Optional[dict]:
@@ -216,6 +225,7 @@ def question_analytics(db: Session, question_id: int, class_group: Optional[str]
             "students": len(users), "students_solved": len(to_correct), "attempts": len(p_attempts),
             "avg_submits_to_correct": _mean(to_correct),
             "verdicts": _verdicts(p_attempts), "top_errors": _top_errors(p_attempts),
+            "steps": step_analytics.part_steps(p, by_user_part, users),
         })
 
     total_marks = sum(p.marks or 0 for p in parts)
@@ -225,10 +235,11 @@ def question_analytics(db: Session, question_id: int, class_group: Optional[str]
         for p in parts:
             rows = by_user_part.get((uid, p.id), [])
             solved = any(r.correct for r in rows)
-            earned += (p.marks or 0) if solved else 0
+            got = max((effective_marks(r.override, r.graded_correct, r.marks_earned, p.marks) for r in rows), default=0)
+            earned += got
             if rows:
                 last = max(last, rows[-1].created_at) if last else rows[-1].created_at
-            cells.append({"part_id": p.id, "attempts": len(rows), "solved": solved,
+            cells.append({"part_id": p.id, "attempts": len(rows), "solved": solved, "marks_earned": got,
                           "submits_to_correct": _submits_to_correct(rows),
                           "last_verdict": rows[-1].verdict if rows else None})
         student_rows.append({

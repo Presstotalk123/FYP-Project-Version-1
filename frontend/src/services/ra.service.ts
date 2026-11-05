@@ -3,7 +3,7 @@ import {
   RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaExampleDataResponse, RaNotationResponse, RaPlaygroundGradeResponse,
   RaPlaygroundRunResponse, RaQuestion, RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff,
   RaSchemaTextResponse, RaStatus, RaSubmitResponse, RaValidateResponse, RaClassAnalytics, RaQuestionAnalytics,
-  RaStudentAttempts,
+  RaStudentAttempts, RaAnswerFormat, RaFormatConvertResponse, RaStepSpecStaff, RaTryStepsResponse,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -18,6 +18,8 @@ export const RA_ENDPOINTS = {
   QUESTIONS_VALIDATE: '/ra/questions/validate',
   QUESTIONS_SCHEMA_FROM_TEXT: '/ra/questions/schema-from-text',
   QUESTIONS_EXAMPLE_DATA: '/ra/questions/example-data',
+  QUESTIONS_CONVERT_FORMAT: '/ra/questions/convert-format',
+  QUESTIONS_TRY_STEPS: '/ra/questions/try-steps',
   QUESTION: (id: number) => `/ra/questions/${id}`,
   QUESTION_EDIT: (id: number) => `/ra/questions/${id}/edit`,
   QUESTION_CHECK: (id: number) => `/ra/questions/${id}/check`,
@@ -94,7 +96,8 @@ export const raService = {
 
   /** Staff only: check one part's model answer and preview its test databases; nothing is saved. */
   async validateQuestion(input: Pick<RaQuestionInput, 'schema_sql' | 'data_sql' | 'compare_bags' | 'example_data_sql'>
-    & Pick<RaPartInput, 'model_answer' | 'checkpoints'>): Promise<RaValidateResponse> {
+    & Pick<RaPartInput, 'model_answer' | 'checkpoints'>
+    & { answer_format?: RaAnswerFormat; steps?: RaStepSpecStaff[] | null }): Promise<RaValidateResponse> {
     return (await api.post<RaValidateResponse>(RA_ENDPOINTS.QUESTIONS_VALIDATE, input)).data;
   },
 
@@ -164,6 +167,31 @@ export const raService = {
   /** Grade an answer to one part and record the attempt. */
   async submitAnswer(id: number, partId: number, answer: string): Promise<RaSubmitResponse> {
     return (await api.post<RaSubmitResponse>(RA_ENDPOINTS.QUESTION_SUBMIT(id), { answer, part_id: partId })).data;
+  },
+
+  /** Multi-step questions: run every box on the shown data; not graded and not recorded. */
+  async checkSteps(id: number, partId: number, stepAnswers: string[]): Promise<RaCheckResponse> {
+    return (await api.post<RaCheckResponse>(RA_ENDPOINTS.QUESTION_CHECK(id),
+      { step_answers: stepAnswers, part_id: partId })).data;
+  },
+
+  /** Multi-step questions: mark the boxes and record the attempt. */
+  async submitSteps(id: number, partId: number, stepAnswers: string[]): Promise<RaSubmitResponse> {
+    return (await api.post<RaSubmitResponse>(RA_ENDPOINTS.QUESTION_SUBMIT(id),
+      { step_answers: stepAnswers, part_id: partId })).data;
+  },
+
+  /** Staff only: the form's type switch — every part rewritten for the new type; nothing is saved. */
+  async convertFormat(schemaSql: string, fromFormat: RaAnswerFormat, toFormat: RaAnswerFormat,
+    parts: Pick<RaPartInput, 'model_answer' | 'checkpoints' | 'steps' | 'marks'>[]): Promise<RaFormatConvertResponse> {
+    return (await api.post<RaFormatConvertResponse>(RA_ENDPOINTS.QUESTIONS_CONVERT_FORMAT,
+      { schema_sql: schemaSql, from_format: fromFormat, to_format: toFormat, parts })).data;
+  },
+
+  /** Staff only: the multi-step preview — mark boxes against the draft steps; nothing is saved. */
+  async trySteps(input: { schema_sql: string; data_sql: string; example_data_sql: string | null;
+    compare_bags: boolean; steps: RaStepSpecStaff[]; step_answers: string[] }): Promise<RaTryStepsResponse> {
+    return (await api.post<RaTryStepsResponse>(RA_ENDPOINTS.QUESTIONS_TRY_STEPS, input)).data;
   },
 
   async myAttempts(id: number): Promise<RaAttempt[]> {

@@ -24,7 +24,7 @@ from app.models.ra_attempt import RAAttempt
 from app.models.ra_question import RAQuestion
 from app.models.ra_question_part import RAQuestionPart
 from app.models.user import User, UserRole
-from app.services.ra import step_analytics
+from app.services.ra import bagheera, step_analytics
 from app.services.ra.assessment import _EFFECTIVE_CORRECT, effective_marks
 
 VERDICTS = ["correct", "wrong_columns", "wrong_result", "wrong_in_general", "invalid_expression"]
@@ -289,4 +289,4 @@ def student_attempts(db: Session, question_id: int, student_id: int) -> dict:
         })
     user = db.query(User.email, User.name).filter(User.id == student_id).first()
     return {"student_id": student_id, "email": user.email if user else "", "name": user.name if user else None,
-            "attempts": out}
+            "attempts": out, "bagheera": bagheera.conversation(db, student_id, question_id, staff=True)}

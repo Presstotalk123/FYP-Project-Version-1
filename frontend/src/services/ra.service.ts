@@ -3,7 +3,7 @@ import {
   RaAttempt, RaCheckpoint, RaCheckResponse, RaExample, RaExampleDataResponse, RaNotationResponse, RaPlaygroundGradeResponse,
   RaPlaygroundRunResponse, RaQuestion, RaPartInput, RaQuestionInput, RaQuestionListItem, RaQuestionStaff,
   RaSchemaTextResponse, RaStatus, RaSubmitResponse, RaValidateResponse, RaClassAnalytics, RaQuestionAnalytics,
-  RaStudentAttempts, RaAnswerFormat, RaFormatConvertResponse, RaStepSpecStaff, RaTryStepsResponse, RaRegradePreview,
+  RaStudentAttempts, RaAnswerFormat, RaFormatConvertResponse, RaStepSpecStaff, RaTryStepsResponse, RaRegradePreview, RaBagheeraMessage, RaBagheeraState,
 } from '@/types/ra.types';
 
 /** RA endpoints, relative to the shared API base URL (…/api/v1). */
@@ -38,6 +38,7 @@ export const raQueryKeys = {
   classGroups: ['ra', 'analytics', 'class-groups'] as const,
   questionAnalytics: (id: number, group: string) => ['ra', 'analytics', 'questions', id, group] as const,
   studentAttempts: (id: number, studentId: number) => ['ra', 'analytics', 'questions', id, 'students', studentId] as const,
+  bagheera: (id: number) => ['ra', 'bagheera', id] as const,
 };
 
 export const raService = {
@@ -123,6 +124,24 @@ export const raService = {
 
   async studentAttempts(id: number, studentId: number): Promise<RaStudentAttempts> {
     return (await api.get<RaStudentAttempts>(`${RA_ENDPOINTS.ANALYTICS}/questions/${id}/students/${studentId}`)).data;
+  },
+
+  // ── Bagheera, the AI tutor (hints only) ──
+  async bagheera(id: number): Promise<RaBagheeraState> {
+    return (await api.get<RaBagheeraState>(`${RA_ENDPOINTS.QUESTIONS}/${id}/bagheera`)).data;
+  },
+
+  /** Ask Bagheera; it sees the current answer (or the boxes of a multi-step part). */
+  async bagheeraChat(id: number, partId: number, message: string,
+    current: { answer?: string; step_answers?: string[] }): Promise<RaBagheeraMessage> {
+    return (await api.post<RaBagheeraMessage>(`${RA_ENDPOINTS.QUESTIONS}/${id}/bagheera/chat`,
+      { part_id: partId, message, ...current }, { timeout: 90_000 })).data;
+  },
+
+  /** "Explain my mistake" for one wrong attempt (saved: asking again returns the same reply). */
+  async bagheeraExplain(id: number, attemptId: number): Promise<RaBagheeraMessage> {
+    return (await api.post<RaBagheeraMessage>(`${RA_ENDPOINTS.QUESTIONS}/${id}/bagheera/explain`,
+      { attempt_id: attemptId }, { timeout: 90_000 })).data;
   },
 
   /** The next batch of past attempts the current grader would change (nothing is saved). */

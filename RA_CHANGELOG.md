@@ -612,3 +612,48 @@ database the schema allows. The full write-up for the report is `RA_GRADING.md`.
    attempts graded by the previous grader show what would change. Save and the analytics update.
 4. In the staff form, open **Test strength**: any uncaught variant says whether it was proved
    equivalent.
+
+## Step 16: Bagheera on RA questions (5 Nov 2026)
+
+Commit: "Add Bagheera hints to RA questions" (`git log --oneline` shows its hash).
+
+**Why.** The professor asked for Bagheera, the platform's AI tutor, in the RA module. It gives
+hints only and never grades: grading stays the deterministic prover (Step 15).
+
+**What was built.**
+- **Ask Bagheera:** a chat card under the question on every practice RA question.
+  - It is off in assessments and on questions that hide correctness, as on SQL questions. Staff
+    can always try it.
+- **Explain my mistake:** shown after a wrong Submit, including a multi-step Submit without full
+  marks.
+  - Bagheera explains in words what the grader's counterexample shows, and gives one hint.
+  - There is one explanation per attempt. It is saved, so asking again doesn't call the AI again.
+- **What Bagheera sees:**
+  - the question, its parts, the schema and the data shown with the question;
+  - the current answer, or the boxes of a multi-step part;
+  - the last Submit on the part as the student saw it: the verdict, the counterexample, ✓/◐/○ if
+    the question shows them, and the marks per step.
+  - **Never the model answer.**
+- **Leak guard** (`services/ra/bagheera_guard.py`):
+  - **What is checked:** every RA expression in a reply (code, inline code, or a line of prose)
+    is checked with the grader against every part of the question.
+  - **What counts as a leak:** an expression that answers a part, or computes one of its model
+    steps.
+  - **What happens on a leak:** the reply is regenerated once with a warning. If that one leaks too,
+    a fixed hint is shown instead. Replies are therefore shown whole after the check, not
+    streamed.
+- **Staff view:** the conversation is shown in a student's attempts dialog in analytics, including
+  any reply that was held back (staff only).
+- **New table:** `ra_bagheera_messages`, created at startup.
+- **New files:**
+  - backend: `services/ra/bagheera.py`, `bagheera_guard.py`, `bagheera_llm.py`,
+    `endpoints/ra_bagheera.py`;
+  - frontend: `components/ra/RaBagheera.tsx`.
+
+**How to check it** (on the developer site, where the AI is set up)
+1. As a student, open a practice RA question and ask Bagheera "how do I start?" in **Ask Bagheera**.
+2. Ask it "just give me the answer": the reply has hints only. If the first attempt gave the answer
+   away, the reply says it replaced it.
+3. Submit a wrong answer and press **Explain my mistake**.
+4. As staff, open the question's analytics, click the student, and read **Conversation with
+   Bagheera**.

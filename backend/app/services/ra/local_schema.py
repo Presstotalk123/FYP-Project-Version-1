@@ -38,8 +38,9 @@ _LOCK_KEY = 727_001          # pg_advisory_lock key, private to this upgrade
 def _tables():
     from app.models.ra_attempt import RAAttempt
     from app.models.ra_question import RAQuestion
+    from app.models.ra_bagheera_message import RABagheeraMessage
     from app.models.ra_question_part import RAQuestionPart
-    return [RAQuestion.__table__, RAQuestionPart.__table__, RAAttempt.__table__]
+    return [RAQuestion.__table__, RAQuestionPart.__table__, RAAttempt.__table__, RABagheeraMessage.__table__]
 
 
 def _add_columns(conn: Connection) -> None:

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SimpleGrid } from '@mantine/core';
 import { DescriptionMarkdown } from '@/components/common/DescriptionMarkdown';
@@ -15,6 +15,7 @@ import { RaTable } from './RaTable';
 import { RaVerdict } from './RaVerdict';
 import { FINAL_ANSWER_HINT, hasSteps, RaFinalAnswerNote, RaWrongFormatWarning } from './raAnswerFormat';
 import { RaStepsAnswer } from './RaStepsAnswer';
+import { RaBagheeraChat, RaExplainMistake } from './RaBagheera';
 
 const VERDICT_BADGE: Record<Verdict, { text: string; cls: string }> = {
   correct: { text: 'Correct', cls: 'badge-success' },
@@ -77,6 +78,8 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
   const [submittedBy, setSubmittedBy] = useState<Record<number, RaSubmitResponse | null>>({});
   const [busy, setBusy] = useState<'check' | 'submit' | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
+  // A multi-step part's boxes as they are now, for Bagheera (RaStepsAnswer owns them).
+  const boxesRef = useRef<Record<number, string[]>>({});
 
   const answer = partId != null ? answers[partId] ?? '' : '';
   const checked = partId != null ? checkedBy[partId] ?? null : null;
@@ -158,7 +161,8 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
 
   return (
     <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
-      {/* Question */}
+      {/* Question, then Bagheera */}
+      <div style={{ display: 'grid', gap: 12, alignContent: 'start', minWidth: 0 }}>
       <section className="card" style={{ padding: 16, display: 'grid', gap: 14, alignContent: 'start', minWidth: 0 }}>
         <div style={{ display: 'grid', gap: 8 }}>
           <h2 style={{ margin: 0, fontSize: 22 }}>{question.title}</h2>
@@ -184,6 +188,9 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
           </p>
         </div>
       </section>
+      <RaBagheeraChat questionId={questionId} partId={part.id}
+        current={() => (stepsLayout ? { step_answers: boxesRef.current[part.id] ?? [] } : { answer })} />
+      </div>
 
       {/* Answer */}
       <section style={{ display: 'grid', gap: 12, alignContent: 'start', minWidth: 0 }}>
@@ -221,7 +228,8 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
         )}
         {stepsLayout ? (
           <RaStepsAnswer question={question} part={part} attempts={attemptsQuery.data ?? []}
-            attemptsLoaded={attemptsLoaded} multiPart={multi} onSubmitted={() => {
+            attemptsLoaded={attemptsLoaded} multiPart={multi}
+            onValuesChange={(values) => { boxesRef.current[part.id] = values; }} onSubmitted={() => {
               void queryClient.invalidateQueries({ queryKey: raQueryKeys.attempts(questionId) });
               void queryClient.invalidateQueries({ queryKey: raQueryKeys.question(questionId) });
               void queryClient.invalidateQueries({ queryKey: raQueryKeys.questions });
@@ -302,7 +310,12 @@ export function RaQuestionWorkspace({ questionId }: { questionId: number }) {
         {submitted && (
           <div className="card" style={{ padding: 16, display: 'grid', gap: 16, minWidth: 0 }}>
             {submitted.grade ? (
-              <RaVerdict grade={submitted.grade} shown={submitted.shown} />
+              <>
+                <RaVerdict grade={submitted.grade} shown={submitted.shown} />
+                {submitted.grade.verdict !== 'correct' && (
+                  <RaExplainMistake questionId={questionId} attemptId={submitted.attempt_id} />
+                )}
+              </>
             ) : (
               <div className="alert-info"><strong>Submitted.</strong> Your answer has been recorded.</div>
             )}

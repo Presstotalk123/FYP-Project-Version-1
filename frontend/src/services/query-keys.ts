@@ -3,6 +3,11 @@
 // Dashboard and the Problems page; `labs` by both Problems and Manage Labs).
 // Keeping the keys here also makes post-mutation invalidation consistent.
 export const queryKeys = {
+  normalizationQuestions: (userId: number) => ['normalization', 'questions', userId] as const,
+  normalizationQuestion: (id: number, userId: number) => ['normalization', 'question', id, userId] as const,
+  normalizationProgress: (userId: number) => ['normalization', 'progress', userId] as const,
+  normalizationHistory: (id: number, userId: number) => ['normalization', 'history', id, userId] as const,
+  normalizationAnalytics: (id: number, group: string) => ['normalization', 'analytics', id, group] as const,
   competitionVersions: ['competitionVersions'] as const,
   competitionIncidents: ['adminCompetitionIncidents'] as const,
   competitionSources: ['competitionSources'] as const,

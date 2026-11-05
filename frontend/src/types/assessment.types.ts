@@ -1,4 +1,4 @@
-export type AssessmentItemType = 'sql_question' | 'er_question' | 'sql_lab' | 'graph_lab' | 'ra_question';
+export type AssessmentItemType = 'normalization_question' | 'sql_question' | 'er_question' | 'sql_lab' | 'graph_lab' | 'ra_question';
 
 export interface AssessmentItemIn {
   item_type: AssessmentItemType;
@@ -304,6 +304,8 @@ export interface AssessmentAnalyticsSummaryResponse {
   platform_registered: number;
   platform_signed_in: number;
   /** Bank (practice) questions only — assessment-owned clones excluded. */
+  total_normalization_questions?: number;
+  total_normalization_submissions?: number;
   total_sql_questions: number;
   total_erd_questions: number;
   /** Graded attempts by students platform-wide; staff test runs excluded. */

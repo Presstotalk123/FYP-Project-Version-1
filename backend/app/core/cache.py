@@ -256,6 +256,7 @@ def cache_read(
 def _model_namespaces(obj: Any) -> set[str]:
     """Map a changed ORM instance to the cache namespace(s) it invalidates."""
     # Imported lazily to avoid import cycles at module load.
+    from app.models.normalization import NormalizationQuestion, NormalizationSubmission, NormalizationReview
     from app.models.question import Question
     from app.models.lab import Lab
     from app.models.lab_task import LabTask
@@ -282,6 +283,8 @@ def _model_namespaces(obj: Any) -> set[str]:
     if isinstance(obj, WhitelistEntry):
         return {Ns.WHITELIST}
 
+    if isinstance(obj, (NormalizationQuestion, NormalizationSubmission, NormalizationReview)):
+        return {Ns.ASSESSMENT_ANALYTICS}
     if isinstance(obj, Question):
         namespaces.add(Ns.QUESTIONS)
         namespaces.add(Ns.SQL_ANALYTICS)  # analytics show the question title

@@ -212,6 +212,8 @@ async def restrict_limited_users(request: Request, call_next):
     return await call_next(request)
 
 # Include routers
+from app.api.v1.endpoints import normalization
+app.include_router(normalization.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(competitions.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")

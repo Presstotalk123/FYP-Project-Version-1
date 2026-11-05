@@ -223,6 +223,9 @@ class Settings(BaseSettings):
     RA_ENABLED: bool = True
     RA_AGGREGATE_NULLS: str = "sql"
 
+    NORMALIZATION_SEMANTIC_API_KEY: str = ""
+    NORMALIZATION_SEMANTIC_MODEL: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -8,6 +8,7 @@ import { AssessmentItemAggregateScore, ItemStudentRow } from '@/types/assessment
 import { AssessmentGroupMatrix } from './AssessmentGroupMatrix';
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
+  normalization_question: 'Normalization',
   sql_question: 'SQL Question',
   er_question: 'ER Question',
   sql_lab: 'SQL Lab',

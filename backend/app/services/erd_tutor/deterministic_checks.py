@@ -43,6 +43,9 @@ direct relationship but both connect to one common entity X (e.g. an
 associative/weak entity), A's endpoint on rel(A,X) and B's endpoint on
 rel(B,X) are compared instead — that is how "Patient 0..N Operation" is
 actually drawn in an OP-REC model.
+A reflexive relationship has two ends at one entity. The rubric names that
+entity at both ends without saying which role is which, so the two drawn ends
+are compared in either order, as integrity_checks compares their marks.
 
 WRITTEN NUMBERS, IN THE COURSE NOTATION
 Rubric values follow the model answer's own labels (">=1", ">=0", "1",
@@ -192,6 +195,23 @@ def _required(ep, rng):
     return f"{value} ({part if part in ('total', 'partial') else 'maximum only'})"
 
 
+def _read_end(card, part):
+    """One end's ((min, max), what the diagram shows): the number written there,
+    or, for an end the parser did not produce, its derived value."""
+    written = _written(card)
+    if written == "":
+        return ((None, None), "nothing written")
+    if written is not None:
+        several = _differing(card)
+        if several:
+            return (_CONFLICT, f"written {' and '.join(several)}")
+        return (_read_written(written), f"written {written}")
+    lo, hi = _parse_range(card.get("normalized_cardinality"))
+    if lo is None:
+        lo = _min_from_participation(part)
+    return ((lo, hi), f"drawn {_fmt((lo, hi))}")
+
+
 class _Model:
     """Index the canonical ERD for endpoint lookups."""
 
@@ -208,6 +228,14 @@ class _Model:
                      for x in c.get("cardinalities", [])}
         self.part = {(p.get("relationship_id"), p.get("entity_id")): p.get("participation_type")
                      for p in c.get("participation", [])}
+        # Every end in drawing order. A reflexive relationship has two ends with
+        # one (relationship, entity) pair, which the dicts above collapse to one.
+        self.cards, self.parts = {}, {}
+        for x in c.get("cardinalities", []):
+            self.cards.setdefault((x.get("relationship_id"), x.get("entity_id")), []).append(x)
+        for p in c.get("participation", []):
+            self.parts.setdefault((p.get("relationship_id"), p.get("entity_id")), []).append(
+                p.get("participation_type"))
 
     def entity_ids(self, name):
         n = _norm_name(name)
@@ -232,20 +260,21 @@ class _Model:
         rid = rel.get("id")
         for eid in ids:
             if (rid, eid) in self.card or (rid, eid) in self.part:
-                card = self.card.get((rid, eid)) or {}
-                written = _written(card)
-                if written == "":
-                    return ((None, None), "nothing written")
-                if written is not None:
-                    several = _differing(card)
-                    if several:
-                        return (_CONFLICT, f"written {' and '.join(several)}")
-                    return (_read_written(written), f"written {written}")
-                lo, hi = _parse_range(card.get("normalized_cardinality"))
-                if lo is None:
-                    lo = _min_from_participation(self.part.get((rid, eid)))
-                return ((lo, hi), f"drawn {_fmt((lo, hi))}")
+                return _read_end(self.card.get((rid, eid)) or {}, self.part.get((rid, eid)))
         return None  # endpoint not recorded at all
+
+    def endpoints(self, rel, ids):
+        """Every recorded end of rel at the first of these entity ids that has
+        one, in drawing order: two for a reflexive relationship."""
+        rid = rel.get("id")
+        for eid in ids:
+            cards = self.cards.get((rid, eid)) or []
+            parts = self.parts.get((rid, eid)) or []
+            if cards or parts:
+                return [_read_end(cards[i] if i < len(cards) else {},
+                                  parts[i] if i < len(parts) else None)
+                        for i in range(max(len(cards), len(parts)))]
+        return []
 
     def bridge(self, ids_a, ids_b):
         """Common-neighbour entity X with rel(A,X) and rel(B,X): the associative pattern."""
@@ -294,6 +323,22 @@ def _match(required, found):
 def _fmt(rng):
     lo, hi = rng
     return f"{'?' if lo is None else lo}..{'?' if hi is None else hi}"
+
+
+def _compare(wanted, end_a, end_b):
+    """Both rubric ends against two drawn ends -> (verdict, confirmed, detail)."""
+    if end_a is None and end_b is None:
+        return "unknown", 0, "endpoint not recorded"
+    fa, shown_a = end_a or ((None, None), "not recorded")
+    fb, shown_b = end_b or ((None, None), "not recorded")
+    v_a, c_a = _match(wanted[0][1], fa)
+    v_b, c_b = _match(wanted[1][1], fb)
+    verdict = ("conflict" if "conflict" in (v_a, v_b)
+               else "mismatch" if "mismatch" in (v_a, v_b)
+               else "unknown" if "unknown" in (v_a, v_b) else "match")
+    detail = (f"{wanted[0][0]}: required {wanted[0][2]}, {shown_a}; "
+              f"{wanted[1][0]}: required {wanted[1][2]}, {shown_b}")
+    return verdict, c_a + c_b, detail
 
 
 def apply_deterministic_overrides(judge_result, rubric, canonical):
@@ -352,26 +397,23 @@ def _apply(judge_result, rubric, canonical):
         # evidence, not unreadable evidence.
         best = None  # (verdict, confirmed, detail)
         rank = {"match": 0, "unknown": 1, "mismatch": 2, "conflict": 2}
+        reflexive = bool(set(ids[0]) & set(ids[1]))
         for rel_a, rel_b in candidates:
-            end_a = model.endpoint(rel_a, ids[0])
-            end_b = model.endpoint(rel_b, ids[1])
-            if end_a is None and end_b is None:
-                verdict, confirmed, detail = "unknown", 0, "endpoint not recorded"
+            ends = model.endpoints(rel_a, ids[0]) if reflexive and rel_a is rel_b else []
+            if len(ends) >= 2:
+                # Both ends belong to one entity and the rubric does not say
+                # which role is which: compare them in either order.
+                pairings = [(ends[0], ends[1]), (ends[1], ends[0])]
             else:
-                fa, shown_a = end_a or ((None, None), "not recorded")
-                fb, shown_b = end_b or ((None, None), "not recorded")
-                v_a, c_a = _match(wanted[0][1], fa)
-                v_b, c_b = _match(wanted[1][1], fb)
-                confirmed = c_a + c_b
-                verdict = ("conflict" if "conflict" in (v_a, v_b)
-                           else "mismatch" if "mismatch" in (v_a, v_b)
-                           else "unknown" if "unknown" in (v_a, v_b) else "match")
-                detail = (f"{wanted[0][0]}: required {wanted[0][2]}, {shown_a}; "
-                          f"{wanted[1][0]}: required {wanted[1][2]}, {shown_b}")
-            if best is None or (rank[verdict], -confirmed) < (rank[best[0]], -best[1]):
-                best = (verdict, confirmed, detail)
-                if verdict == "match":
+                pairings = [(model.endpoint(rel_a, ids[0]), model.endpoint(rel_b, ids[1]))]
+            for end_a, end_b in pairings:
+                verdict, confirmed, detail = _compare(wanted, end_a, end_b)
+                if best is None or (rank[verdict], -confirmed) < (rank[best[0]], -best[1]):
+                    best = (verdict, confirmed, detail)
+                if best[0] == "match":
                     break
+            if best[0] == "match":
+                break
 
         verdict, confirmed, detail = best
         via = " (via the associative entity)" if via_bridge else ""

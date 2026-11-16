@@ -20,15 +20,20 @@ export interface NormalizationPayload {
 }
 export interface NormalizationResult {
   decision: 'accepted' | 'rejected' | 'staff_review';
-  score: { fd_percent: number; normalization_percent: number; overall_percent: number };
+  score: { fd_percent: number; normalization_percent: number; overall_percent: number; scoring_policy?: 'legacy_binary_fd' | 'partial_fd_v1' };
   fd_evaluation: { decision: string; decision_source: string; feedback: string; formal_evidence: {
-    logically_equivalent: boolean; sample_contradictions: { lhs: string[]; rhs: string[]; first_row: number; second_row: number }[];
+    logically_equivalent: boolean; reference_coverage: number; submission_soundness: number;
+    reference_matched: number; reference_total: number; submission_matched: number; submission_total: number;
+    sample_row_count?: number;
+    sample_contradictions: { lhs: string[]; rhs: string[]; first_row: number; second_row: number;
+      first_values?: Record<string, unknown>; second_values?: Record<string, unknown> }[];
   } };
   normalization_evaluation: {
     note: string;
     attribute_coverage: boolean; lossless_join: boolean; dependency_preservation: boolean;
     dependency_preservation_required: boolean; relations_satisfy_target: boolean; proposed_keys_correct: boolean;
-    meets_requirements: boolean; missing_attributes: string[]; unpreserved_dependencies: string[];
+    meets_requirements: boolean; normalization_status: 'not_started' | 'invalid' | 'decomposed' | 'no_decomposition_required';
+    missing_attributes: string[]; unpreserved_dependencies: string[];
     relation_results: { name: string; candidate_keys: string[][]; violations: string[] }[];
     process_evaluation: { valid: boolean; errors: string[]; step_results: { step: string; valid: boolean; feedback: string }[] };
   };

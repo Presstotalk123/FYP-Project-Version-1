@@ -58,12 +58,15 @@ def evaluate_fd_attempt(
         reference_total=overlap.reference_total,
         submission_matched=overlap.submission_matched,
         submission_total=overlap.submission_total,
+        sample_row_count=len(exercise.sample_rows),
         sample_contradictions=[
             FDContradictionResponse(
                 lhs=sorted(item.fd.lhs),
                 rhs=sorted(item.fd.rhs),
                 first_row=item.first_row,
                 second_row=item.second_row,
+                first_values=dict(exercise.sample_rows[item.first_row - 1]),
+                second_values=dict(exercise.sample_rows[item.second_row - 1]),
             )
             for item in contradictions
         ],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import combinations
+from typing import Literal
 
 from .schemas import (
     BCNFProcessInput,
@@ -509,6 +510,7 @@ def evaluate_submission(
     original_attributes: set[str],
     dependency_preservation_required: bool = False,
     process_evaluation: NormalizationProcessEvaluation | None = None,
+    normalization_status: Literal["not_started", "invalid", "decomposed", "no_decomposition_required"] = "decomposed",
 ) -> SubmissionEvaluation:
     dependencies = [
         FD(frozenset(item.lhs), frozenset(item.rhs))
@@ -532,6 +534,8 @@ def evaluate_submission(
         result.satisfies_target for result in relation_results
     )
     meets_requirements = (
+        normalization_status in {"decomposed", "no_decomposition_required"}
+        and
         attribute_coverage
         and lossless_join
         and relations_satisfy_target
@@ -554,9 +558,17 @@ def evaluate_submission(
         dependency_preservation_required=dependency_preservation_required,
         proposed_keys_correct=proposed_keys_correct,
         meets_requirements=meets_requirements,
+        normalization_status=normalization_status,
         process_evaluation=process_evaluation,
         note=(
-            "Results are deterministic checks against the exercise's authoritative "
+            "Normalization work has not started; decompose the original relation to earn "
+            "normalization marks."
+            if normalization_status == "not_started"
+            else "The submitted decomposition contains no valid split; normalization marks are 0%."
+            if normalization_status == "invalid"
+            else "The original relation does not satisfy the assigned normal form; a no-decomposition submission earns 0% normalization credit."
+            if normalization_status == "no_decomposition_required" and not meets_requirements
+            else "Results are deterministic checks against the exercise's authoritative "
             "relation and functional dependencies."
         ),
     )

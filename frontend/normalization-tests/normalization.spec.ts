@@ -114,6 +114,48 @@ test('recursive graph split, undo/redo, layout, and deterministic grade', async 
   await page.screenshot({ path: testInfo.outputPath('normalization-result.png'), fullPage: true });
 });
 
+test('correct saved model FDs display full FD marks before decomposition is finished', async ({ page }) => {
+  const { token } = await (await page.request.get(`${api}/test-token/staff`)).json();
+  const headers = { Authorization: `Bearer ${token}` };
+  const created = await page.request.post(`${api}/api/v1/normalization/questions`, { headers, data: {
+    title: 'Tutorial 4 Q1: Medical Clinic Appointments', difficulty: 'medium', scenario: 'A medical clinic stores appointment, patient, doctor, and room information in one relation.',
+    relation_name: 'CLINIC_APPOINTMENT', attributes: ['AppointmentID', 'PatientID', 'PatientName', 'DoctorID', 'DoctorName', 'AppointmentDate', 'AppointmentTime', 'RoomNo'],
+    statements: [{ id: 'S1', text: 'Every appointment has one patient, one doctor, one date, one time, and one room.' },
+      { id: 'S2', text: 'A patient ID identifies one patient name.' }, { id: 'S3', text: 'A doctor ID identifies one doctor name.' },
+      { id: 'S4', text: 'A doctor cannot attend more than one appointment at the same date and time.' },
+      { id: 'S5', text: 'A room cannot hold more than one appointment at the same date and time.' }],
+    sample_rows: [], target_normal_form: '3NF', approved_fds: [
+      { lhs: ['AppointmentID'], rhs: ['PatientID', 'DoctorID', 'AppointmentDate', 'AppointmentTime', 'RoomNo'] },
+      { lhs: ['PatientID'], rhs: ['PatientName'] },
+      { lhs: ['DoctorID'], rhs: ['DoctorName'] },
+      { lhs: ['DoctorID', 'AppointmentDate', 'AppointmentTime'], rhs: ['AppointmentID'] },
+      { lhs: ['RoomNo', 'AppointmentDate', 'AppointmentTime'], rhs: ['AppointmentID'] },
+    ], semantic_judge_enabled: false,
+  } });
+  expect(created.ok()).toBeTruthy();
+  const id = (await created.json()).id;
+  expect((await page.request.post(`${api}/api/v1/normalization/questions/${id}/publish`, { headers })).ok()).toBeTruthy();
+  const saved = await (await page.request.get(`${api}/api/v1/normalization/questions/${id}/authoring`, { headers })).json();
+  await page.goto(`/student/workspace/${id}?type=normalization`);
+  for (const [index, fd] of saved.approved_fds.entries()) {
+    if (index) await page.getByRole('button', { name: 'Add functional dependency', exact: true }).click();
+    await choose(page, `FD ${index + 1} determinant`, fd.lhs);
+    await choose(page, `FD ${index + 1} dependent`, fd.rhs);
+  }
+  const response = page.waitForResponse(r => r.url().endsWith(`/normalization/questions/${id}/submissions`) && r.request().method() === 'POST');
+  await submit(page);
+  const reply = await response;
+  expect(reply.request().postDataJSON().functional_dependencies).toEqual(saved.approved_fds);
+  const result = (await reply.json()).result;
+  expect(result.fd_evaluation.formal_evidence.logically_equivalent).toBe(true);
+  expect(result.score.fd_percent).toBe(100);
+  const scoreCard = page.getByRole('dialog').getByText('Functional dependencies', { exact: true }).locator('..');
+  await expect(scoreCard.getByText('100%', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close submission result', exact: true }).click();
+  await page.getByRole('button', { name: 'View submission result', exact: true }).click();
+  await expect(scoreCard.getByText('100%', { exact: true })).toBeVisible();
+});
+
 test('assumptions appear only at submission when semantic interpretation is enabled', async ({ page }) => {
   let enabled = false;
   await page.route('**/api/v1/normalization/questions/1', async route => {

@@ -60,6 +60,7 @@ class SubmissionEvaluation(BaseModel):
     dependency_preservation_required: bool = False
     proposed_keys_correct: bool = False
     meets_requirements: bool = False
+    normalization_status: Literal["not_started", "invalid", "decomposed", "no_decomposition_required"] = "decomposed"
     process_evaluation: NormalizationProcessEvaluation | None = None
     note: str
 
@@ -233,6 +234,8 @@ class FDContradictionResponse(BaseModel):
     rhs: list[str]
     first_row: int
     second_row: int
+    first_values: dict[str, object] | None = None
+    second_values: dict[str, object] | None = None
 
 
 class FDFormalEvidenceResponse(BaseModel):
@@ -243,6 +246,7 @@ class FDFormalEvidenceResponse(BaseModel):
     reference_total: int = Field(ge=1)
     submission_matched: int = Field(ge=0)
     submission_total: int = Field(ge=0)
+    sample_row_count: int = Field(default=0, ge=0)
     sample_contradictions: list[FDContradictionResponse]
 
 
@@ -303,6 +307,7 @@ class IntegratedScoreResponse(BaseModel):
     fd_percent: int = Field(ge=0, le=100)
     normalization_percent: int = Field(ge=0, le=100)
     overall_percent: int = Field(ge=0, le=100)
+    scoring_policy: Literal["legacy_binary_fd", "partial_fd_v1"] = "legacy_binary_fd"
 
 
 class IntegratedSubmissionResult(BaseModel):

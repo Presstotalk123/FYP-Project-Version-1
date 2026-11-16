@@ -19,15 +19,36 @@ from app.services.normalization import questions, assessment
 from app.services.assessment_gateway import as_utc
 
 
+SCORING_POLICY = "partial_fd_v1"
+
+
+def partial_fd_percent(fd_result) -> int:
+    """Award balanced partial credit for a non-equivalent FD interpretation."""
+    if fd_result.decision == "accepted":
+        return 100
+    coverage = fd_result.formal_evidence.reference_coverage
+    soundness = fd_result.formal_evidence.submission_soundness
+    if coverage <= 0 or soundness <= 0:
+        return 0
+    harmonic_mean = 2 * coverage * soundness / (coverage + soundness)
+    return min(99, round(100 * harmonic_mean))
+
+
 def score(fd_result, result):
     checks = [result.attribute_coverage, result.lossless_join, result.relations_satisfy_target,
               result.proposed_keys_correct, bool(result.process_evaluation and result.process_evaluation.valid)]
     if result.dependency_preservation_required:
         checks.append(result.dependency_preservation)
-    fd_percent = 100 if fd_result.decision == "accepted" else 0
-    normalization_percent = round(100 * sum(checks) / len(checks))
+    fd_percent = partial_fd_percent(fd_result)
+    if result.normalization_status in {"not_started", "invalid"}:
+        normalization_percent = 0
+    elif result.normalization_status == "no_decomposition_required":
+        normalization_percent = 100 if result.meets_requirements else 0
+    else:
+        normalization_percent = round(100 * sum(checks) / len(checks))
     return IntegratedScoreResponse(fd_percent=fd_percent, normalization_percent=normalization_percent,
-                                   overall_percent=round((fd_percent + normalization_percent) / 2))
+                                   overall_percent=round((fd_percent + normalization_percent) / 2),
+                                   scoring_policy=SCORING_POLICY)
 
 
 def evaluate(submission_id, data, payload):
@@ -47,11 +68,18 @@ def evaluate(submission_id, data, payload):
     context = build_integrated_exercise(source=source, submitted_fds=fds, target=data["target_normal_form"])
     process = evaluate_recursive_decomposition_process(payload.process, set(source.attributes),
         list(context.functional_dependencies), payload.relations, context.target_normal_form)
+    normalization_status = (
+        "not_started"
+        if not payload.process.steps
+        else "decomposed"
+        if any(step.valid for step in process.step_results)
+        else "invalid"
+    )
     result = evaluate_submission(submission_id, EngineInput(exercise_id=source.id,
         target_normal_form=context.target_normal_form, assumptions=payload.assumption,
         functional_dependencies=payload.functional_dependencies, relations=payload.relations),
         set(source.attributes), dependency_preservation_required=context.dependency_preservation_required,
-        process_evaluation=process)
+        process_evaluation=process, normalization_status=normalization_status)
     decision = ("staff_review" if fd_result.decision == "staff_review" else
                 "accepted" if fd_result.decision == "accepted" and result.meets_requirements else "rejected")
     return {"submission_id": submission_id, "decision": decision,
@@ -82,14 +110,16 @@ def hidden(question, user):
 
 def view(db, row, question, user):
     result = deepcopy(row.original_result)
+    reviews = db.query(NormalizationReview).filter_by(submission_id=row.id).order_by(NormalizationReview.id).all()
+    latest_review = reviews[-1] if reviews else None
     if result and row.review_version:
         result["decision"] = row.decision
         result["score"]["fd_percent"] = row.fd_percent
         result["score"]["overall_percent"] = row.overall_percent
-        result["fd_evaluation"].update(decision="accepted" if row.fd_percent == 100 else "rejected",
-            can_proceed=row.fd_percent == 100, decision_source="staff_review",
+        staff_accepted = latest_review is not None and latest_review.decision == "accepted"
+        result["fd_evaluation"].update(decision="accepted" if staff_accepted and row.fd_percent == 100 else "rejected",
+            can_proceed=staff_accepted and row.fd_percent == 100, decision_source="staff_review",
             feedback="Staff have reviewed this FD interpretation.")
-    reviews = db.query(NormalizationReview).filter_by(submission_id=row.id).order_by(NormalizationReview.id).all()
     hide = hidden(question, user)
     output = {"id": row.id, "question_id": row.question_id, "user_id": row.user_id,
               "question_version": row.question_version, "created_at": as_utc(row.created_at),
@@ -183,10 +213,17 @@ def review(db, row, question, user, payload):
     if not changed:
         raise HTTPException(409, "Another staff member reviewed this attempt. Reload first.")
     db.refresh(row)
-    row.fd_percent = 100 if payload.decision == "accepted" else 0
+    scoring_policy = (row.original_result.get("score", {}).get("scoring_policy")
+                      if isinstance(row.original_result, dict) else None)
+    if payload.decision == "accepted":
+        row.fd_percent = 100
+    elif scoring_policy == SCORING_POLICY:
+        row.fd_percent = int(row.original_result["score"]["fd_percent"])
+    else:
+        row.fd_percent = 0
     row.overall_percent = round((row.fd_percent + row.normalization_percent) / 2)
     formal_pass = row.original_result["normalization_evaluation"]["meets_requirements"]
-    row.decision = "accepted" if row.fd_percent == 100 and formal_pass else "rejected"
+    row.decision = "accepted" if payload.decision == "accepted" and row.fd_percent == 100 and formal_pass else "rejected"
     db.add(NormalizationReview(submission_id=row.id, actor_id=user.id,
                               decision=payload.decision, reason=payload.reason.strip()))
     db.flush()

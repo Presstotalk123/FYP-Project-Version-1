@@ -74,30 +74,67 @@ function RelationCard({ data, selected }: NodeProps<RelationNode>) {
 }
 const nodeTypes = { relation: RelationCard };
 
+function feedbackCheck(label: string, passed: boolean | null, detail?: string) {
+  const status = passed === null ? 'Not applicable' : passed ? 'Met' : 'Not met';
+  return <div className={styles.check} aria-label={`${label}: ${status}`}>
+    {passed === null ? <IconAlertTriangle size={17} color="#868e96" /> : passed ? <IconCheck size={17} color="#2b8a3e" /> : <IconX size={17} color="#c92a2a" />}
+    <span><strong>{label}</strong>{detail && <small>{detail}</small>}</span>
+    <em>{status}</em>
+  </div>;
+}
+
+function sampleRowText(values?: Record<string, unknown>) {
+  if (!values) return 'row details unavailable';
+  return Object.entries(values).map(([attribute, value]) => `${attribute}=${String(value)}`).join(' · ');
+}
+
 export function NormalizationFeedback({ attempt }: { attempt: NormalizationAttempt }) {
   if (attempt.feedback_hidden) return <Alert color="blue">Submitted successfully. Feedback is hidden for this question.</Alert>;
   if (!attempt.result) return <Alert color={attempt.status === 'failed' ? 'red' : 'blue'}>
     {attempt.status === 'failed' ? 'Grading did not finish. Your submitted work is preserved. Contact staff or submit a new attempt.' : 'Your submission is saved. Grading is in progress.'}</Alert>;
   const { result } = attempt;
   const formal = result.normalization_evaluation;
-  const checks: [string, boolean, boolean?][] = [
-    ['FD interpretation', result.fd_evaluation.decision === 'accepted'],
-    ['Attribute coverage', formal.attribute_coverage], ['Lossless join', formal.lossless_join],
-    ['Target normal form', formal.relations_satisfy_target], ['Proposed keys', formal.proposed_keys_correct],
-    ['Dependency preservation', formal.dependency_preservation, !formal.dependency_preservation_required],
-    ['Process', formal.process_evaluation.valid],
-  ];
+  const normalizationStarted = formal.normalization_status === 'decomposed';
+  const evidence = result.fd_evaluation.formal_evidence;
+  const hasSampleRows = evidence.sample_row_count === undefined ? undefined : evidence.sample_row_count > 0;
+  const scoringPolicy = result.score.scoring_policy === 'partial_fd_v1' ? 'Partial FD scoring' : 'Legacy binary FD scoring';
   return <Stack gap="sm">
     <div className={`${styles.evaluationHero} ${result.decision === 'accepted' ? styles.acceptedHero : styles.revisionHero}`}>
       {result.decision === 'accepted' ? <IconCheck size={28} /> : <IconAlertTriangle size={28} />}<div><strong>{result.decision === 'accepted' ? 'Complete solution accepted' : result.decision === 'staff_review' ? 'Review required' : 'Revision needed'}</strong>
         <p>Overall score: {result.score.overall_percent}%</p>{result.decision === 'staff_review' && <Text size="xs">Provisional score · staff review required</Text>}</div>
     </div>
-    <div className={styles.scoreGrid}><div><span>Functional dependencies</span><strong>{result.score.fd_percent}%</strong><small>{result.fd_evaluation.feedback}</small></div><div><span>Normalization</span><strong>{result.score.normalization_percent}%</strong><small>{formal.note}</small></div></div>
-    {result.fd_evaluation.formal_evidence.sample_contradictions.map((c, i) => <Text key={i} c="red">{fdText(c)} contradicts sample rows {c.first_row} and {c.second_row}.</Text>)}
-    <div className={styles.checks}>{checks.map(([label, pass, optional]) => <div className={styles.check} key={label}>{pass ? <IconCheck size={17} color="#2b8a3e" /> : <IconX size={17} color={optional ? '#868e96' : '#c92a2a'} />}<span>{label}</span>{optional && <small>informational</small>}</div>)}</div>
-    {formal.process_evaluation.errors.map((error, i) => <Text c="red" key={i}>{error}</Text>)}
-    <details className={styles.attemptFeedback}><summary>Detailed feedback</summary>{formal.process_evaluation.step_results.map((s, i) => <Text size="sm" key={i}>{s.step}: {s.feedback}</Text>)}
-      {formal.relation_results.map((r, i) => <Text size="sm" key={i}>{r.name}: candidate keys {r.candidate_keys.map(k => k.join(', ')).join(' / ')}{r.violations.length ? `; ${r.violations.join('; ')}` : ''}</Text>)}</details>
+    <section className={styles.feedbackSection} aria-labelledby="fd-feedback-heading">
+      <div className={styles.feedbackSectionHeader}><div><h3 id="fd-feedback-heading">Functional dependencies</h3><p>Compared with the staff-approved FD model.</p></div><strong>{result.score.fd_percent}%</strong></div>
+      <div className={styles.scoreGrid}>
+        <div><span>Reference coverage</span><strong>{Math.round(evidence.reference_coverage * 100)}%</strong><small>{evidence.reference_matched}/{evidence.reference_total} approved dependencies covered</small></div>
+        <div><span>Submission soundness</span><strong>{Math.round(evidence.submission_soundness * 100)}%</strong><small>{evidence.submission_matched}/{evidence.submission_total} submitted dependencies supported</small></div>
+      </div>
+      <p className={styles.feedbackHint}>{scoringPolicy}. Equivalent sets receive 100%; other valid comparisons receive balanced partial credit.</p>
+      <div className={styles.checks}>
+        {feedbackCheck('Logical equivalence', evidence.logically_equivalent, 'The submitted and approved FD sets imply each other.')}
+        {feedbackCheck('Approved dependency coverage', evidence.reference_coverage >= 1, `${evidence.reference_matched} of ${evidence.reference_total} covered.`)}
+        {feedbackCheck('Submitted dependency support', evidence.submission_soundness >= 1, `${evidence.submission_matched} of ${evidence.submission_total} supported.`)}
+        {feedbackCheck('Sample consistency', hasSampleRows === undefined ? null : evidence.sample_contradictions.length === 0, hasSampleRows === undefined ? 'No sample-row count was recorded.' : hasSampleRows ? 'No submitted FD contradicts the sample rows.' : 'This exercise has no sample rows.')}
+      </div>
+      {result.fd_evaluation.feedback && <Text size="sm">{result.fd_evaluation.feedback}</Text>}
+      {evidence.sample_contradictions.map((c, i) => <div className={styles.contradiction} key={i}><strong>{fdText(c)} contradicts sample rows {c.first_row} and {c.second_row}.</strong><small>Row {c.first_row}: {sampleRowText(c.first_values)}</small><small>Row {c.second_row}: {sampleRowText(c.second_values)}</small></div>)}
+    </section>
+    <section className={styles.feedbackSection} aria-labelledby="normalization-feedback-heading">
+      <div className={styles.feedbackSectionHeader}><div><h3 id="normalization-feedback-heading">Normalization</h3><p>Checks against the relations and decomposition canvas.</p></div><strong>{result.score.normalization_percent}%</strong></div>
+      {formal.normalization_status === 'not_started' && <Alert color="yellow">Normalization not started. Decompose the original relation to earn normalization marks.</Alert>}
+      {formal.normalization_status === 'invalid' && <Alert color="red">No valid decomposition step was found. Normalization marks are 0% until at least one split follows the assigned workflow.</Alert>}
+      <div className={styles.checks}>
+        {feedbackCheck('Attribute coverage', normalizationStarted ? formal.attribute_coverage : null, 'Every original attribute appears in a final relation.')}
+        {feedbackCheck('Lossless join', normalizationStarted ? formal.lossless_join : null, 'Each decomposition step preserves the relation.')}
+        {feedbackCheck('Target normal form', normalizationStarted ? formal.relations_satisfy_target : null, `Every final relation satisfies the assigned ${attempt.payload.target_normal_form} target.`)}
+        {feedbackCheck('Proposed keys', normalizationStarted ? formal.proposed_keys_correct : null, 'Keys selected on final relation cards are checked here.')}
+        {feedbackCheck('Dependency preservation', normalizationStarted && formal.dependency_preservation_required ? formal.dependency_preservation : null, formal.dependency_preservation_required ? 'The accepted FD set must remain enforceable.' : 'Informational for this target normal form.')}
+        {feedbackCheck('Decomposition process', normalizationStarted ? formal.process_evaluation.valid : null, 'The canvas steps follow the required decomposition workflow.')}
+      </div>
+      {formal.process_evaluation.errors.map((error, i) => <Text c="red" key={i}>{error}</Text>)}
+      <details className={styles.attemptFeedback}><summary>Detailed normalization feedback</summary>{formal.process_evaluation.step_results.map((s, i) => <Text size="sm" key={i}>{s.step}: {s.feedback}</Text>)}
+        {formal.relation_results.map((r, i) => <Text size="sm" key={i}>{r.name}: candidate keys {r.candidate_keys.map(k => k.join(', ')).join(' / ')}{r.violations.length ? `; ${r.violations.join('; ')}` : ''}</Text>)}</details>
+    </section>
     {attempt.reviews.map(review => <Text size="sm" key={review.id}>{review.decision === 'requested' ? 'Review requested' : `Staff decision: ${review.decision}`} — {review.reason}</Text>)}
   </Stack>;
 }
@@ -281,7 +318,7 @@ function Workspace({ question, preview, assessmentId }: { question: Normalizatio
       </aside>
       {divider('left')}
       <section className={styles.canvasPane} aria-label="Normalization canvas">
-        <div className={styles.canvasBar}><h2>Decomposition</h2><div className={styles.toolbar} role="toolbar" aria-label="Canvas tools">
+        <div className={styles.canvasBar}><h2>Normalization</h2><div className={styles.toolbar} role="toolbar" aria-label="Canvas tools">
           <Tooltip label="Undo"><ActionIcon aria-label="Undo" variant="subtle" disabled={!state.canUndo} onClick={state.undo}><IconArrowBackUp size={18} /></ActionIcon></Tooltip>
           <Tooltip label="Redo"><ActionIcon aria-label="Redo" variant="subtle" disabled={!state.canRedo} onClick={state.redo}><IconArrowForwardUp size={18} /></ActionIcon></Tooltip>
           <Tooltip label="Arrange"><ActionIcon aria-label="Auto-layout" variant="subtle" onClick={autoLayout}><IconLayoutDistributeVertical size={18} /></ActionIcon></Tooltip>

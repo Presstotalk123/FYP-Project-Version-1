@@ -58,6 +58,38 @@ import {
 } from '@/types/assessment.types';
 import { assessmentService } from '@/services/assessment.service';
 
+type SortKey =
+  | 'email'
+  | 'name'
+  | 'class'
+  | 'status'
+  | 'flag'
+  | 'score'
+  | 'joined'
+  | 'submitted';
+
+// The value a column sorts by. null means "empty" and always sorts last.
+const sortValue = (s: AssessmentStudentRow, key: SortKey): string | number | null => {
+  switch (key) {
+    case 'email':
+      return s.email.toLowerCase();
+    case 'name':
+      return s.name ? s.name.toLowerCase() : null;
+    case 'class':
+      return s.class_group ? s.class_group.toLowerCase() : null;
+    case 'status':
+      return s.is_active ? 'active' : 'submitted';
+    case 'flag':
+      return s.flag ? 0 : 1; // ascending puts flagged students first
+    case 'score':
+      return s.weighted_score ?? null;
+    case 'joined':
+      return s.joined_at ? new Date(s.joined_at).getTime() : null;
+    case 'submitted':
+      return s.submitted_at ? new Date(s.submitted_at).getTime() : null;
+  }
+};
+
 export default function AssessmentStudentsPage() {
   const params = useParams();
   const router = useRouter();
@@ -70,10 +102,18 @@ export default function AssessmentStudentsPage() {
   // Lab-group (class_group) filter
   const [selectedClassGroup, setSelectedClassGroup] = useState<string | null>(null);
 
-  // Name/email search and Score-column sort direction.
-  // scoreSort: null = table's default order; 'desc' = highest→lowest; 'asc' = lowest→highest
+  // Name/email search and column sort. sort: null = table's default order.
   const [search, setSearch] = useState('');
-  const [scoreSort, setScoreSort] = useState<'asc' | 'desc' | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null);
+  // Click cycle: first direction → opposite → back to the default order. Score
+  // starts highest-first; every other column starts ascending.
+  const toggleSort = (key: SortKey) =>
+    setSort((s) => {
+      const first = key === 'score' ? 'desc' : 'asc';
+      if (!s || s.key !== key) return { key, dir: first };
+      if (s.dir === first) return { key, dir: first === 'asc' ? 'desc' : 'asc' };
+      return null;
+    });
 
   // Per-question averages, scoped to the current class-group filter (or the whole
   // cohort when unfiltered).
@@ -446,19 +486,43 @@ export default function AssessmentStudentsPage() {
   const filteredStudents = data
     ? data.students.filter((s) => matchesFilters(s) && (!flaggedOnly || !!s.flag))
     : [];
-  // Sorted view for rendering. Nulls (no score) always sort last, regardless of
+  // Sorted view for rendering. Empty values always sort last, regardless of
   // direction, so an empty score never masquerades as the lowest or highest.
   const sortedStudents =
-    scoreSort === null
+    sort === null
       ? filteredStudents
       : [...filteredStudents].sort((a, b) => {
-          const sa = a.weighted_score;
-          const sb = b.weighted_score;
-          if (sa == null && sb == null) return 0;
-          if (sa == null) return 1;
-          if (sb == null) return -1;
-          return scoreSort === 'desc' ? sb - sa : sa - sb;
+          const va = sortValue(a, sort.key);
+          const vb = sortValue(b, sort.key);
+          if (va == null && vb == null) return 0;
+          if (va == null) return 1;
+          if (vb == null) return -1;
+          const cmp =
+            typeof va === 'number' && typeof vb === 'number'
+              ? va - vb
+              : String(va).localeCompare(String(vb), undefined, { numeric: true });
+          return sort.dir === 'desc' ? -cmp : cmp;
         });
+  const sortHeader = (key: SortKey, label: string) => (
+    <Table.Th
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+      onClick={() => toggleSort(key)}
+      aria-sort={
+        sort?.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+      }
+    >
+      <Group gap={4} wrap="nowrap">
+        {label}
+        {sort?.key !== key ? (
+          <IconArrowsSort size={14} style={{ opacity: 0.5 }} />
+        ) : sort.dir === 'desc' ? (
+          <IconArrowDown size={14} />
+        ) : (
+          <IconArrowUp size={14} />
+        )}
+      </Group>
+    </Table.Th>
+  );
   const flaggedCount = data
     ? data.students.filter((s) => matchesFilters(s) && !!s.flag).length
     : 0;
@@ -630,32 +694,14 @@ export default function AssessmentStudentsPage() {
                 <Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Email</Table.Th>
-                      <Table.Th>Name</Table.Th>
-                      <Table.Th>Class</Table.Th>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th>Flag</Table.Th>
-                      <Table.Th
-                        style={{ cursor: 'pointer', userSelect: 'none' }}
-                        onClick={() =>
-                          setScoreSort((s) =>
-                            s === 'desc' ? 'asc' : s === 'asc' ? null : 'desc'
-                          )
-                        }
-                      >
-                        <Group gap={4} wrap="nowrap">
-                          Score
-                          {scoreSort === 'desc' ? (
-                            <IconArrowDown size={14} />
-                          ) : scoreSort === 'asc' ? (
-                            <IconArrowUp size={14} />
-                          ) : (
-                            <IconArrowsSort size={14} style={{ opacity: 0.5 }} />
-                          )}
-                        </Group>
-                      </Table.Th>
-                      <Table.Th>Joined At</Table.Th>
-                      <Table.Th>Submitted At</Table.Th>
+                      {sortHeader('email', 'Email')}
+                      {sortHeader('name', 'Name')}
+                      {sortHeader('class', 'Class')}
+                      {sortHeader('status', 'Status')}
+                      {sortHeader('flag', 'Flag')}
+                      {sortHeader('score', 'Score')}
+                      {sortHeader('joined', 'Joined At')}
+                      {sortHeader('submitted', 'Submitted At')}
                       <Table.Th>Actions</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
